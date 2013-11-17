@@ -26,10 +26,13 @@ OCI is composed by three different components:
 ## Examples ##
 
 Example of a rule two files:
-*
+* General dependencies declaration
+
 ```INI
 
 ```
+
+* ocaml file
 
 ```ocaml
 (* OCI.Result.file Async.t OCI.Rule.pre  *)
