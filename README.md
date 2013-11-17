@@ -32,14 +32,16 @@ Example of a rule two files:
 ```
 
 ```ocaml
-let rule = OCI.Rule.create
+(* OCI.Result.file Async.t OCI.Rule.pre  *)
+let prerule = OCI.Rule.result ~result:(OCI.Result.file "frama-c.tar.gz")
+
+(* (string -> OCI.Result.file Async.t) OCI.Rule.pre  *)
+let prerule = OCI.Param.str ~prerule "repo"
+
+(* (string -> string -> OCI.Result.file Async.t) OCI.Rule.pre  *)
+let prerule : OCI.Param.str ~prerule "commit"
+
+let rule = OCI.Rule.create prerule
     ~id:OCI_id.id
     ~name:"Frama-c compilation"
-    ~opamlib:["oci-git";"oci-compile"]
-    ~lib:["compile.ml"]
-
-let repo = OCI.Param.str ~rule "repo"
-let commit = OCI.Param.str ~rule "commit"
-
-let success = OCI.Output.bool ~rule ~permanent:true "success"
 ```
