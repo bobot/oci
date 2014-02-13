@@ -20,6 +20,7 @@ OCI is composed by four different type of components:
 
 - Run tests in isolation using "versioned" filesystem with [LXC](http://linuxcontainers.org/) and [AUFS](http://en.wikipedia.org/wiki/Aufs) (cf https://www.docker.io/)
   - Make the filesystem version first class value
+  - Modify them using [shared mount](http://s3hh.wordpress.com/2011/09/22/sharing-mounts-with-a-container/)
 
 - Use a real databases that can be read by different components for
   simple information sharing (cf [genet](http://zoggy.github.io/genet/))
