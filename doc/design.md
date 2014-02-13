@@ -29,6 +29,7 @@ OCI is composed by four different type of components:
  - for big data (filesystem) the information can be stored separately
  and moved or recomputed when needed
 
+- All the configurations (ini or ml) are versionned on git
 
 ## Difference with a Build System ##
 
