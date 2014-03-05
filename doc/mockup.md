@@ -2,7 +2,7 @@
 
 * run frama-c on an examples with some options
 
-```
+```ocaml
 let rule =
     new_rule "frama-c run"
      "Launch frama-c with a set of files with a given option"
