@@ -1,6 +1,6 @@
 
 
-PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax postgresql cmdliner
+PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax postgresql cmdliner soqool
 # I don't understand warning 18
 OPTIONS=-tag annot -no-sanitize -no-links -tag debug -use-ocamlfind -cflags -w,+a-4-9-18-41-30-42-44 -cflags -warn-error,+5+10+8+12+20+11 -cflag -bin-annot -j 8 -tag thread -syntax camlp4o
 #OPTIONS += -cflags -warn-error,+a
