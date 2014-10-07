@@ -1,7 +1,0 @@
-
-:toc:
-
-The changes in the developpment version are in link:CHANGES_devel.adoc (for
-simpler changes tracking)
-
-=== Initial 0.3 release

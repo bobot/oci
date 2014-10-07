@@ -1,2 +1,0 @@
-configure: configure.ac
-	autoconf -f
