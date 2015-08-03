@@ -10,6 +10,7 @@ Present:
 Absent:
  * Database
  * Multi-server
+ * master in a standalone program
 
 ## Components ##
 
@@ -21,14 +22,13 @@ There are four components:
 * one master by sort of task (eg. one for Frama-C, one for E-ACSL, one
 for ocaml, one for zarith, ...) can be generated automatically or can be specialized. It keep
 track of which tasks of this sort are currently running, and it could
-save its state on disk (sexp, binprot).
+save its state on disk (sexp, binprot). The master run inside the monitor
 * one runner by task (eg. Frama-C commit abcdef12345 with ocaml 4.02.0, zarith 0.10, gui)
-* wrappers that execute the masters and the runner inside their own usernamespace
+* wrappers that execute the runners inside their own usernamespace.
+  This is a separated program because it is hard to fork correctly
+  inside a program that use Async.
 
-
-The masters could be integrated inside the monitor but since we
-already need rpc and usernamespace it is easier to compile them as
-standalone programs.
+The masters are now integrated inside the monitor.
 
 ## Technique ##
 
@@ -42,7 +42,7 @@ A proof of concept of the wrapper (usernamespace, chroot, binding of
 
 For the communication we use Rpc from Async (Core). It is typed and
 quite straigh forward. We use named unix socket for the communication,
-simpler to pass to the runner and the master than file descriptor.
+simpler to pass to the runner than file descriptor.
 
 ## Structure ##
 * `Oci_Common` is shared by the monitor, the masters and the runner.
