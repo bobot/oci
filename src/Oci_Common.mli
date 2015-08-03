@@ -20,4 +20,15 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+open Async.Std
+
+type artefact = int with sexp, bin_type_class, compare
+
+type user = {uid : int; gid : int} with sexp, compare
+
+open Rpc
+(*
+val create_artefact: (string,artefact) Rpc.t
+val link_artefact: (string * artefact,unit) Rpc.t
+val copy_artefact: (string * artefact,unit) Rpc.t
+*)

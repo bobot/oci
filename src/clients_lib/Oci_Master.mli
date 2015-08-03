@@ -20,4 +20,17 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+open Async.Std
+
+type 'b action =
+  | ToRun
+  | AlreadyRun of 'b
+
+val run:
+  ('query,'result) Oci_Data.t ->
+  ('query -> 'result action Deferred.t) ->
+  unit
+(** There is only one master by session. It must keep track of which
+      tasks are running, and which tasks have been already run. The
+      function returns when the general monitoring program stops. It
+      is run in an empty environment. *)

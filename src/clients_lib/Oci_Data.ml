@@ -20,4 +20,16 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+
+open Async.Std
+open Rpc
+
+type ('query,'result) t = ('query,'result) Rpc.t
+
+let register ~name ~version ~bin_query ~bin_result =
+  Rpc.create ~name ~version ~bin_query ~bin_response:bin_result
+
+let name = Rpc.name
+let version = Rpc.version
+
+let rpc ty = ty

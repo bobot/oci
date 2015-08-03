@@ -20,4 +20,19 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+(** Manage directory resulting from a task execution *)
+open Async.Std
+
+type conf with sexp
+
+type t with sexp, bin_type_class
+
+val create: conf -> Oci_Filename.t -> t Deferred.t
+
+val link_to: conf -> t -> Oci_Filename.t -> unit Deferred.t
+(** ro only *)
+
+val copy_to: conf -> t -> Oci_Filename.t -> unit Deferred.t
+(** rw *)
+
+val is_available: conf -> t -> bool Deferred.t

@@ -19,5 +19,14 @@
 (*  for more details (enclosed in the file licenses/LGPLv2.1).            *)
 (*                                                                        *)
 (**************************************************************************)
+open Core.Std
 
-open Oci_Artefact
+include FilePath.UnixPath
+
+type t = filename
+
+let t_of_sexp x = filename_of_string (String.t_of_sexp x)
+let sexp_of_t x = String.sexp_of_t (string_of_filename x)
+
+let mk = filename_of_string
+let get = string_of_filename

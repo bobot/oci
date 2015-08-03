@@ -20,4 +20,9 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+
+type 'b action =
+  | ToRun
+  | AlreadyRun of 'b
+
+let run ty f = assert false

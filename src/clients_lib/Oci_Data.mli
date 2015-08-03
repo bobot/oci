@@ -20,4 +20,18 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+type ('query,'result) t
+
+val register:
+  name:string ->
+  version:int ->
+  bin_query:'query Core.Std.Bin_prot.Type_class.t ->
+  bin_result:'result Core.Std.Bin_prot.Type_class.t ->
+  ('query,'result) t
+
+open Async.Std
+
+val name: ('query,'result) t -> string
+val version: ('query,'result) t -> int
+val rpc:  ('query,'result) t -> ('query,'result) Rpc.Rpc.t
+

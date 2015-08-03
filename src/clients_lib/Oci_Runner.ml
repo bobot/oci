@@ -20,4 +20,13 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+
+let run ty f =
+  assert false
+
+type artefact = Oci_Common.artefact with sexp
+let bin_artefact = Oci_Common.bin_artefact
+
+let create_artefact ~dir = assert false
+let link_artefact src ~dir = assert false
+let copy_artefact src ~dir = assert false

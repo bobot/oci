@@ -20,4 +20,18 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+open Async.Std
+
+val run:
+  ('query,'result) Oci_Data.t ->
+  ('query -> 'result Deferred.t) ->
+  unit
+(** The runner executes one task and return the result. *)
+
+type artefact with sexp, bin_type_class
+
+val create_artefact: dir:string -> artefact Deferred.t
+val link_artefact: artefact -> dir:string -> unit Deferred.t
+(** ro *)
+val copy_artefact: artefact -> dir:string -> unit Deferred.t
+(** rw *)

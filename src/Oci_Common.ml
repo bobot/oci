@@ -20,4 +20,9 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+open Core.Std
+
+type artefact = Int.t with sexp, compare
+let bin_artefact = Int.bin_t
+
+type user = {uid : int; gid : int} with sexp, compare
