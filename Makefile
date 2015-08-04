@@ -1,10 +1,10 @@
 
 
-PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax postgresql cmdliner soqool async_shell
+PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax postgresql cmdliner async_shell extunix core core_extended
 # I don't understand warning 18
 OPTIONS=-tag annot -no-sanitize -no-links -tag debug -use-ocamlfind -cflags -w,+a-4-9-18-41-30-42-44 -cflags -warn-error,+5+10+8+12+20+11 -cflag -bin-annot -j 8 -tag thread -syntax camlp4o
 #OPTIONS += -cflags -warn-error,+a
-DIRECTORIES=src/common src/monitor src/utils src/clients_lib src/conductor tests src/script src
+DIRECTORIES=src/common src/monitor src/utils src/clients_lib src/conductor tests src/script src src/wrapper
 OCAMLBUILD=ocamlbuild \
 		 $(addprefix -package ,$(PACKAGES)) \
 		 $(OPTIONS)	\
@@ -14,7 +14,7 @@ OCAMLBUILD=ocamlbuild \
 
 all: .merlin
 	$(OCAMLBUILD) src/monitor/monitor.byte src/clients_lib/Oci_Master.cmo \
-	src/clients_lib/Oci_Runner.cmo
+	src/clients_lib/Oci_Runner.cmo src/wrapper/Oci_Wrapper.native
 
 #force allows to always run the rules that depends on it
 .PHONY: force

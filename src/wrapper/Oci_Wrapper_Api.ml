@@ -21,20 +21,21 @@
 (**************************************************************************)
 open Core.Std
 
-include FilePath
+type idmap = {
+  extern_id: int;
+  intern_id: int;
+  length_id: int;
+} with sexp, bin_io
 
-(* include FilePath.UnixPath *)
-
-type t = string with sexp, bin_write, bin_read
-
-(* let t_of_sexp x = filename_of_string (String.t_of_sexp x) *)
-(* let sexp_of_t x = String.sexp_of_t (string_of_filename x) *)
-
-(* let bin_size_t x = String.bin_size_t (string_of_filename x) *)
-(* let bin_write_t c x = String.bin_write_t c (string_of_filename x) *)
-
-(* let mk = filename_of_string *)
-(* let get = string_of_filename *)
-
-let mk x = x
-let get x = x
+type parameters = {
+  rootfs: Oci_Filename.t;
+  uidmap: idmap list;
+  gidmap: idmap list;
+  command: string;
+  argv: string list;
+  env: (string * string) list;
+  uid: Int.t;
+  gid: Int.t;
+  bind_system_mount: bool;
+  (** proc, dev, run *)
+} with sexp, bin_io
