@@ -20,12 +20,13 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Core.Std
 open Async.Std
 
 val run:
   ('query,'result) Oci_Data.t ->
   ('query -> 'result Deferred.t) ->
-  unit
+  never_returns
 (** The runner executes one task and return the result. *)
 
 type artefact with sexp, bin_type_class

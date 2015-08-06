@@ -12,10 +12,15 @@ OCAMLBUILD=ocamlbuild \
 
 .PHONY: tests monitor.native tests_table.native tests_table.byte
 
+BINARY= src/wrapper/Oci_Wrapper.native				\
+	src/monitor/Oci_Simple_Exec.native tests/myoci.native	\
+	tests/test_succ_runner.native
+
 all: .merlin
-	$(OCAMLBUILD) src/clients_lib/Oci_Master.cma \
-	src/clients_lib/Oci_Runner.cma src/wrapper/Oci_Wrapper.native \
-	src/monitor/Oci_Simple_Exec.native tests/myoci.native
+	@mkdir -p bin
+	@rm -f bin/*.native
+	$(OCAMLBUILD) src/clients_lib/Oci_Master.cmxa src/clients_lib/Oci_Runner.cmxa $(BINARY)
+	@cp $(addprefix _build/,$(BINARY)) bin
 
 #force allows to always run the rules that depends on it
 .PHONY: force

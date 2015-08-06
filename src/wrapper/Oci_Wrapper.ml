@@ -124,11 +124,12 @@ let set_usermap uidmap gidmap pid =
   (* command_no_fail ~error *)
   (*   "newgidmap %i 0 %i 1 1 %i %i" pid curr_gid id rangeid *)
 
-let do_as_the_child pid =
+let do_as_the_child_on_error pid =
   match Unix.waitpid pid with
-  | Ok () -> exit 0
+  | Ok () -> ()
   | Error (`Exit_non_zero i) -> exit i
-  | Error (`Signal s) -> Signal.send_i s (`Pid (Unix.getpid ())); assert false
+  | Error (`Signal s) ->
+    Signal.send_i s (`Pid (Unix.getpid ())); assert false
 
 let goto_child ~exec_in_parent =
   let fin,fout = Unix.pipe () in
@@ -142,7 +143,8 @@ let goto_child ~exec_in_parent =
     (exec_in_parent pid: unit);
     ignore (Unix.write fout ~buf:(Bytes.create 1) ~pos:0 ~len:1);
     Unix.close fout;
-    do_as_the_child pid
+    do_as_the_child_on_error pid;
+    exit 0
 
 let exec_in_child (type a) f =
   let fin,fout = Unix.pipe () in
@@ -160,7 +162,7 @@ let exec_in_child (type a) f =
     let call_in_child (arg:a) =
       Marshal.to_channel cout arg [];
       Out_channel.close cout;
-      do_as_the_child pid
+      do_as_the_child_on_error pid
     in
     call_in_child
 
@@ -170,13 +172,14 @@ let exec_now_in_child f arg =
     f arg;
     exit 0
   | `In_the_parent pid ->
-    do_as_the_child pid
+    do_as_the_child_on_error pid
 
 let just_goto_child () =
   match Unix.fork () with
   | `In_the_child -> (** child *) ()
   | `In_the_parent pid ->
-    do_as_the_child pid
+    do_as_the_child_on_error pid;
+    exit 0
 
 let go_in_userns uidmap gidmap =
   (** the usermap can be set only completely outside the namespace, so we

@@ -38,4 +38,5 @@ type parameters = {
   rungid: Int.t;
   bind_system_mount: bool;
   (** proc, dev, run *)
+  prepare_network: bool;
 } with sexp, bin_io

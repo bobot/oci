@@ -20,9 +20,36 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Core.Std
+open Async.Std
 
 let run ty f =
-  assert false
+  begin
+    let implementations =
+      Rpc.Implementations.create_exn
+        ~on_unknown_rpc:`Raise
+        ~implementations:[Rpc.Rpc.implement
+                            (Oci_Data.rpc ty)
+                            (fun _ q -> f q)
+                         ] in
+    Tcp.connect (Tcp.to_file "/ocisocket")
+    >>> fun (_,reader,writer) ->
+    Rpc.Connection.create
+      ~implementations
+      ~connection_state:(fun _ -> ())
+      reader writer
+    >>> fun conn ->
+    let conn = Result.ok_exn conn in
+    Shutdown.at_shutdown (fun () ->
+        Rpc.Connection.close conn
+        >>= fun () ->
+        Reader.close reader;
+        >>= fun () ->
+        Writer.close writer
+      )
+  end;
+  Scheduler.go ()
+
 
 type artefact = Oci_Common.artefact with sexp
 let bin_artefact = Oci_Common.bin_artefact

@@ -66,6 +66,15 @@ let get_etc_sub_config ~user ~file =
     Shutdown.exit 1
   | `Ok start_len -> return start_len
 
+let stderr_pipe = Writer.pipe (Lazy.force Writer.stderr)
+
+let send_to_stderr reader =
+  let reader = Reader.pipe reader in
+  Pipe.transfer_id reader stderr_pipe
+
+let send_process_to_stderr process =
+  don't_wait_for (send_to_stderr (Process.stdout process));
+  don't_wait_for (send_to_stderr (Process.stderr process))
 
 let start_simple_exec ~superroot ~root ~user =
   let socket = "oci_simple_exec_socket" in
@@ -84,6 +93,15 @@ let start_simple_exec ~superroot ~root ~user =
   Shutdown.at_shutdown (fun () -> Tcp.Server.close server);
   Process.create ~prog:(get_binary "Oci_Wrapper") ~args:[] ()
   >>! fun process ->
+  send_process_to_stderr process;
+  don't_wait_for begin
+    Process.wait process
+    >>= function
+    | Ok () -> return ()
+    | Error _ ->
+      Printf.eprintf "Error: oci_simple_exec_socket stopped with a failure\n%!";
+      Shutdown.exit 1
+  end;
   let open Oci_Wrapper_Api in
   let parameters = {
     rootfs = Oci_Filename.mk "/";
@@ -101,6 +119,7 @@ let start_simple_exec ~superroot ~root ~user =
     runuid = 0;
     rungid = 0;
     bind_system_mount = false;
+    prepare_network = false;
   } in
   Writer.write_bin_prot (Process.stdin process)
     bin_writer_parameters
@@ -146,6 +165,7 @@ let conf =
         runuid = 0;
         rungid = 0;
         bind_system_mount = false;
+        prepare_network = true;
       })
 
 let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
@@ -154,7 +174,7 @@ let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
   let name = Oci_Data.name data in
   Unix.mkdtemp ("runner_"^name)
   >>= fun rootfs ->
-  let socket = Oci_Filename.concat rootfs "oci_socket" in
+  let socket = Oci_Filename.concat rootfs "oci.socket" in
   let result = Ivar.create () in
   Tcp.Server.create (Tcp.on_file socket)
     (fun _ reader writer ->
@@ -172,6 +192,7 @@ let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
   >>= fun server ->
   Process.create ~prog:(get_binary "Oci_Wrapper") ~args:[] ()
   >>! fun process ->
+  send_process_to_stderr process;
   let open Oci_Wrapper_Api in
   Writer.write_bin_prot (Process.stdin process)
     bin_writer_parameters
@@ -192,7 +213,7 @@ let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
 let run () =
   begin
     Rpc.Connection.serve
-      ~where_to_listen:(Tcp.on_file "ocisocket")
+      ~where_to_listen:(Tcp.on_file "oci.socket")
       ~initial_connection_state:(fun _ _ -> ())
       ~implementations:!masters
       ()
