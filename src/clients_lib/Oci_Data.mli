@@ -34,4 +34,3 @@ open Async.Std
 val name: ('query,'result) t -> string
 val version: ('query,'result) t -> int
 val rpc:  ('query,'result) t -> ('query,'result) Rpc.Rpc.t
-

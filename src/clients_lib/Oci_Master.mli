@@ -20,17 +20,27 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Core.Std
 open Async.Std
 
-type 'b action =
-  | ToRun
-  | AlreadyRun of 'b
+(** {2 Simple API} *)
 
-val run:
+val create_master:
+  hashable:('query Hashtbl.Hashable.t) ->
   ('query,'result) Oci_Data.t ->
-  ('query -> 'result action Deferred.t) ->
   unit
-(** There is only one master by session. It must keep track of which
-      tasks are running, and which tasks have been already run. The
-      function returns when the general monitoring program stops. It
-      is run in an empty environment. *)
+
+val run: unit -> never_returns
+(** Once all the masters have been registered *)
+
+(** {2 Expert API} *)
+
+val register:
+  ('query,'result) Oci_Data.t ->
+  ('query -> 'result Deferred.t) ->
+  unit
+(** There is only one master of a given sort by session. It must keep
+      track of which tasks are running, and which tasks have been
+      already run. *)
+
+val start_runner: ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t

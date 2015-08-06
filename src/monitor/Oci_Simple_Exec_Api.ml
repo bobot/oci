@@ -19,23 +19,20 @@
 (*  for more details (enclosed in the file licenses/LGPLv2.1).            *)
 (*                                                                        *)
 (**************************************************************************)
+
 open Core.Std
+open Async.Std
 
-type idmap = {
-  extern_id: int;
-  intern_id: int;
-  length_id: int;
+type run_query = {
+  prog: string;
+  args: string list;
 } with sexp, bin_io
 
-type parameters = {
-  rootfs: Oci_Filename.t;
-  uidmap: idmap list;
-  gidmap: idmap list;
-  command: string;
-  argv: string list;
-  env: (string * string) list;
-  runuid: Int.t;
-  rungid: Int.t;
-  bind_system_mount: bool;
-  (** proc, dev, run *)
-} with sexp, bin_io
+type run_response = unit Or_error.t with sexp, bin_io
+
+let run: (run_query, unit Or_error.t) Rpc.Rpc.t =
+  Rpc.Rpc.create
+    ~name:"run"
+    ~version:1
+    ~bin_query:bin_run_query
+    ~bin_response:bin_run_response

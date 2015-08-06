@@ -34,8 +34,8 @@ type parameters = {
   command: string;
   argv: string list;
   env: (string * string) list;
-  uid: Int.t;
-  gid: Int.t;
+  runuid: Int.t;
+  rungid: Int.t;
   bind_system_mount: bool;
   (** proc, dev, run *)
 } with sexp, bin_io

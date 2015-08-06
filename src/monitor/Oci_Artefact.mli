@@ -23,7 +23,20 @@
 (** Manage directory resulting from a task execution *)
 open Async.Std
 
-type conf with sexp
+type conf
+
+val create_conf:
+  storage:Oci_Filename.t ->
+  superroot:Oci_Common.user ->
+  (** A user outside the usernamespace stronger than the root of
+      the usernamespace *)
+  root:Oci_Common.user ->
+  (** root in the usernamespace *)
+  user:Oci_Common.user ->
+  (** A simple user in the usernamespace *)
+  simple_exec_conn:Rpc.Connection.t ->
+  (** connection to simple_exec *)
+  conf
 
 type t with sexp, bin_type_class
 
@@ -36,3 +49,5 @@ val copy_to: conf -> t -> Oci_Filename.t -> unit Deferred.t
 (** rw *)
 
 val is_available: conf -> t -> bool Deferred.t
+
+val remove_dir: conf -> Oci_Filename.t -> unit Deferred.t

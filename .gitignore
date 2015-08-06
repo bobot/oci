@@ -1,4 +1,4 @@
-/_build
+_build/
 /.git_version
 /src/version.ml
 /bin

@@ -289,8 +289,8 @@ let () =
     (** chroot in the directory *)
     do_chroot param.rootfs;
     (** group must be changed before uid... *)
-    setresgid param.gid param.gid param.gid;
-    setresuid param.uid param.uid param.uid;
+    setresgid param.rungid param.rungid param.rungid;
+    setresuid param.runuid param.runuid param.runuid;
     never_returns
       (Unix.exec
          ~prog:param.command

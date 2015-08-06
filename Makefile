@@ -13,8 +13,9 @@ OCAMLBUILD=ocamlbuild \
 .PHONY: tests monitor.native tests_table.native tests_table.byte
 
 all: .merlin
-	$(OCAMLBUILD) src/monitor/monitor.byte src/clients_lib/Oci_Master.cmo \
-	src/clients_lib/Oci_Runner.cmo src/wrapper/Oci_Wrapper.native
+	$(OCAMLBUILD) src/clients_lib/Oci_Master.cma \
+	src/clients_lib/Oci_Runner.cma src/wrapper/Oci_Wrapper.native \
+	src/monitor/Oci_Simple_Exec.native tests/myoci.native
 
 #force allows to always run the rules that depends on it
 .PHONY: force

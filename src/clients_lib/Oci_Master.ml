@@ -20,9 +20,26 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Core.Std
+open Async.Std
 
-type 'b action =
-  | ToRun
-  | AlreadyRun of 'b
+let register data f = Oci_Monitor.register_master data f
+let run () = Oci_Monitor.run ()
+let start_runner data q = Oci_Monitor.start_runner data q
 
-let run ty f = assert false
+let create_master ~hashable data =
+  let db : ('query, 'result Deferred.t) Hashtbl.t =
+    Hashtbl.create ~hashable () in
+  let f q =
+    match Hashtbl.find db q with
+    | Some r -> r
+    | None ->
+      let ivar = Ivar.create () in
+      let r = Ivar.read ivar in
+      Hashtbl.add_exn db ~key:q ~data:r;
+      (start_runner data q
+       >>> fun result ->
+       Ivar.fill ivar result);
+      r
+  in
+  register data f

@@ -19,23 +19,10 @@
 (*  for more details (enclosed in the file licenses/LGPLv2.1).            *)
 (*                                                                        *)
 (**************************************************************************)
+
 open Core.Std
 
-type idmap = {
-  extern_id: int;
-  intern_id: int;
-  length_id: int;
-} with sexp, bin_io
+let () = Oci_Master.create_master ~hashable:Int.hashable Test_succ.test_succ
 
-type parameters = {
-  rootfs: Oci_Filename.t;
-  uidmap: idmap list;
-  gidmap: idmap list;
-  command: string;
-  argv: string list;
-  env: (string * string) list;
-  runuid: Int.t;
-  rungid: Int.t;
-  bind_system_mount: bool;
-  (** proc, dev, run *)
-} with sexp, bin_io
+
+let () = never_returns (Oci_Master.run ())

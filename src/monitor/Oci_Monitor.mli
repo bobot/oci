@@ -19,23 +19,15 @@
 (*  for more details (enclosed in the file licenses/LGPLv2.1).            *)
 (*                                                                        *)
 (**************************************************************************)
+
 open Core.Std
+open Async.Std
 
-type idmap = {
-  extern_id: int;
-  intern_id: int;
-  length_id: int;
-} with sexp, bin_io
+val register_master:
+  ('query,'result) Oci_Data.t ->
+  ('query -> 'result Deferred.t) ->
+  unit
 
-type parameters = {
-  rootfs: Oci_Filename.t;
-  uidmap: idmap list;
-  gidmap: idmap list;
-  command: string;
-  argv: string list;
-  env: (string * string) list;
-  runuid: Int.t;
-  rungid: Int.t;
-  bind_system_mount: bool;
-  (** proc, dev, run *)
-} with sexp, bin_io
+val run: unit -> never_returns
+
+val start_runner: ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t

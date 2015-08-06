@@ -35,7 +35,9 @@ type conf = {
   (** root in the usernamespace *)
   user: Oci_Common.user;
   (** A simple user in the usernamespace *)
-} with sexp
+  conn: Rpc.Connection.t;
+  (** connection to Oci_Simple_Exec *)
+}
 
 type t = Oci_Common.artefact with sexp
 let bin_t = Oci_Common.bin_artefact
@@ -46,6 +48,12 @@ let dir_of_id conf id =
   let dir = Oci_Filename.mk (string_of_int id) in
   Oci_Filename.make_absolute conf.storage dir
 
+let run_in_namespace conf prog args : unit Deferred.t =
+  Rpc.Rpc.dispatch_exn Oci_Simple_Exec_Api.run
+    conf.conn
+    {Oci_Simple_Exec_Api.prog; args}
+  >>= fun r ->
+  return (ok_exn r)
 
 let create conf src =
   let id = conf.next_id in
@@ -56,34 +64,41 @@ let create conf src =
   if not b then raise (Directory_should_not_exists dst);
   Unix.mkdir (Oci_Filename.get dst)
   >>= fun () ->
-  Async_shell.run "cp" ["-a";"--";
-                        Oci_Filename.get src;
-                        Oci_Filename.get dst]
+  run_in_namespace conf "cp" ["-a";"--";
+                              Oci_Filename.get src;
+                              Oci_Filename.get dst]
   >>= fun () ->
-  Async_shell.run "chown" ["-R";
-                           Printf.sprintf "%i:%i"
-                             conf.superroot.uid
-                             conf.superroot.gid;
-                           Oci_Filename.get dst]
+  run_in_namespace conf "chown" ["-R";
+                                 Printf.sprintf "%i:%i"
+                                   conf.superroot.uid
+                                   conf.superroot.gid;
+                                 Oci_Filename.get dst]
   >>=
   fun () -> return id
 
 let link_to conf id dst =
   let src = dir_of_id conf id in
-  Async_shell.run "rm" ["-rf";"--";Oci_Filename.get dst]
+  run_in_namespace conf "rm" ["-rf";"--";Oci_Filename.get dst]
   >>= fun () ->
-  Async_shell.run "cp" ["-rla";"--";
-                        Oci_Filename.get src;
-                        Oci_Filename.get dst]
+  run_in_namespace conf "cp" ["-rla";"--";
+                              Oci_Filename.get src;
+                              Oci_Filename.get dst]
 
 let copy_to conf id dst =
   let src = dir_of_id conf id in
-  Async_shell.run "rm" ["-rf";"--";Oci_Filename.get dst]
+  run_in_namespace conf "rm" ["-rf";"--";Oci_Filename.get dst]
   >>= fun () ->
-  Async_shell.run "cp" ["-a";"--";
-                        Oci_Filename.get src;
-                        Oci_Filename.get dst]
+  run_in_namespace conf "cp" ["-a";"--";
+                              Oci_Filename.get src;
+                              Oci_Filename.get dst]
 
 let is_available conf id =
   let src = dir_of_id conf id in
   Sys.file_exists_exn (Oci_Filename.get src)
+
+let remove_dir conf dir =
+  run_in_namespace conf "rm" ["-rf";"--"; Oci_Filename.get dir]
+
+let create_conf ~storage ~superroot ~root ~user ~simple_exec_conn =
+  {next_id = 0; storage; superroot; root; user; conn = simple_exec_conn}
+

@@ -20,4 +20,15 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Oci_Artefact
+open Core.Std
+open Async.Std
+
+open Oci_Simple_Exec_Api
+
+let run = Rpc.Rpc.implement run
+    (fun () param -> Deferred.Or_error.try_with ~name:"Oci_Simple_Exec.run"
+        (fun () -> Async_shell.run param.prog param.args))
+
+
+
+let () = never_returns (Scheduler.go ())
