@@ -283,14 +283,19 @@ let () =
   end;
   Unix.handle_unix_error begin fun () ->
     test_userns_availability ();
-    mkdir ~perm:0o750 param.rootfs;
+    Option.iter param.rootfs (mkdir ~perm:0o750);
     go_in_userns param.uidmap param.gidmap;
-    command_no_fail "cp /etc/resolv.conf %S"
-      (Oci_Filename.concat param.rootfs "etc/resolv.conf");
-    (** make the mount private and mount basic directories *)
-    mount_base param.rootfs;
-    (** chroot in the directory *)
-    do_chroot param.rootfs;
+    begin match param.rootfs with
+    | None -> ()
+    | Some rootfs ->
+      command_no_fail "cp /etc/resolv.conf %S"
+        (Oci_Filename.concat rootfs "oci/resolv.conf");
+      (** make the mount private and mount basic directories *)
+      if param.bind_system_mount then
+        mount_base rootfs;
+      (** chroot in the directory *)
+      do_chroot rootfs
+    end;
     (** group must be changed before uid... *)
     setresgid param.rungid param.rungid param.rungid;
     setresuid param.runuid param.runuid param.runuid;
@@ -298,5 +303,5 @@ let () =
       (Unix.exec
          ~prog:param.command
          ~env:(`Replace param.env)
-         ~args:param.argv ())
+         ~args:(param.command::param.argv) ());
   end ()

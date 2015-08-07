@@ -29,6 +29,19 @@ let run = Rpc.Rpc.implement run
     (fun () param -> Deferred.Or_error.try_with ~name:"Oci_Simple_Exec.run"
         (fun () -> Async_shell.run param.prog param.args))
 
+let implementations =
+  Rpc.Implementations.create_exn
+    ~implementations:[run]
+    ~on_unknown_rpc:`Raise
 
+let () =
+  Tcp.connect (Tcp.to_file "oci_simple_exec_socket")
+  >>> fun (_,reader,writer) ->
+  Rpc.Connection.create
+    ~implementations
+    ~connection_state:(fun _ -> ())
+    reader writer
+  >>> fun _ ->
+  ()
 
 let () = never_returns (Scheduler.go ())

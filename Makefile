@@ -14,10 +14,10 @@ OCAMLBUILD=ocamlbuild \
 
 BINARY= src/wrapper/Oci_Wrapper.native				\
 	src/monitor/Oci_Simple_Exec.native tests/myoci.native	\
-	tests/test_succ_runner.native
+	tests/test_succ_runner.native tests/launch_test.native
 
 all: .merlin
-	@mkdir -p bin
+	@mkdir -m 777 -p bin
 	@rm -f bin/*.native
 	$(OCAMLBUILD) src/clients_lib/Oci_Master.cmxa src/clients_lib/Oci_Runner.cmxa $(BINARY)
 	@cp $(addprefix _build/,$(BINARY)) bin

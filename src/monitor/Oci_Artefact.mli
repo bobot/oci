@@ -51,3 +51,5 @@ val copy_to: conf -> t -> Oci_Filename.t -> unit Deferred.t
 val is_available: conf -> t -> bool Deferred.t
 
 val remove_dir: conf -> Oci_Filename.t -> unit Deferred.t
+
+val run_in_namespace: conf -> string -> string list -> unit Deferred.t

@@ -28,7 +28,7 @@ type idmap = {
 } with sexp, bin_io
 
 type parameters = {
-  rootfs: Oci_Filename.t;
+  rootfs: Oci_Filename.t option;
   uidmap: idmap list;
   gidmap: idmap list;
   command: string;

@@ -32,7 +32,7 @@ let run ty f =
                             (Oci_Data.rpc ty)
                             (fun _ q -> f q)
                          ] in
-    Tcp.connect (Tcp.to_file "/ocisocket")
+    Tcp.connect (Tcp.to_file "/oci/oci.socket")
     >>> fun (_,reader,writer) ->
     Rpc.Connection.create
       ~implementations

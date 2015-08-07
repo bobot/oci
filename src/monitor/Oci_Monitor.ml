@@ -24,6 +24,8 @@ open Core.Std
 open Async.Std
 open Oci_Common
 
+open Log.Global
+
 let binary_dir = ref Oci_Filename.current_dir
 let current_uid = Unix.getuid ()
 let current_gid = Unix.getgid ()
@@ -37,7 +39,10 @@ let masters =
 
 let register_master data f =
   masters := Rpc.Implementations.add_exn !masters
-    (Rpc.Rpc.implement (Oci_Data.rpc data) (fun () -> f))
+      (Rpc.Rpc.implement (Oci_Data.rpc data)
+         (fun () q ->
+           info "Test %s" (Oci_Data.name data);
+           f q))
 
 let (>>!) or_error_deferred f =
   or_error_deferred >>= fun r -> f (ok_exn r)
@@ -91,6 +96,8 @@ let start_simple_exec ~superroot ~root ~user =
     )
   >>= fun server ->
   Shutdown.at_shutdown (fun () -> Tcp.Server.close server);
+  Unix.chmod socket ~perm:0o777
+  >>= fun () ->
   Process.create ~prog:(get_binary "Oci_Wrapper") ~args:[] ()
   >>! fun process ->
   send_process_to_stderr process;
@@ -99,12 +106,12 @@ let start_simple_exec ~superroot ~root ~user =
     >>= function
     | Ok () -> return ()
     | Error _ ->
-      Printf.eprintf "Error: oci_simple_exec_socket stopped with a failure\n%!";
+      Printf.eprintf "Error: Oci_Simple_Exec stopped with a failure\n%!";
       Shutdown.exit 1
   end;
   let open Oci_Wrapper_Api in
   let parameters = {
-    rootfs = Oci_Filename.mk "/";
+    rootfs = None;
     uidmap = [{extern_id=superroot.uid; intern_id=0; length_id=1};
               {extern_id=root.uid; intern_id=1; length_id=1};
               {extern_id=user.uid; intern_id=1000; length_id=1};
@@ -145,15 +152,20 @@ let conf =
     let user = {uid=ustart+1001;gid=gstart+1001} in
     start_simple_exec ~superroot ~root ~user
     >>= fun simple_exec_conn ->
+    info "Simple_exec started";
     let conf = Oci_Artefact.create_conf
-      ~storage:(Oci_Filename.concat Oci_Filename.current_dir "storage")
+      ~storage:"oci_data/storage"
       ~superroot
       ~root
       ~user
       ~simple_exec_conn in
+    Oci_Artefact.run_in_namespace conf "rm" ["-rf";"oci_data"]
+    >>= fun () ->
+    Oci_Artefact.run_in_namespace conf "mkdir" ["oci_data"]
+    >>= fun () ->
     let open Oci_Wrapper_Api in
     return (conf, {
-        rootfs = ""; (** dumb *)
+        rootfs = None; (** dumb *)
         command = ""; (** dumb *)
         uidmap = [{extern_id=current_uid; intern_id=0; length_id=1}];
         gidmap = [{extern_id=current_gid; intern_id=0; length_id=1}];
@@ -168,13 +180,19 @@ let conf =
         prepare_network = true;
       })
 
+let id_runner = ref (-1)
+
 let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
+  let id = incr id_runner; !id_runner in
+  info "Start runner %i for %s" id (Oci_Data.name data);
   conf
   >>= fun (conf,runner_namespace_parameters) ->
   let name = Oci_Data.name data in
-  Unix.mkdtemp ("runner_"^name)
-  >>= fun rootfs ->
-  let socket = Oci_Filename.concat rootfs "oci.socket" in
+  let rootfs = Printf.sprintf "oci_data/runner_%i/" id in
+  Oci_Artefact.run_in_namespace conf
+    "mkdir" ["-m";"777";"-p";"--";Oci_Filename.concat rootfs "oci"]
+  >>= fun () ->
+  let socket = Oci_Filename.concat rootfs "oci/oci.socket" in
   let result = Ivar.create () in
   Tcp.Server.create (Tcp.on_file socket)
     (fun _ reader writer ->
@@ -190,6 +208,8 @@ let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
       never ()
     )
   >>= fun server ->
+  Unix.chmod socket ~perm:0o777
+  >>= fun () ->
   Process.create ~prog:(get_binary "Oci_Wrapper") ~args:[] ()
   >>! fun process ->
   send_process_to_stderr process;
@@ -197,7 +217,7 @@ let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
   Writer.write_bin_prot (Process.stdin process)
     bin_writer_parameters
     {runner_namespace_parameters
-     with rootfs;
+     with rootfs = Some rootfs;
           command = get_binary name};
   Process.wait process
   >>= fun r ->
@@ -205,6 +225,7 @@ let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
   >>= fun () ->
   Oci_Artefact.remove_dir conf rootfs;
   >>= fun () ->
+  info "Stop runner for %s" (Oci_Data.name data);
   match r with
   | Ok () -> Ivar.read result
   | Error r -> raise (RunnerFailed r)
