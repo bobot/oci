@@ -39,4 +39,5 @@ type parameters = {
   bind_system_mount: bool;
   (** proc, dev, run *)
   prepare_network: bool;
+  workdir: Oci_Filename.t option;
 } with sexp, bin_io

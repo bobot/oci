@@ -24,7 +24,9 @@ open Async.Std
 
 type artefact = int with sexp, bin_type_class, compare
 
-type user = {uid : int; gid : int} with sexp, compare
+type user = {uid : int; gid : int} with sexp, compare, bin_io
+
+val pp_user: Format.formatter -> user -> unit
 
 open Rpc
 (*

@@ -28,6 +28,15 @@ open Async.Std
 val create_master:
   hashable:('query Hashtbl.Hashable.t) ->
   ('query,'result) Oci_Data.t ->
+  ('query -> 'result Deferred.t) ->
+  unit
+
+val create_master_and_runner:
+  hashable:('query Hashtbl.Hashable.t) ->
+  ('query,'result) Oci_Data.t ->
+  ?binary_name:string ->
+  error:(string -> 'result) ->
+  (Rpc.Connection.t -> 'query -> 'result Deferred.t) ->
   unit
 
 val run: unit -> never_returns
@@ -43,4 +52,15 @@ val register:
       track of which tasks are running, and which tasks have been
       already run. *)
 
-val start_runner: ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
+val start_runner:
+  binary_name:string ->
+  (string Async_kernel.Deferred0.t *
+   Async.Std.Rpc.Connection.t Async_kernel.Deferred0.t)
+    Async.Std.Deferred.t
+(** Start the given runner in a namespace and start an Rpc connection.
+    `start_runner ~binary_name` start the executable
+    [binary_name^".native"] located in the directory of binaries.
+    Return a pair of defered the first one is determined in case of
+    error of the process, the second one is determined when the
+    connection is established.
+*)

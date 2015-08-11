@@ -23,11 +23,11 @@
 open Core.Std
 open Async.Std
 
-let register data f = Oci_Monitor.register_master data f
-let run () = Oci_Monitor.run ()
-let start_runner data q = Oci_Monitor.start_runner data q
+let register data f = Oci_Artefact.register_master data f
+let run () = Oci_Artefact.run ()
+let start_runner ~binary_name = Oci_Artefact.start_runner ~binary_name
 
-let create_master ~hashable data =
+let create_master ~hashable data f =
   let db : ('query, 'result Deferred.t) Hashtbl.t =
     Hashtbl.create ~hashable () in
   let f q =
@@ -35,11 +35,29 @@ let create_master ~hashable data =
     | Some r -> r
     | None ->
       let ivar = Ivar.create () in
-      let r = Ivar.read ivar in
-      Hashtbl.add_exn db ~key:q ~data:r;
-      (start_runner data q
-       >>> fun result ->
-       Ivar.fill ivar result);
-      r
+      let ivar_d = Ivar.read ivar in
+      Hashtbl.add_exn db ~key:q ~data:ivar_d;
+      begin
+        f q
+        >>> fun r ->
+        Ivar.fill ivar r
+      end;
+      ivar_d
   in
   register data f
+
+let create_master_and_runner
+    ~hashable data ?(binary_name=Oci_Data.name data) ~error f =
+  create_master ~hashable data
+    begin fun q ->
+      start_runner ~binary_name
+      >>= fun (err,conn) ->
+      choose [
+        choice err error;
+        choice begin
+          conn >>= fun conn ->
+          Shutdown.at_shutdown (fun () -> Rpc.Connection.close conn);
+          f conn q
+        end (fun x -> x);
+      ]
+    end

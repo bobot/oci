@@ -21,8 +21,10 @@
 (**************************************************************************)
 
 open Core.Std
+open Async.Std
 
 let () = Oci_Master.create_master ~hashable:Int.hashable Test_succ.test_succ
+    (fun x -> return (succ x))
 
 
 let () = never_returns (Oci_Master.run ())

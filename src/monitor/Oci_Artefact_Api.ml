@@ -22,12 +22,65 @@
 
 open Core.Std
 open Async.Std
+open Oci_Common
 
-val register_master:
-  ('query,'result) Oci_Data.t ->
-  ('query -> 'result Deferred.t) ->
-  unit
+open Log.Global
 
-val run: unit -> never_returns
+type artefact_api = {
+  binaries : Oci_Filename.t;
+  oci_data : Oci_Filename.t;
+  oci_simple_exec : Oci_Filename.t;
+  superroot: user;
+  root: user;
+  user: user;
+} with sexp, bin_io
 
-val start_runner: ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
+
+let get_configuration = Rpc.Rpc.create
+    ~name:"Oci_Artefact.start"
+    ~version:1
+    ~bin_query:Unit.bin_t
+    ~bin_response:bin_artefact_api
+
+type exec_in_namespace_response =
+  | Exec_Ok
+  | Exec_Error of string
+with bin_io
+
+let exec_in_namespace = Rpc.Rpc.create
+    ~name:"Oci_Monitor.exec_in_namespace"
+    ~version:1
+    ~bin_query:Oci_Wrapper_Api.bin_parameters
+    ~bin_response:bin_exec_in_namespace_response
+
+let start_in_namespace
+    ?implementations ~exec_in_namespace ~parameters ~named_pipe () =
+  debug "Here";
+  let named_pipe_in = named_pipe^".in" in
+  let named_pipe_out = named_pipe^".out" in
+  Unix.mkfifo ~perm:0o777 named_pipe_in
+  >>= fun () ->
+  Unix.mkfifo ~perm:0o777 named_pipe_out
+  >>= fun () ->
+  debug "Pipe created at %s and %s" named_pipe_in named_pipe_out;
+  let conn =
+    Writer.open_file named_pipe_in
+    >>= fun writer ->
+    Reader.open_file named_pipe_out
+    >>= fun reader ->
+    Rpc.Connection.create
+      ~connection_state:(fun _ -> ())
+      ?implementations
+      reader
+      writer
+    >>= fun conn ->
+    let conn = Result.ok_exn conn in
+    return conn
+  in
+  let error =
+    exec_in_namespace (parameters:Oci_Wrapper_Api.parameters)
+    >>= function
+    | Exec_Ok -> never ()
+    | Exec_Error s -> return s
+  in
+  return (error,conn)

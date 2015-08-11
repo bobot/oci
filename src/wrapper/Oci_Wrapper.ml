@@ -259,6 +259,7 @@ let go_in_userns uidmap gidmap =
 (*     | (cmd::_) as l -> cmd, Array.of_list l in *)
 (*   !param *)
 
+
 let param : parameters = Bin_prot.Utils.bin_read_stream
     ~read:(fun buf ~pos ~len ->
         Bigstring.really_input ~pos ~len In_channel.stdin buf)
@@ -283,7 +284,7 @@ let () =
   end;
   Unix.handle_unix_error begin fun () ->
     test_userns_availability ();
-    Option.iter param.rootfs (mkdir ~perm:0o750);
+    Option.iter param.rootfs ~f:(mkdir ~perm:0o750);
     go_in_userns param.uidmap param.gidmap;
     begin match param.rootfs with
     | None -> ()
@@ -299,6 +300,7 @@ let () =
     (** group must be changed before uid... *)
     setresgid param.rungid param.rungid param.rungid;
     setresuid param.runuid param.runuid param.runuid;
+    Option.iter ~f:Unix.chdir param.workdir;
     never_returns
       (Unix.exec
          ~prog:param.command

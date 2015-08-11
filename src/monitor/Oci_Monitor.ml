@@ -26,24 +26,6 @@ open Oci_Common
 
 open Log.Global
 
-let binary_dir = ref Oci_Filename.current_dir
-let current_uid = Unix.getuid ()
-let current_gid = Unix.getgid ()
-
-let get_binary name =
-  Oci_Filename.concat !binary_dir (Oci_Filename.add_extension name "native")
-
-let masters =
-  ref (Rpc.Implementations.create_exn
-         ~implementations:[] ~on_unknown_rpc:`Continue)
-
-let register_master data f =
-  masters := Rpc.Implementations.add_exn !masters
-      (Rpc.Rpc.implement (Oci_Data.rpc data)
-         (fun () q ->
-           info "Test %s" (Oci_Data.name data);
-           f q))
-
 let (>>!) or_error_deferred f =
   or_error_deferred >>= fun r -> f (ok_exn r)
 
@@ -81,61 +63,86 @@ let send_process_to_stderr process =
   don't_wait_for (send_to_stderr (Process.stdout process));
   don't_wait_for (send_to_stderr (Process.stderr process))
 
-let start_simple_exec ~superroot ~root ~user =
-  let socket = "oci_simple_exec_socket" in
-  let conn = Ivar.create () in
-  Tcp.Server.create (Tcp.on_file socket)
-    (fun _ reader writer ->
-      Rpc.Connection.create
-        ~connection_state:(fun _ -> ())
-        reader
-        writer
-      >>= fun c ->
-      Ivar.fill conn (Result.ok_exn c);
-      never ()
-    )
-  >>= fun server ->
-  Shutdown.at_shutdown (fun () -> Tcp.Server.close server);
-  Unix.chmod socket ~perm:0o777
-  >>= fun () ->
-  Process.create ~prog:(get_binary "Oci_Wrapper") ~args:[] ()
-  >>! fun process ->
-  send_process_to_stderr process;
-  don't_wait_for begin
-    Process.wait process
-    >>= function
-    | Ok () -> return ()
-    | Error _ ->
-      Printf.eprintf "Error: Oci_Simple_Exec stopped with a failure\n%!";
-      Shutdown.exit 1
-  end;
+let oci_wrapper =
+  Oci_Filename.concat
+    (Oci_Filename.dirname Sys.executable_name)
+    "Oci_Wrapper.native"
+
+let oci_simple_exec =
+  Oci_Filename.concat
+    (Oci_Filename.dirname Sys.executable_name)
+    "Oci_Simple_Exec.native"
+
+
+let exec_in_namespace parameters =
   let open Oci_Wrapper_Api in
-  let parameters = {
-    rootfs = None;
-    uidmap = [{extern_id=superroot.uid; intern_id=0; length_id=1};
-              {extern_id=root.uid; intern_id=1; length_id=1};
-              {extern_id=user.uid; intern_id=1000; length_id=1};
-             ];
-    gidmap = [{extern_id=superroot.gid; intern_id=0; length_id=1};
-              {extern_id=root.gid; intern_id=1; length_id=1};
-              {extern_id=user.gid; intern_id=1000; length_id=1};
-             ];
-    command = get_binary "Oci_Simple_Exec";
-    argv = [];
-    env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
-    runuid = 0;
-    rungid = 0;
-    bind_system_mount = false;
-    prepare_network = false;
-  } in
+  Process.create ~prog:oci_wrapper ~args:[] ()
+  >>! fun process ->
+  debug "Oci_Wrapper started";
+  send_process_to_stderr process;
   Writer.write_bin_prot (Process.stdin process)
     bin_writer_parameters
     parameters;
-  Ivar.read conn
+  debug "Oci_Wrapper configuration sent";
+  Process.wait process
+  >>= function
+  | Ok () -> return Oci_Artefact_Api.Exec_Ok
+  | Error _ as s ->
+    error "The following program stopped with this error %s:\n%s\n%!"
+      (Unix.Exit_or_signal.to_string_hum s)
+      (Sexp.to_string_hum (Oci_Wrapper_Api.sexp_of_parameters parameters));
+    return (Oci_Artefact_Api.Exec_Error (Unix.Exit_or_signal.to_string_hum s))
 
-let conf =
+
+(* let start_simple_exec ~oci_data ~current_user ~superroot ~root ~user = *)
+(*   let open Oci_Wrapper_Api in *)
+(*   let socket = Oci_Filename.concat oci_data "oci_simple_exec.socket" in *)
+(*   let parameters = { *)
+(*     rootfs = None; *)
+(*     uidmap = [ *)
+(*       {extern_id=current_user.uid; intern_id=0; length_id=1}; *)
+(*       {extern_id=superroot.uid; intern_id=1; length_id=1}; *)
+(*       {extern_id=root.uid; intern_id=2; length_id=1}; *)
+(*       {extern_id=user.uid; intern_id=3; length_id=1}; *)
+(*              ]; *)
+(*     gidmap = [ *)
+(*       {extern_id=current_user.gid; intern_id=0; length_id=1}; *)
+(*       {extern_id=superroot.gid; intern_id=1; length_id=1}; *)
+(*       {extern_id=root.gid; intern_id=2; length_id=1}; *)
+(*       {extern_id=user.gid; intern_id=3; length_id=1}; *)
+(*              ]; *)
+(*     command = oci_simple_exec; *)
+(*     argv = [socket]; *)
+(*     env = ["PATH","/usr/local/bin:/usr/bin:/bin"]; *)
+(*     runuid = 0; *)
+(*     rungid = 0; *)
+(*     bind_system_mount = false; *)
+(*     prepare_network = false; *)
+(*     workdir = None; *)
+(*   } in *)
+(*   start_in_namespace ~parameters *)
+(*     ~socket () *)
+
+type conf = {
+  current_user: user;
+  superroot: user;
+  root: user;
+  user: user;
+  mutable conn_to_artefact: Rpc.Connection.t option;
+}
+
+(* let run_in_namespace ?(runas={uid=0;gid=0}) conf prog args
+   : unit Deferred.t = *)
+(*   Rpc.Rpc.dispatch_exn Oci_Simple_Exec_Api.run *)
+(*     conf.conn_to_exec *)
+(*     {Oci_Simple_Exec_Api.prog; args; runas} *)
+(*   >>= fun r -> *)
+(*   return (ok_exn r) *)
+
+let compute_conf ~oci_data =
   User_and_group.for_this_process_exn ()
   >>= fun ug ->
+  let current_user = {uid=Unix.getuid ();gid=Unix.getgid ()} in
   get_etc_sub_config ~user:(User_and_group.user ug) ~file:"/etc/subuid"
   >>= fun (ustart, ulen) ->
   get_etc_sub_config ~user:(User_and_group.user ug) ~file:"/etc/subgid"
@@ -150,37 +157,114 @@ let conf =
     let superroot = {uid=ustart;gid=gstart} in
     let root = {uid=ustart+1;gid=gstart+1} in
     let user = {uid=ustart+1001;gid=gstart+1001} in
-    start_simple_exec ~superroot ~root ~user
-    >>= fun simple_exec_conn ->
-    info "Simple_exec started";
-    let conf = Oci_Artefact.create_conf
-      ~storage:"oci_data/storage"
-      ~superroot
-      ~root
-      ~user
-      ~simple_exec_conn in
-    Oci_Artefact.run_in_namespace conf "rm" ["-rf";"oci_data"]
+    let conf = {current_user;superroot;root;user;conn_to_artefact=None} in
+    Async_shell.run "mkdir" ["-p";"--";oci_data]
     >>= fun () ->
-    Oci_Artefact.run_in_namespace conf "mkdir" ["oci_data"]
-    >>= fun () ->
-    let open Oci_Wrapper_Api in
-    return (conf, {
-        rootfs = None; (** dumb *)
-        command = ""; (** dumb *)
-        uidmap = [{extern_id=current_uid; intern_id=0; length_id=1}];
-        gidmap = [{extern_id=current_gid; intern_id=0; length_id=1}];
-        argv = [];
-        env =
-          ["PATH",
-           "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-           "HOME","/root"];
-        runuid = 0;
-        rungid = 0;
-        bind_system_mount = false;
-        prepare_network = true;
-      })
+    return conf
+
+
+let start_master ~conf ~master ~oci_data ~binaries =
+  let open Oci_Wrapper_Api in
+  let named_pipe = Oci_Filename.concat oci_data "oci_master" in
+  let parameters = {
+    rootfs = None;
+    uidmap = [
+      {extern_id=conf.superroot.uid; intern_id=0; length_id=1};
+      {extern_id=conf.root.uid; intern_id=1; length_id=1};
+      {extern_id=conf.user.uid; intern_id=2; length_id=1};
+             ];
+    gidmap = [
+      {extern_id=conf.superroot.gid; intern_id=0; length_id=1};
+      {extern_id=conf.root.gid; intern_id=1; length_id=1};
+      {extern_id=conf.user.gid; intern_id=2; length_id=1};
+             ];
+    command = master;
+    argv = [named_pipe];
+    env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
+    runuid = 0;
+    rungid = 0;
+    bind_system_mount = false;
+    prepare_network = false;
+    workdir = None;
+  } in
+  let implementations = Rpc.Implementations.create_exn
+      ~on_unknown_rpc:`Raise
+      ~implementations:[
+        Rpc.Rpc.implement Oci_Artefact_Api.get_configuration
+          (fun () () -> return {Oci_Artefact_Api.binaries;
+                                oci_data;
+                                oci_simple_exec;
+                                superroot = conf.superroot;
+                                root = conf.root;
+                                user = conf.user;
+                               });
+        Rpc.Rpc.implement Oci_Artefact_Api.exec_in_namespace
+          (fun () -> exec_in_namespace)
+      ]
+  in
+  info "Start master";
+  Oci_Artefact_Api.start_in_namespace ~exec_in_namespace ~parameters
+    ~named_pipe
+    ~implementations
+    ()
+  >>= fun (error,conn) ->
+  choose [
+    choice error (fun s -> info "master stopped unexpectedly:%s" s;
+                   Shutdown.shutdown 1
+                 );
+    choice begin
+      conn >>= fun conn ->
+      Shutdown.at_shutdown (fun () -> Rpc.Connection.close conn);
+      never ()
+    end (fun _ -> ());
+  ]
+
+let run master binaries oci_data verbosity () =
+  Log.Global.set_level verbosity;
+  compute_conf ~oci_data
+  >>= fun conf ->
+  start_master ~conf ~binaries ~oci_data ~master
+
+let () = Command.run begin
+    Command.async_basic
+      ~summary:"Start OCI continous integration framework"
+      Command.Spec.(
+        empty +>
+        flag "--master" (required file)
+          ~doc:" Specify the master to use" +>
+        flag "--binaries" (required file)
+          ~doc:" Specify where the runners are" +>
+        flag "--oci-data" (required file)
+          ~doc:" Specify where the OCI should store its files" +>
+        flag "--verbosity" (map_flag ~f:Log.Level.of_string
+                              (optional_with_default "Info" string))
+          ~doc:" Specify the verbosity level (Debug,Error,Info)"
+      )
+      run
+  end
+
+
+(*
 
 let id_runner = ref (-1)
+
+
+    (* let open Oci_Wrapper_Api in *)
+    (* return (conf, { *)
+    (*     rootfs = None; (\** dumb *\) *)
+    (*     command = ""; (\** dumb *\) *)
+    (*     uidmap = [{extern_id=current_uid; intern_id=0; length_id=1}]; *)
+    (*     gidmap = [{extern_id=current_gid; intern_id=0; length_id=1}]; *)
+    (*     argv = []; *)
+    (*     env = *)
+    (*       ["PATH", *)
+    (*        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"; *)
+    (*        "HOME","/root"]; *)
+    (*     runuid = 0; *)
+    (*     rungid = 0; *)
+    (*     bind_system_mount = false; *)
+    (*     prepare_network = true; *)
+    (*   }) *)
 
 let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
   let id = incr id_runner; !id_runner in
@@ -231,14 +315,23 @@ let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
   | Error r -> raise (RunnerFailed r)
 
 
-let run () =
-  begin
-    Rpc.Connection.serve
-      ~where_to_listen:(Tcp.on_file "oci.socket")
-      ~initial_connection_state:(fun _ _ -> ())
-      ~implementations:!masters
-      ()
-    >>> fun server ->
-    Shutdown.at_shutdown (fun () -> Tcp.Server.close server)
-  end;
-  Scheduler.go ()
+  (* >>= fun () -> *)
+  (* Process.create ~prog:oci_wrapper ~args:[] () *)
+  (* >>! fun process -> *)
+  (* send_process_to_stderr process; *)
+  (* don't_wait_for begin *)
+  (*   Process.wait process *)
+  (*   >>= function *)
+  (*   | Ok () -> Tcp.Server.close server *)
+  (*   | Error s -> *)
+  (*     error "This program stopped with a failure:%s\n%!" *)
+  (*       (Sexp.to_string_hum
+           (Oci_Wrapper_Api.sexp_of_parameters parameters)); *)
+  (*     Ivar.fill wait_error s; *)
+  (*     Tcp.Server.close server *)
+  (* end; *)
+  (* let open Oci_Wrapper_Api in *)
+  (* Writer.write_bin_prot (Process.stdin process) *)
+  (*   bin_writer_parameters *)
+  (*   parameters; *)
+*)

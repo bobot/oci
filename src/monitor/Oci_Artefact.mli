@@ -21,35 +21,38 @@
 (**************************************************************************)
 
 (** Manage directory resulting from a task execution *)
+open Core.Std
 open Async.Std
-
-type conf
-
-val create_conf:
-  storage:Oci_Filename.t ->
-  superroot:Oci_Common.user ->
-  (** A user outside the usernamespace stronger than the root of
-      the usernamespace *)
-  root:Oci_Common.user ->
-  (** root in the usernamespace *)
-  user:Oci_Common.user ->
-  (** A simple user in the usernamespace *)
-  simple_exec_conn:Rpc.Connection.t ->
-  (** connection to simple_exec *)
-  conf
 
 type t with sexp, bin_type_class
 
-val create: conf -> Oci_Filename.t -> t Deferred.t
+val create: Oci_Filename.t -> t Deferred.t
 
-val link_to: conf -> t -> Oci_Filename.t -> unit Deferred.t
+val link_to: t -> Oci_Filename.t -> unit Deferred.t
 (** ro only *)
 
-val copy_to: conf -> t -> Oci_Filename.t -> unit Deferred.t
+val copy_to: t -> Oci_Filename.t -> unit Deferred.t
 (** rw *)
 
-val is_available: conf -> t -> bool Deferred.t
+val is_available: t -> bool Deferred.t
 
-val remove_dir: conf -> Oci_Filename.t -> unit Deferred.t
+val remove_dir: Oci_Filename.t -> unit Deferred.t
 
-val run_in_namespace: conf -> string -> string list -> unit Deferred.t
+
+val register_master:
+  ('query,'result) Oci_Data.t ->
+  ('query -> 'result Deferred.t) ->
+  unit
+
+
+val run: unit -> never_returns
+
+val start_runner:
+  binary_name:string ->
+  (string Async_kernel.Deferred0.t *
+   Async.Std.Rpc.Connection.t Async_kernel.Deferred0.t)
+    Async.Std.Deferred.t
+(** Start the given runner in a namespace and start an Rpc connection.
+    `start_runner ~binary_name` start the executable
+    [binary_name^".native"] located in the directory of binaries *)
+

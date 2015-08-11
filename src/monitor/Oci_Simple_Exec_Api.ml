@@ -26,6 +26,7 @@ open Async.Std
 type run_query = {
   prog: string;
   args: string list;
+  runas: Oci_Common.user;
 } with sexp, bin_io
 
 type run_response = unit Or_error.t with sexp, bin_io

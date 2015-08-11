@@ -22,12 +22,16 @@
 
 open Core.Std
 open Async.Std
+open Oci_Common
 
 open Oci_Simple_Exec_Api
 
 let run = Rpc.Rpc.implement run
     (fun () param -> Deferred.Or_error.try_with ~name:"Oci_Simple_Exec.run"
-        (fun () -> Async_shell.run param.prog param.args))
+        (fun () -> Async_shell.run
+            ~setuid:param.runas.uid
+            ~setgid:param.runas.gid
+            param.prog param.args))
 
 let implementations =
   Rpc.Implementations.create_exn
@@ -35,7 +39,7 @@ let implementations =
     ~on_unknown_rpc:`Raise
 
 let () =
-  Tcp.connect (Tcp.to_file "oci_simple_exec_socket")
+  Tcp.connect (Tcp.to_file Sys.argv.(1))
   >>> fun (_,reader,writer) ->
   Rpc.Connection.create
     ~implementations

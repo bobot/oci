@@ -25,4 +25,6 @@ open Core.Std
 type artefact = Int.t with sexp, compare
 let bin_artefact = Int.bin_t
 
-type user = {uid : int; gid : int} with sexp, compare
+type user = {uid : int; gid : int} with sexp, compare, bin_io
+
+let pp_user fmt u = Format.fprintf fmt "%i,%i" u.uid u.gid
