@@ -289,8 +289,6 @@ let () =
     begin match param.rootfs with
     | None -> ()
     | Some rootfs ->
-      command_no_fail "cp /etc/resolv.conf %S"
-        (Oci_Filename.concat rootfs "oci/resolv.conf");
       (** make the mount private and mount basic directories *)
       if param.bind_system_mount then
         mount_base rootfs;
@@ -301,6 +299,10 @@ let () =
     setresgid param.rungid param.rungid param.rungid;
     setresuid param.runuid param.runuid param.runuid;
     Option.iter ~f:Unix.chdir param.workdir;
+    if not (Sys.file_exists_exn param.command) then begin
+      Printf.eprintf "Error: file %s doesn't exists" param.command;
+      exit 1
+    end;
     never_returns
       (Unix.exec
          ~prog:param.command

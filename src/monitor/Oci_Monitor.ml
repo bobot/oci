@@ -94,35 +94,6 @@ let exec_in_namespace parameters =
     return (Oci_Artefact_Api.Exec_Error (Unix.Exit_or_signal.to_string_hum s))
 
 
-(* let start_simple_exec ~oci_data ~current_user ~superroot ~root ~user = *)
-(*   let open Oci_Wrapper_Api in *)
-(*   let socket = Oci_Filename.concat oci_data "oci_simple_exec.socket" in *)
-(*   let parameters = { *)
-(*     rootfs = None; *)
-(*     uidmap = [ *)
-(*       {extern_id=current_user.uid; intern_id=0; length_id=1}; *)
-(*       {extern_id=superroot.uid; intern_id=1; length_id=1}; *)
-(*       {extern_id=root.uid; intern_id=2; length_id=1}; *)
-(*       {extern_id=user.uid; intern_id=3; length_id=1}; *)
-(*              ]; *)
-(*     gidmap = [ *)
-(*       {extern_id=current_user.gid; intern_id=0; length_id=1}; *)
-(*       {extern_id=superroot.gid; intern_id=1; length_id=1}; *)
-(*       {extern_id=root.gid; intern_id=2; length_id=1}; *)
-(*       {extern_id=user.gid; intern_id=3; length_id=1}; *)
-(*              ]; *)
-(*     command = oci_simple_exec; *)
-(*     argv = [socket]; *)
-(*     env = ["PATH","/usr/local/bin:/usr/bin:/bin"]; *)
-(*     runuid = 0; *)
-(*     rungid = 0; *)
-(*     bind_system_mount = false; *)
-(*     prepare_network = false; *)
-(*     workdir = None; *)
-(*   } in *)
-(*   start_in_namespace ~parameters *)
-(*     ~socket () *)
-
 type conf = {
   current_user: user;
   superroot: user;
@@ -159,6 +130,8 @@ let compute_conf ~oci_data =
     let user = {uid=ustart+1001;gid=gstart+1001} in
     let conf = {current_user;superroot;root;user;conn_to_artefact=None} in
     Async_shell.run "mkdir" ["-p";"--";oci_data]
+    >>= fun () ->
+    Unix.chmod ~perm:0o777 oci_data
     >>= fun () ->
     return conf
 

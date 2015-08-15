@@ -23,20 +23,22 @@
 open Core.Std
 open Async.Std
 
-let run ty f =
+type t = Rpc.Connection.t
+
+let run ~implementations =
   begin
     let implementations =
       Rpc.Implementations.create_exn
         ~on_unknown_rpc:`Raise
-        ~implementations:[Rpc.Rpc.implement
-                            (Oci_Data.rpc ty)
-                            (fun _ q -> f q)
-                         ] in
-    Tcp.connect (Tcp.to_file "/oci/oci.socket")
-    >>> fun (_,reader,writer) ->
+        ~implementations in
+    let named_pipe = Sys.argv.(1) in
+    Reader.open_file (named_pipe^".in")
+    >>> fun reader ->
+    Writer.open_file (named_pipe^".out")
+    >>> fun writer ->
     Rpc.Connection.create
       ~implementations
-      ~connection_state:(fun _ -> ())
+      ~connection_state:(fun c -> c)
       reader writer
     >>> fun conn ->
     let conn = Result.ok_exn conn in
@@ -54,6 +56,11 @@ let run ty f =
 type artefact = Oci_Common.artefact with sexp
 let bin_artefact = Oci_Common.bin_artefact
 
-let create_artefact ~dir = assert false
-let link_artefact src ~dir = assert false
-let copy_artefact src ~dir = assert false
+let create_artefact t ~dir =
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_create t dir
+let link_artefact t src ~dir =
+    Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_link_to t (src,dir)
+let copy_artefact t src ~dir =
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_copy_to t (src,dir)
+
+let dispatch t d q = Rpc.Rpc.dispatch_exn (Oci_Data.rpc d) t q

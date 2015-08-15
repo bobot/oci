@@ -23,16 +23,18 @@
 open Core.Std
 open Async.Std
 
+type t
+
 val run:
-  ('query,'result) Oci_Data.t ->
-  ('query -> 'result Deferred.t) ->
+  implementations: t Rpc.Implementation.t list ->
   never_returns
-(** The runner executes one task and return the result. *)
+(** The runner waits for request. *)
 
 type artefact with sexp, bin_type_class
 
-val create_artefact: dir:string -> artefact Deferred.t
-val link_artefact: artefact -> dir:string -> unit Deferred.t
+val create_artefact: t -> dir:string -> artefact Deferred.t
+val link_artefact: t -> artefact -> dir:string -> unit Deferred.t
 (** ro *)
-val copy_artefact: artefact -> dir:string -> unit Deferred.t
+val copy_artefact: t -> artefact -> dir:string -> unit Deferred.t
 (** rw *)
+val dispatch: t -> ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t

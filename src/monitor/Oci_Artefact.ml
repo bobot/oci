@@ -37,26 +37,37 @@ let root = {uid=1;gid=1}
 let user = {uid=1001;gid=1001}
 (** A simple user in the usernamespace of the runners *)
 
-let next_id = ref (-1)
-let conn : Rpc.Connection.t option = None
-(** connection to the monitor *)
-let storage = ref "dumb"
-let temporary = ref "dumb"
+type conf = {
+  mutable next_artefact_id: Int.t;
+  mutable next_runner_id: Int.t;
+  conn_monitor : Rpc.Connection.t;
+  binaries: Oci_Filename.t;
+  storage: Oci_Filename.t;
+  runners: Oci_Filename.t;
+  conf_monitor: Oci_Artefact_Api.artefact_api;
+}
+
+let gconf = ref None
 
 type t = Oci_Common.artefact with sexp
 let bin_t = Oci_Common.bin_artefact
 
 exception Directory_should_not_exists of Oci_Filename.t
 
-let dir_of_id id =
-  let dir = Oci_Filename.mk (string_of_int id) in
-  Oci_Filename.make_absolute !storage dir
+let get_conf () =
+  Option.value_exn
+    ~message:"The functions can't be used before starting the `run` function"
+    !gconf
 
+let dir_of_artefact id =
+  let dir = Oci_Filename.mk (string_of_int id) in
+  Oci_Filename.make_absolute (get_conf ()).storage dir
 
 let create src =
-  incr next_id;
-  let id = !next_id in
-  let dst = dir_of_id id in
+  let conf = get_conf () in
+  conf.next_artefact_id <- conf.next_artefact_id + 1;
+  let id = conf.next_artefact_id in
+  let dst = dir_of_artefact id in
   Sys.file_exists_exn (Oci_Filename.get dst)
   >>= fun b ->
   if not b then raise (Directory_should_not_exists dst);
@@ -75,7 +86,7 @@ let create src =
   fun () -> return id
 
 let link_to id dst =
-  let src = dir_of_id id in
+  let src = dir_of_artefact id in
   Async_shell.run "rm" ["-rf";"--";Oci_Filename.get dst]
   >>= fun () ->
   Async_shell.run "cp" ["-rla";"--";
@@ -83,7 +94,7 @@ let link_to id dst =
                               Oci_Filename.get dst]
 
 let copy_to id dst =
-  let src = dir_of_id id in
+  let src = dir_of_artefact id in
   Async_shell.run "rm" ["-rf";"--";Oci_Filename.get dst]
   >>= fun () ->
   Async_shell.run "cp" ["-a";"--";
@@ -91,7 +102,7 @@ let copy_to id dst =
                               Oci_Filename.get dst]
 
 let is_available id =
-  let src = dir_of_id id in
+  let src = dir_of_artefact id in
   Sys.file_exists_exn (Oci_Filename.get src)
 
 let remove_dir dir =
@@ -101,10 +112,6 @@ let remove_dir dir =
 (*   {storage; superroot; root; user; conn = simple_exec_conn} *)
 
 (** {2 Management} *)
-  let binary_dir = ref Oci_Filename.current_dir
-let current_uid = Unix.getuid ()
-let current_gid = Unix.getgid ()
-
 let masters =
   ref (Rpc.Implementations.create_exn
          ~implementations:[] ~on_unknown_rpc:`Continue)
@@ -118,19 +125,103 @@ let register_master data f =
 
 let id_runner = ref (-1)
 
-let conn_monitor =
+let exec_in_namespace parameters =
+  Rpc.Rpc.dispatch_exn
+    Oci_Artefact_Api.exec_in_namespace
+    (get_conf ()).conn_monitor
+    parameters
+
+let start_runner ~binary_name =
+  let conf = get_conf () in
+  conf.next_runner_id <- conf.next_runner_id + 1;
+  let runner_id = conf.next_runner_id in
+  let rootfs = Oci_Filename.concat (get_conf ()).runners
+      (Oci_Filename.mk (string_of_int runner_id)) in
+  Unix.mkdir ~p:() (Oci_Filename.concat rootfs "oci")
+  >>= fun () ->
+  let etc = (Oci_Filename.concat rootfs "etc") in
+  Unix.mkdir ~p:() etc
+  >>= fun () ->
+  Async_shell.run "cp" ["/etc/resolv.conf";"-t";etc]
+  >>= fun () ->
+  let binary = Oci_Filename.add_extension binary_name "native" in
+  let binary_in_namespace = Oci_Filename.concat "oci" binary in
+  Unix.link
+    ~target:(Oci_Filename.concat (get_conf ()).binaries binary)
+    ~link_name:(Oci_Filename.concat rootfs binary_in_namespace) ()
+  >>= fun () ->
+  let named_pipe = Oci_Filename.concat "oci" "oci_runner" in
+  let parameters : Oci_Wrapper_Api.parameters = {
+    rootfs = Some rootfs;
+    uidmap = [
+      {extern_id=conf.conf_monitor.root.uid; intern_id=0; length_id=1000};
+      {extern_id=conf.conf_monitor.user.uid; intern_id=1000; length_id=1};
+             ];
+    gidmap = [
+      {extern_id=conf.conf_monitor.root.gid; intern_id=0; length_id=1000};
+      {extern_id=conf.conf_monitor.user.gid; intern_id=1000; length_id=1};
+             ];
+    command = binary_in_namespace;
+    argv = [named_pipe];
+    env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
+    runuid = 0;
+    rungid = 0;
+    bind_system_mount = false;
+    prepare_network = false;
+    workdir = None;
+  } in
+  let implementations =
+    Rpc.Implementations.create_exn
+      ~on_unknown_rpc:`Raise
+      ~implementations:[
+    ]
+  in
+  Oci_Artefact_Api.start_in_namespace
+    ~exec_in_namespace ~parameters
+    ~implementations
+    ~named_pipe:(Oci_Filename.concat rootfs named_pipe) ()
+
+
+(* let start_simple_exec ~oci_data ~current_user ~superroot ~root ~user = *)
+(*   let open Oci_Wrapper_Api in *)
+(*   let socket = Oci_Filename.concat oci_data "oci_simple_exec.socket" in *)
+(*   let parameters = { *)
+(*     rootfs = None; *)
+(*     uidmap = [ *)
+(*       {extern_id=current_user.uid; intern_id=0; length_id=1}; *)
+(*       {extern_id=superroot.uid; intern_id=1; length_id=1}; *)
+(*       {extern_id=root.uid; intern_id=2; length_id=1}; *)
+(*       {extern_id=user.uid; intern_id=3; length_id=1}; *)
+(*              ]; *)
+(*     gidmap = [ *)
+(*       {extern_id=current_user.gid; intern_id=0; length_id=1}; *)
+(*       {extern_id=superroot.gid; intern_id=1; length_id=1}; *)
+(*       {extern_id=root.gid; intern_id=2; length_id=1}; *)
+(*       {extern_id=user.gid; intern_id=3; length_id=1}; *)
+(*              ]; *)
+(*     command = oci_simple_exec; *)
+(*     argv = [socket]; *)
+(*     env = ["PATH","/usr/local/bin:/usr/bin:/bin"]; *)
+(*     runuid = 0; *)
+(*     rungid = 0; *)
+(*     bind_system_mount = false; *)
+(*     prepare_network = false; *)
+(*     workdir = None; *)
+(*   } in *)
+(*   start_in_namespace ~parameters *)
+(*     ~socket () *)
+
+
+let conn_monitor () =
   let implementations =
     Rpc.Implementations.create_exn
       ~implementations:[]
       ~on_unknown_rpc:`Raise in
   let named_pipe = Sys.argv.(1) in
-  info "Before";
   Reader.open_file (named_pipe^".in")
   >>= fun reader ->
-  info "Reader";
   Writer.open_file (named_pipe^".out")
   >>= fun writer ->
-  info "Writer";
   Rpc.Connection.create
     ~implementations
     ~connection_state:(fun _ -> ())
@@ -146,64 +237,48 @@ let conn_monitor =
     );
   return conn
 
-let conf =
-  conn_monitor
-  >>= fun conn_monitor ->
-  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.get_configuration conn_monitor ()
-
-let binary_dir conf =
-  Oci_Filename.concat conf.Oci_Artefact_Api.oci_data "binaries"
-
-let get_binary conf name =
-  Oci_Filename.concat
-    (binary_dir conf)
-    (Oci_Filename.add_extension name "native")
-
-let exec_in_namespace parameters =
-  conn_monitor
-  >>= fun conn_monitor ->
-  Rpc.Rpc.dispatch_exn
-    Oci_Artefact_Api.exec_in_namespace conn_monitor
-    parameters
-
-let start_runner ~binary_name =
-  conf >>= fun conf ->
-  let open Oci_Wrapper_Api in
-  let binary_in_namespace =
-    Oci_Filename.concat "/oci" (Oci_Filename.add_extension binary_name "native")
-  in
-  let named_pipe =
-    Oci_Filename.concat conf.Oci_Artefact_Api.oci_data "oci_master.socket"
-  in
-  let parameters = {
-    rootfs = None;
-    uidmap = [
-      {extern_id=conf.Oci_Artefact_Api.root.uid; intern_id=0; length_id=1000};
-      {extern_id=conf.Oci_Artefact_Api.user.uid; intern_id=1000; length_id=1};
-             ];
-    gidmap = [
-      {extern_id=conf.Oci_Artefact_Api.root.gid; intern_id=0; length_id=1000};
-      {extern_id=conf.Oci_Artefact_Api.user.gid; intern_id=1000; length_id=1};
-             ];
-    command = binary_in_namespace;
-    argv = [named_pipe];
-    env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
-    runuid = 0;
-    rungid = 0;
-    bind_system_mount = false;
-    prepare_network = false;
-    workdir = None;
-  } in
-  Oci_Artefact_Api.start_in_namespace
-    ~exec_in_namespace ~parameters
-    ~named_pipe ()
-
 let run () =
   info "Run Artefact";
   begin
-    conf
-    >>> fun conf ->
-    let socket = Oci_Filename.concat conf.oci_data "oci.socket" in
+    conn_monitor ()
+    >>> fun conn_monitor ->
+    Rpc.Rpc.dispatch_exn Oci_Artefact_Api.get_configuration conn_monitor ()
+    >>> fun conf_monitor ->
+    let conf = {
+      next_artefact_id = -1;
+      next_runner_id = -1;
+      conn_monitor;
+      runners = Oci_Filename.concat conf_monitor.oci_data "runners";
+      binaries = Oci_Filename.concat conf_monitor.oci_data "binaries";
+      storage = Oci_Filename.concat conf_monitor.oci_data "storage";
+      conf_monitor;
+    } in
+    gconf := Some conf;
+    Deferred.all_unit (List.map ~f:(Unix.mkdir ~p:() ?perm:None)
+                         [conf.runners;conf.binaries;conf.storage;conf.runners])
+    >>> fun () ->
+    (** Copy binaries *)
+    Sys.ls_dir conf_monitor.binaries
+    >>> fun files ->
+    let files = List.filter_map
+        ~f:(fun f -> if String.is_suffix f ~suffix:"native"
+             then Some f else None)
+        files in
+    begin if files = [] then return ()
+    else
+      Async_shell.run "cp" (["-t";conf.binaries;"--"]@
+                            List.map
+                              ~f:(Oci_Filename.concat conf_monitor.binaries)
+                              files)
+    end
+    >>> fun () ->
+    Deferred.all_unit
+      (List.map
+         ~f:(fun x -> Unix.chmod ~perm:0o555
+                (Oci_Filename.concat conf.binaries x))
+         files)
+    >>> fun () ->
+    let socket = Oci_Filename.concat conf_monitor.oci_data "oci.socket" in
     Rpc.Connection.serve
       ~where_to_listen:(Tcp.on_file socket)
       ~initial_connection_state:(fun _ _ -> ())

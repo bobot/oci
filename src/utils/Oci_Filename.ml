@@ -25,7 +25,7 @@ include FilePath
 
 (* include FilePath.UnixPath *)
 
-type t = string with sexp, bin_write, bin_read
+type t = string with sexp, bin_io
 
 (* let t_of_sexp x = filename_of_string (String.t_of_sexp x) *)
 (* let sexp_of_t x = String.sexp_of_t (string_of_filename x) *)

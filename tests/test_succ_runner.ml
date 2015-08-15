@@ -23,6 +23,12 @@
 open Core.Std
 open Async.Std
 
-let run =
-  Oci_Runner.run Test_succ.test_succ
-    (fun q -> return (Int.succ q))
+let () =
+  never_returns begin
+    Oci_Runner.run
+      ~implementations:[
+        Rpc.Rpc.implement
+          (Oci_Data.rpc Test_succ.test_succ)
+          (fun _ q -> return (Int.succ q))
+      ]
+  end

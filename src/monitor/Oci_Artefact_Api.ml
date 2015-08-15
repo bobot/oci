@@ -58,9 +58,13 @@ let start_in_namespace
   debug "Here";
   let named_pipe_in = named_pipe^".in" in
   let named_pipe_out = named_pipe^".out" in
-  Unix.mkfifo ~perm:0o777 named_pipe_in
+  Unix.mkfifo named_pipe_in
   >>= fun () ->
-  Unix.mkfifo ~perm:0o777 named_pipe_out
+  Unix.mkfifo named_pipe_out
+  >>= fun () ->
+  Unix.chmod ~perm:0o666 named_pipe_in
+  >>= fun () ->
+  Unix.chmod ~perm:0o666 named_pipe_out
   >>= fun () ->
   debug "Pipe created at %s and %s" named_pipe_in named_pipe_out;
   let conn =
@@ -84,3 +88,28 @@ let start_in_namespace
     | Exec_Error s -> return s
   in
   return (error,conn)
+
+
+let rpc_create =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.create"
+    ~version:1
+    ~bin_query:Oci_Filename.bin_t
+    ~bin_response:bin_artefact
+
+type rpc_link_to_query = artefact * Oci_Filename.t with bin_io
+
+let rpc_link_to =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.link_to"
+    ~version:1
+    ~bin_query:bin_rpc_link_to_query
+    ~bin_response:Unit.bin_t
+
+let rpc_copy_to =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.copy_to"
+    ~version:1
+    ~bin_query:bin_rpc_link_to_query
+    ~bin_response:Unit.bin_t
+
