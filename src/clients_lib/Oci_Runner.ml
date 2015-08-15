@@ -25,6 +25,11 @@ open Async.Std
 
 type t = Rpc.Connection.t
 
+(** Enter inside the namespace *)
+let () =
+  Caml.Unix.chroot ".";
+  Caml.Unix.chdir "/"
+
 let run ~implementations =
   begin
     let implementations =

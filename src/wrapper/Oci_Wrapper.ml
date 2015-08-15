@@ -284,7 +284,7 @@ let () =
   end;
   Unix.handle_unix_error begin fun () ->
     test_userns_availability ();
-    Option.iter param.rootfs ~f:(mkdir ~perm:0o750);
+    (* Option.iter param.rootfs ~f:(mkdir ~perm:0o750); *)
     go_in_userns param.uidmap param.gidmap;
     begin match param.rootfs with
     | None -> ()
@@ -293,12 +293,12 @@ let () =
       if param.bind_system_mount then
         mount_base rootfs;
       (** chroot in the directory *)
-      do_chroot rootfs
+      (* do_chroot rootfs *)
+      Unix.chdir rootfs
     end;
     (** group must be changed before uid... *)
     setresgid param.rungid param.rungid param.rungid;
     setresuid param.runuid param.runuid param.runuid;
-    Option.iter ~f:Unix.chdir param.workdir;
     if not (Sys.file_exists_exn param.command) then begin
       Printf.eprintf "Error: file %s doesn't exists" param.command;
       exit 1
@@ -306,6 +306,6 @@ let () =
     never_returns
       (Unix.exec
          ~prog:param.command
-         ~env:(`Replace param.env)
+         (* ~env:(`Replace param.env) *)
          ~args:(param.command::param.argv) ());
   end ()
