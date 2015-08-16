@@ -96,19 +96,9 @@ let exec_in_namespace parameters =
 
 type conf = {
   current_user: user;
-  superroot: user;
-  root: user;
-  user: user;
+  first_user_mapped: user;
   mutable conn_to_artefact: Rpc.Connection.t option;
 }
-
-(* let run_in_namespace ?(runas={uid=0;gid=0}) conf prog args
-   : unit Deferred.t = *)
-(*   Rpc.Rpc.dispatch_exn Oci_Simple_Exec_Api.run *)
-(*     conf.conn_to_exec *)
-(*     {Oci_Simple_Exec_Api.prog; args; runas} *)
-(*   >>= fun r -> *)
-(*   return (ok_exn r) *)
 
 let compute_conf ~oci_data =
   User_and_group.for_this_process_exn ()
@@ -125,10 +115,8 @@ let compute_conf ~oci_data =
     Shutdown.exit 1
   end
   else
-    let superroot = {uid=ustart;gid=gstart} in
-    let root = {uid=ustart+1;gid=gstart+1} in
-    let user = {uid=ustart+1001;gid=gstart+1001} in
-    let conf = {current_user;superroot;root;user;conn_to_artefact=None} in
+    let first_user_mapped = {uid=ustart;gid=gstart} in
+    let conf = {current_user;first_user_mapped;conn_to_artefact=None} in
     Async_shell.run "mkdir" ["-p";"--";oci_data]
     >>= fun () ->
     Unix.chmod ~perm:0o777 oci_data
@@ -141,16 +129,11 @@ let start_master ~conf ~master ~oci_data ~binaries =
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
   let parameters = {
     rootfs = None;
-    uidmap = [
-      {extern_id=conf.superroot.uid; intern_id=0; length_id=1};
-      {extern_id=conf.root.uid; intern_id=1; length_id=1};
-      {extern_id=conf.user.uid; intern_id=2; length_id=1};
-             ];
-    gidmap = [
-      {extern_id=conf.superroot.gid; intern_id=0; length_id=1};
-      {extern_id=conf.root.gid; intern_id=1; length_id=1};
-      {extern_id=conf.user.gid; intern_id=2; length_id=1};
-             ];
+    idmaps =
+      Oci_Wrapper_Api.idmaps
+        ~first_user_mapped:conf.first_user_mapped
+        ~in_user:master_user
+        [Superroot,1;Root,1;User,1];
     command = master;
     argv = [named_pipe];
     env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
@@ -167,9 +150,7 @@ let start_master ~conf ~master ~oci_data ~binaries =
           (fun () () -> return {Oci_Artefact_Api.binaries;
                                 oci_data;
                                 oci_simple_exec;
-                                superroot = conf.superroot;
-                                root = conf.root;
-                                user = conf.user;
+                                first_user_mapped = conf.first_user_mapped;
                                });
         Rpc.Rpc.implement Oci_Artefact_Api.exec_in_namespace
           (fun () -> exec_in_namespace)
@@ -231,96 +212,3 @@ let () = Command.run begin
       )
       run
   end
-
-
-(*
-
-let id_runner = ref (-1)
-
-
-    (* let open Oci_Wrapper_Api in *)
-    (* return (conf, { *)
-    (*     rootfs = None; (\** dumb *\) *)
-    (*     command = ""; (\** dumb *\) *)
-    (*     uidmap = [{extern_id=current_uid; intern_id=0; length_id=1}]; *)
-    (*     gidmap = [{extern_id=current_gid; intern_id=0; length_id=1}]; *)
-    (*     argv = []; *)
-    (*     env = *)
-    (*       ["PATH", *)
-    (*        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"; *)
-    (*        "HOME","/root"]; *)
-    (*     runuid = 0; *)
-    (*     rungid = 0; *)
-    (*     bind_system_mount = false; *)
-    (*     prepare_network = true; *)
-    (*   }) *)
-
-let start_runner (data: ('q,'r) Oci_Data.t) (query: 'q) : 'r Deferred.t =
-  let id = incr id_runner; !id_runner in
-  info "Start runner %i for %s" id (Oci_Data.name data);
-  conf
-  >>= fun (conf,runner_namespace_parameters) ->
-  let name = Oci_Data.name data in
-  let rootfs = Printf.sprintf "oci_data/runner_%i/" id in
-  Oci_Artefact.run_in_namespace conf
-    "mkdir" ["-m";"777";"-p";"--";Oci_Filename.concat rootfs "oci"]
-  >>= fun () ->
-  let socket = Oci_Filename.concat rootfs "oci/oci.socket" in
-  let result = Ivar.create () in
-  Tcp.Server.create (Tcp.on_file socket)
-    (fun _ reader writer ->
-      Rpc.Connection.create
-        ~connection_state:(fun _ -> ())
-        ~implementations:!masters
-        reader
-        writer
-      >>= fun conn ->
-      Rpc.Rpc.dispatch_exn (Oci_Data.rpc data) (Result.ok_exn conn) query
-      >>= fun r ->
-      Ivar.fill result r;
-      never ()
-    )
-  >>= fun server ->
-  Unix.chmod socket ~perm:0o777
-  >>= fun () ->
-  Process.create ~prog:(get_binary "Oci_Wrapper") ~args:[] ()
-  >>! fun process ->
-  send_process_to_stderr process;
-  let open Oci_Wrapper_Api in
-  Writer.write_bin_prot (Process.stdin process)
-    bin_writer_parameters
-    {runner_namespace_parameters
-     with rootfs = Some rootfs;
-          command = get_binary name};
-  Process.wait process
-  >>= fun r ->
-  Tcp.Server.close server
-  >>= fun () ->
-  Oci_Artefact.remove_dir conf rootfs;
-  >>= fun () ->
-  info "Stop runner for %s" (Oci_Data.name data);
-  match r with
-  | Ok () -> Ivar.read result
-  | Error r -> raise (RunnerFailed r)
-
-
-  (* >>= fun () -> *)
-  (* Process.create ~prog:oci_wrapper ~args:[] () *)
-  (* >>! fun process -> *)
-  (* send_process_to_stderr process; *)
-  (* don't_wait_for begin *)
-  (*   Process.wait process *)
-  (*   >>= function *)
-  (*   | Ok () -> Tcp.Server.close server *)
-  (*   | Error s -> *)
-  (*     error "This program stopped with a failure:%s\n%!" *)
-  (*       (Sexp.to_string_hum
-           (Oci_Wrapper_Api.sexp_of_parameters parameters)); *)
-  (*     Ivar.fill wait_error s; *)
-  (*     Tcp.Server.close server *)
-  (* end; *)
-  (* let open Oci_Wrapper_Api in *)
-  (* Writer.write_bin_prot (Process.stdin process) *)
-  (*   bin_writer_parameters *)
-  (*   parameters; *)
-*)

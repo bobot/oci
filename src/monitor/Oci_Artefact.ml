@@ -27,16 +27,6 @@ open Oci_Common
 
 open Log.Global
 
-let superroot = {uid=0;gid=0}
-(** A user outside the usernamespace of the runners stronger than the
-      root, In Artifact run with superroot as root *)
-
-let root = {uid=1;gid=1}
-(** root in the usernamespace of the runners *)
-
-let user = {uid=1001;gid=1001}
-(** A simple user in the usernamespace of the runners *)
-
 type conf = {
   mutable next_artefact_id: Int.t;
   mutable next_runner_id: Int.t;
@@ -78,10 +68,8 @@ let create src =
                               Oci_Filename.get dst]
   >>= fun () ->
   Async_shell.run "chown" ["-R";
-                                 Printf.sprintf "%i:%i"
-                                   superroot.uid
-                                   superroot.gid;
-                                 Oci_Filename.get dst]
+                           pp_chmod (master_user Superroot);
+                           Oci_Filename.get dst]
   >>=
   fun () -> return id
 
@@ -123,8 +111,6 @@ let register_master data f =
            info "Master %s" (Oci_Data.name data);
            f q))
 
-let id_runner = ref (-1)
-
 let exec_in_namespace parameters =
   Rpc.Rpc.dispatch_exn
     Oci_Artefact_Api.exec_in_namespace
@@ -150,14 +136,11 @@ let start_runner ~binary_name =
   let named_pipe = Oci_Filename.concat "oci" "oci_runner" in
   let parameters : Oci_Wrapper_Api.parameters = {
     rootfs = Some rootfs;
-    uidmap = [
-      {extern_id=conf.conf_monitor.root.uid; intern_id=0; length_id=1000};
-      {extern_id=conf.conf_monitor.user.uid; intern_id=1000; length_id=1};
-             ];
-    gidmap = [
-      {extern_id=conf.conf_monitor.root.gid; intern_id=0; length_id=1000};
-      {extern_id=conf.conf_monitor.user.gid; intern_id=1000; length_id=1};
-             ];
+    idmaps =
+      Oci_Wrapper_Api.idmaps
+        ~first_user_mapped:conf.conf_monitor.first_user_mapped
+        ~in_user:runner_user
+        [Root,1000;User,1];
     command = binary;
     argv = [named_pipe];
     env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
@@ -180,44 +163,14 @@ let start_runner ~binary_name =
       ~named_pipe:(Oci_Filename.concat rootfs named_pipe) () in
   begin
     r
-    >>> fun (result,conn) ->
+    >>> fun (result,_) ->
     result
-    >>> fun result ->
+    >>> fun _ ->
     Async_shell.run "rm" ["-rf";"--";rootfs]
     >>> fun () ->
     ()
   end;
   r
-
-(* let start_simple_exec ~oci_data ~current_user ~superroot ~root ~user = *)
-(*   let open Oci_Wrapper_Api in *)
-(*   let socket = Oci_Filename.concat oci_data "oci_simple_exec.socket" in *)
-(*   let parameters = { *)
-(*     rootfs = None; *)
-(*     uidmap = [ *)
-(*       {extern_id=current_user.uid; intern_id=0; length_id=1}; *)
-(*       {extern_id=superroot.uid; intern_id=1; length_id=1}; *)
-(*       {extern_id=root.uid; intern_id=2; length_id=1}; *)
-(*       {extern_id=user.uid; intern_id=3; length_id=1}; *)
-(*              ]; *)
-(*     gidmap = [ *)
-(*       {extern_id=current_user.gid; intern_id=0; length_id=1}; *)
-(*       {extern_id=superroot.gid; intern_id=1; length_id=1}; *)
-(*       {extern_id=root.gid; intern_id=2; length_id=1}; *)
-(*       {extern_id=user.gid; intern_id=3; length_id=1}; *)
-(*              ]; *)
-(*     command = oci_simple_exec; *)
-(*     argv = [socket]; *)
-(*     env = ["PATH","/usr/local/bin:/usr/bin:/bin"]; *)
-(*     runuid = 0; *)
-(*     rungid = 0; *)
-(*     bind_system_mount = false; *)
-(*     prepare_network = false; *)
-(*     workdir = None; *)
-(*   } in *)
-(*   start_in_namespace ~parameters *)
-(*     ~socket () *)
-
 
 let conn_monitor () =
   let implementations =

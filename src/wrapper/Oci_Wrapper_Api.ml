@@ -22,15 +22,21 @@
 open Core.Std
 
 type idmap = {
-  extern_id: int;
-  intern_id: int;
+  extern_id: Oci_Common.user;
+  intern_id: Oci_Common.user;
   length_id: int;
 } with sexp, bin_io
 
+let idmaps ~in_user ~first_user_mapped =
+  List.map ~f:(fun (u,length_id) -> {
+        extern_id = Oci_Common.outside_user ~first_user_mapped u;
+        intern_id = in_user u;
+        length_id;
+      })
+
 type parameters = {
   rootfs: Oci_Filename.t option;
-  uidmap: idmap list;
-  gidmap: idmap list;
+  idmaps: idmap list;
   command: string;
   argv: string list;
   env: (string * string) list;

@@ -108,21 +108,17 @@ let command_no_fail ?(error=(fun () -> ())) fmt =
 (** {2 User namespace} *)
 open Oci_Wrapper_Api
 
-let set_usermap uidmap gidmap pid =
-  let call cmd idmap =
+let set_usermap idmaps pid =
+  assert (idmaps <> []);
+  let call cmd proj =
     (** newuidmap pid uid loweruid count [uid loweruid count [ ... ]] *)
-    assert (idmap <> []);
     let argv = List.fold_left ~f:(fun acc idmap ->
-        idmap.length_id::idmap.extern_id::idmap.intern_id::acc
-      ) ~init:[Pid.to_int pid] idmap in
+        idmap.length_id::(proj idmap.extern_id)::(proj idmap.intern_id)::acc
+      ) ~init:[Pid.to_int pid] idmaps in
     let argv = List.rev_map ~f:string_of_int argv in
     Core_extended.Shell.run ~expect:[0] cmd argv in
-  call "newuidmap" uidmap;
-  call "newgidmap" gidmap
-  (*   command_no_fail ~error *)
-  (*   "newuidmap %i 0 %i 1 1 %i %i" pid curr_uid id rangeid; *)
-  (* command_no_fail ~error *)
-  (*   "newgidmap %i 0 %i 1 1 %i %i" pid curr_gid id rangeid *)
+  call "newuidmap" (fun u -> u.uid);
+  call "newgidmap" (fun u -> u.gid)
 
 let do_as_the_child_on_error pid =
   match Unix.waitpid pid with
@@ -181,11 +177,11 @@ let just_goto_child () =
     do_as_the_child_on_error pid;
     exit 0
 
-let go_in_userns uidmap gidmap =
+let go_in_userns idmaps =
   (** the usermap can be set only completely outside the namespace, so we
       keep a child for doing that when we have a pid completely inside the
       namespace *)
-  let call_set_usermap = exec_in_child (set_usermap uidmap gidmap) in
+  let call_set_usermap = exec_in_child (set_usermap idmaps) in
   unshare [ CLONE_NEWNS;
             CLONE_NEWIPC;
             CLONE_NEWPID;
@@ -285,7 +281,7 @@ let () =
   Unix.handle_unix_error begin fun () ->
     test_userns_availability ();
     (* Option.iter param.rootfs ~f:(mkdir ~perm:0o750); *)
-    go_in_userns param.uidmap param.gidmap;
+    go_in_userns param.idmaps;
     begin match param.rootfs with
     | None -> ()
     | Some rootfs ->
@@ -306,6 +302,6 @@ let () =
     never_returns
       (Unix.exec
          ~prog:param.command
-         (* ~env:(`Replace param.env) *)
+         ~env:(`Replace param.env)
          ~args:(param.command::param.argv) ());
   end ()

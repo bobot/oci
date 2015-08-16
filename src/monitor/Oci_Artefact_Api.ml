@@ -29,9 +29,7 @@ type artefact_api = {
   binaries : Oci_Filename.t;
   oci_data : Oci_Filename.t;
   oci_simple_exec : Oci_Filename.t;
-  superroot: user;
-  root: user;
-  user: user;
+  first_user_mapped: user;
 } with sexp, bin_io
 
 
