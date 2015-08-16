@@ -23,9 +23,15 @@
 open Core.Std
 open Async.Std
 
+type runner_result = Oci_Artefact_Api.exec_in_namespace_response =
+  | Exec_Ok
+  | Exec_Error of string with bin_io
+
 let register data f = Oci_Artefact.register_master data f
 let run () = Oci_Artefact.run ()
 let start_runner ~binary_name = Oci_Artefact.start_runner ~binary_name
+let stop_runner conn =
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_stop_runner conn ()
 
 let create_master ~hashable data f =
   let db : ('query, 'result Deferred.t) Hashtbl.t =
@@ -53,11 +59,19 @@ let create_master_and_runner
       start_runner ~binary_name
       >>= fun (err,conn) ->
       choose [
-        choice err error;
+        choice (err >>= function
+          | Exec_Ok -> never ()
+          | Exec_Error s -> return s) error;
         choice begin
           conn >>= fun conn ->
           Shutdown.at_shutdown (fun () -> Rpc.Connection.close conn);
           f conn q
+          >>= fun res ->
+          stop_runner conn
+          >>= fun () ->
+          Rpc.Connection.close conn;
+          >>= fun () ->
+          return res
         end (fun x -> x);
       ]
     end

@@ -144,12 +144,9 @@ let start_runner ~binary_name =
   >>= fun () ->
   Async_shell.run "cp" ["/etc/resolv.conf";"-t";etc]
   >>= fun () ->
-  let binary = Oci_Filename.add_extension binary_name "native" in
-  let binary_in_namespace = Oci_Filename.concat "oci" binary in
-  Unix.link
-    ~target:(Oci_Filename.concat (get_conf ()).binaries binary)
-    ~link_name:(Oci_Filename.concat rootfs binary_in_namespace) ()
-  >>= fun () ->
+  let binary =
+    Oci_Filename.concat (get_conf ()).binaries
+      (Oci_Filename.add_extension binary_name "native") in
   let named_pipe = Oci_Filename.concat "oci" "oci_runner" in
   let parameters : Oci_Wrapper_Api.parameters = {
     rootfs = Some rootfs;
@@ -161,7 +158,7 @@ let start_runner ~binary_name =
       {extern_id=conf.conf_monitor.root.gid; intern_id=0; length_id=1000};
       {extern_id=conf.conf_monitor.user.gid; intern_id=1000; length_id=1};
              ];
-    command = binary_in_namespace;
+    command = binary;
     argv = [named_pipe];
     env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
     runuid = 0;
@@ -176,11 +173,21 @@ let start_runner ~binary_name =
       ~implementations:[
     ]
   in
-  Oci_Artefact_Api.start_in_namespace
-    ~exec_in_namespace ~parameters
-    ~implementations
-    ~named_pipe:(Oci_Filename.concat rootfs named_pipe) ()
-
+  let r =
+    Oci_Artefact_Api.start_in_namespace
+      ~exec_in_namespace ~parameters
+      ~implementations
+      ~named_pipe:(Oci_Filename.concat rootfs named_pipe) () in
+  begin
+    r
+    >>> fun (result,conn) ->
+    result
+    >>> fun result ->
+    Async_shell.run "rm" ["-rf";"--";rootfs]
+    >>> fun () ->
+    ()
+  end;
+  r
 
 (* let start_simple_exec ~oci_data ~current_user ~superroot ~root ~user = *)
 (*   let open Oci_Wrapper_Api in *)
@@ -254,8 +261,10 @@ let run () =
       conf_monitor;
     } in
     gconf := Some conf;
+    Async_shell.run "rm" ["-rf";"--";conf.runners;conf.binaries]
+    >>> fun () ->
     Deferred.all_unit (List.map ~f:(Unix.mkdir ~p:() ?perm:None)
-                         [conf.runners;conf.binaries;conf.storage;conf.runners])
+                         [conf.runners;conf.binaries;conf.storage])
     >>> fun () ->
     (** Copy binaries *)
     Sys.ls_dir conf_monitor.binaries
@@ -279,6 +288,8 @@ let run () =
          files)
     >>> fun () ->
     let socket = Oci_Filename.concat conf_monitor.oci_data "oci.socket" in
+    Async_shell.run "rm" ["-f";"--";socket]
+    >>> fun () ->
     Rpc.Connection.serve
       ~where_to_listen:(Tcp.on_file socket)
       ~initial_connection_state:(fun _ _ -> ())

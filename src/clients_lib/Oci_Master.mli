@@ -52,9 +52,13 @@ val register:
       track of which tasks are running, and which tasks have been
       already run. *)
 
+type runner_result =
+  | Exec_Ok
+  | Exec_Error of string with bin_io
+
 val start_runner:
   binary_name:string ->
-  (string Async_kernel.Deferred0.t *
+  (runner_result Async_kernel.Deferred0.t *
    Async.Std.Rpc.Connection.t Async_kernel.Deferred0.t)
     Async.Std.Deferred.t
 (** Start the given runner in a namespace and start an Rpc connection.
@@ -64,3 +68,6 @@ val start_runner:
     error of the process, the second one is determined when the
     connection is established.
 *)
+
+val stop_runner: Rpc.Connection.t -> unit Deferred.t
+(** Ask the runner to stop *)

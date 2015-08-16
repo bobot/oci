@@ -23,8 +23,7 @@
 open Core.Std
 open Async.Std
 open Oci_Common
-
-open Log.Global
+open Oci_Std
 
 type artefact_api = {
   binaries : Oci_Filename.t;
@@ -58,6 +57,10 @@ let start_in_namespace
   debug "Here";
   let named_pipe_in = named_pipe^".in" in
   let named_pipe_out = named_pipe^".out" in
+  unlink_no_fail named_pipe_in
+  >>= fun () ->
+  unlink_no_fail named_pipe_out
+  >>= fun () ->
   Unix.mkfifo named_pipe_in
   >>= fun () ->
   Unix.mkfifo named_pipe_out
@@ -72,6 +75,10 @@ let start_in_namespace
     >>= fun writer ->
     Reader.open_file named_pipe_out
     >>= fun reader ->
+    Unix.unlink named_pipe_in
+    >>= fun () ->
+    Unix.unlink named_pipe_out
+    >>= fun () ->
     Rpc.Connection.create
       ~connection_state:(fun _ -> ())
       ?implementations
@@ -81,12 +88,7 @@ let start_in_namespace
     let conn = Result.ok_exn conn in
     return conn
   in
-  let error =
-    exec_in_namespace (parameters:Oci_Wrapper_Api.parameters)
-    >>= function
-    | Exec_Ok -> never ()
-    | Exec_Error s -> return s
-  in
+  let error = exec_in_namespace (parameters:Oci_Wrapper_Api.parameters) in
   return (error,conn)
 
 
@@ -111,5 +113,12 @@ let rpc_copy_to =
     ~name:"Oci_Artefact.copy_to"
     ~version:1
     ~bin_query:bin_rpc_link_to_query
+    ~bin_response:Unit.bin_t
+
+let rpc_stop_runner =
+  Rpc.Rpc.create
+    ~name:"Oci_Runner.stop_runner"
+    ~version:1
+    ~bin_query:Unit.bin_t
     ~bin_response:Unit.bin_t
 

@@ -20,56 +20,32 @@
 (*                                                                        *)
 (**************************************************************************)
 
+
 open Core.Std
 open Async.Std
 
-type t = Rpc.Connection.t
-
-(** Enter inside the namespace *)
-let () =
-  Caml.Unix.chroot ".";
-  Caml.Unix.chdir "/"
-
-let run ~implementations =
+let _ =
+  Tcp.connect (Tcp.to_file Sys.argv.(1))
+  >>= fun (_,reader,writer) ->
+  Rpc.Connection.create
+    ~connection_state:(fun _ -> ())
+    reader writer
+  >>= fun conn ->
+  let conn = Result.ok_exn conn in
   begin
-    let implementations =
-      (Rpc.Rpc.implement Oci_Artefact_Api.rpc_stop_runner
-         (fun _ () -> shutdown 0; return ()))::
-       implementations in
-    let implementations =
-      Rpc.Implementations.create_exn
-        ~on_unknown_rpc:`Raise
-        ~implementations in
-    let named_pipe = Sys.argv.(1) in
-    Reader.open_file (named_pipe^".in")
-    >>> fun reader ->
-    Writer.open_file (named_pipe^".out")
-    >>> fun writer ->
-    Rpc.Connection.create
-      ~implementations
-      ~connection_state:(fun c -> c)
-      reader writer
-    >>> fun conn ->
-    let conn = Result.ok_exn conn in
-    Shutdown.at_shutdown (fun () ->
-        Rpc.Connection.close conn
-        >>= fun () ->
-        Reader.close reader;
-        >>= fun () ->
-        Writer.close writer
-      )
-  end;
-  Scheduler.go ()
+    (Lazy.force Reader.stdin)
+    |> Reader.lines
+    |> Pipe.iter
+      ~f:(fun line ->
+          Printf.printf "Read %s\n%!" line;
+          Rpc.Rpc.dispatch_exn (Oci_Data.rpc Test_succ.test_succ) conn
+            (int_of_string line)
+          >>= fun r ->
+          Printf.printf
+            "For %s: result %i\n%!" line r;
+          Writer.flushed (Lazy.force Writer.stdout)
 
+        )
+  end
 
-type artefact = Oci_Common.artefact with sexp
-let bin_artefact = Oci_Common.bin_artefact
-
-let create_artefact t ~dir =
-  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_create t dir
-let link_artefact t src ~dir =
-    Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_link_to t (src,dir)
-let copy_artefact t src ~dir =
-  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_copy_to t (src,dir)
-
-let dispatch t d q = Rpc.Rpc.dispatch_exn (Oci_Data.rpc d) t q
+let () = never_returns (Scheduler.go ())

@@ -182,15 +182,22 @@ let start_master ~conf ~master ~oci_data ~binaries =
     ()
   >>= fun (error,conn) ->
   choose [
-    choice error (fun s -> info "master stopped unexpectedly:%s" s;
-                   Shutdown.shutdown 1
-                 );
+    choice error (function
+        | Exec_Ok ->
+          info "master stopped unexpectedly but normally";
+          Shutdown.shutdown 1
+        | Exec_Error s ->
+          info "master stopped unexpectedly with error:%s" s;
+          Shutdown.shutdown 1
+      );
     choice begin
       conn >>= fun conn ->
       Shutdown.at_shutdown (fun () -> Rpc.Connection.close conn);
       never ()
     end (fun _ -> ());
   ]
+
+
 
 let run master binaries oci_data verbosity () =
   Log.Global.set_level verbosity;
@@ -199,15 +206,24 @@ let run master binaries oci_data verbosity () =
   start_master ~conf ~binaries ~oci_data ~master
 
 let () = Command.run begin
+    let current_work_dir = Caml.Sys.getcwd () in
+    let map_to_absolute =
+      Command.Spec.map_flag ~f:begin
+        fun f ->
+          if Oci_Filename.is_relative f
+          then Oci_Filename.make_absolute current_work_dir f
+          else f
+      end
+    in
     Command.async_basic
       ~summary:"Start OCI continous integration framework"
       Command.Spec.(
         empty +>
-        flag "--master" (required file)
+        flag "--master" (map_to_absolute (required file))
           ~doc:" Specify the master to use" +>
-        flag "--binaries" (required file)
+        flag "--binaries" (map_to_absolute (required file))
           ~doc:" Specify where the runners are" +>
-        flag "--oci-data" (required file)
+        flag "--oci-data" (map_to_absolute (required file))
           ~doc:" Specify where the OCI should store its files" +>
         flag "--verbosity" (map_flag ~f:Log.Level.of_string
                               (optional_with_default "Info" string))
