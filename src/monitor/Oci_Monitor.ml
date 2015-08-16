@@ -157,9 +157,11 @@ let start_master ~conf ~master ~oci_data ~binaries =
       ]
   in
   info "Start master";
-  Oci_Artefact_Api.start_in_namespace ~exec_in_namespace ~parameters
+  Oci_Artefact_Api.start_in_namespace
+    ~exec_in_namespace ~parameters
     ~named_pipe
     ~implementations
+    ~initial_state:()
     ()
   >>= fun (error,conn) ->
   choose [

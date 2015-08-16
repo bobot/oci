@@ -51,7 +51,8 @@ let exec_in_namespace = Rpc.Rpc.create
     ~bin_response:bin_exec_in_namespace_response
 
 let start_in_namespace
-    ?implementations ~exec_in_namespace ~parameters ~named_pipe () =
+    ?implementations ~initial_state
+    ~exec_in_namespace ~parameters ~named_pipe () =
   debug "Here";
   let named_pipe_in = named_pipe^".in" in
   let named_pipe_out = named_pipe^".out" in
@@ -78,7 +79,7 @@ let start_in_namespace
     Unix.unlink named_pipe_out
     >>= fun () ->
     Rpc.Connection.create
-      ~connection_state:(fun _ -> ())
+      ~connection_state:(fun _ -> initial_state)
       ?implementations
       reader
       writer

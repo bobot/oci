@@ -35,6 +35,7 @@ type conf = {
   storage: Oci_Filename.t;
   runners: Oci_Filename.t;
   conf_monitor: Oci_Artefact_Api.artefact_api;
+  api_for_runner: Oci_Filename.t Rpc.Implementations.t;
 }
 
 let gconf = ref None
@@ -102,13 +103,13 @@ let remove_dir dir =
 (** {2 Management} *)
 let masters =
   ref (Rpc.Implementations.create_exn
-         ~implementations:[] ~on_unknown_rpc:`Continue)
+         ~implementations:[] ~on_unknown_rpc:`Close_connection)
 
 let register_master data f =
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Rpc.implement (Oci_Data.rpc data)
-         (fun () q ->
-           info "Master %s" (Oci_Data.name data);
+         (fun rootfs q ->
+           debug "Master %s from %s" (Oci_Data.name data) rootfs;
            f q))
 
 let exec_in_namespace parameters =
@@ -116,6 +117,37 @@ let exec_in_namespace parameters =
     Oci_Artefact_Api.exec_in_namespace
     (get_conf ()).conn_monitor
     parameters
+
+let add_artefact_api init =
+  List.fold_left ~f:Rpc.Implementations.add_exn ~init [
+    (** create *)
+    Rpc.Rpc.implement
+      Oci_Artefact_Api.rpc_create
+      (fun rootfs src ->
+         assert (not (Oci_Filename.is_relative src));
+         let src = Oci_Filename.make_relative "/" src in
+         let src = Oci_Filename.make_absolute rootfs src in
+         create src
+      );
+    (** link_to *)
+    Rpc.Rpc.implement
+      Oci_Artefact_Api.rpc_link_to
+      (fun rootfs (artefact,dst) ->
+         assert (not (Oci_Filename.is_relative dst));
+         let dst = Oci_Filename.make_relative "/" dst in
+         let dst = Oci_Filename.make_absolute rootfs dst in
+         link_to artefact dst
+      );
+    (** copy_to *)
+    Rpc.Rpc.implement
+      Oci_Artefact_Api.rpc_copy_to
+      (fun rootfs (artefact,dst) ->
+         assert (not (Oci_Filename.is_relative dst));
+         let dst = Oci_Filename.make_relative "/" dst in
+         let dst = Oci_Filename.make_absolute rootfs dst in
+         copy_to artefact dst
+      )
+  ]
 
 let start_runner ~binary_name =
   let conf = get_conf () in
@@ -150,16 +182,12 @@ let start_runner ~binary_name =
     prepare_network = false;
     workdir = None;
   } in
-  let implementations =
-    Rpc.Implementations.create_exn
-      ~on_unknown_rpc:`Raise
-      ~implementations:[
-    ]
-  in
+  info "Start runner %s" binary_name;
   let r =
     Oci_Artefact_Api.start_in_namespace
       ~exec_in_namespace ~parameters
-      ~implementations
+      ~implementations:conf.api_for_runner
+      ~initial_state:rootfs
       ~named_pipe:(Oci_Filename.concat rootfs named_pipe) () in
   begin
     r
@@ -212,6 +240,7 @@ let run () =
       binaries = Oci_Filename.concat conf_monitor.oci_data "binaries";
       storage = Oci_Filename.concat conf_monitor.oci_data "storage";
       conf_monitor;
+      api_for_runner = add_artefact_api !masters;
     } in
     gconf := Some conf;
     Async_shell.run "rm" ["-rf";"--";conf.runners;conf.binaries]
@@ -245,7 +274,7 @@ let run () =
     >>> fun () ->
     Rpc.Connection.serve
       ~where_to_listen:(Tcp.on_file socket)
-      ~initial_connection_state:(fun _ _ -> ())
+      ~initial_connection_state:(fun _ _ -> "external socket")
       ~implementations:!masters
       ()
     >>> fun server ->

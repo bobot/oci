@@ -24,6 +24,21 @@
 open Core.Std
 open Async.Std
 
+let test = match Sys.argv.(2) with
+  | "succ" -> Test_succ.test_succ
+  | "fibo" -> Test_succ.test_fibo
+  | _ -> failwith "succ or fibo"
+
+
+let exec_f conn line =
+  Printf.printf "Read %s\n%!" line;
+  Rpc.Rpc.dispatch_exn (Oci_Data.rpc test) conn
+    (int_of_string line)
+  >>= fun r ->
+  Printf.printf
+    "For %s: result %i\n%!" line r;
+  Writer.flushed (Lazy.force Writer.stdout)
+
 let _ =
   Tcp.connect (Tcp.to_file Sys.argv.(1))
   >>= fun (_,reader,writer) ->
@@ -32,20 +47,18 @@ let _ =
     reader writer
   >>= fun conn ->
   let conn = Result.ok_exn conn in
-  begin
-    (Lazy.force Reader.stdin)
-    |> Reader.lines
-    |> Pipe.iter
-      ~f:(fun line ->
-          Printf.printf "Read %s\n%!" line;
-          Rpc.Rpc.dispatch_exn (Oci_Data.rpc Test_succ.test_succ) conn
-            (int_of_string line)
-          >>= fun r ->
-          Printf.printf
-            "For %s: result %i\n%!" line r;
-          Writer.flushed (Lazy.force Writer.stdout)
+  exec_f conn Sys.argv.(3)
+  >>= fun () ->
+  Rpc.Connection.close conn;
+  >>= fun () ->
+  Shutdown.exit 0
 
-        )
-  end
+
+  (* begin *)
+  (*   (Lazy.force Reader.stdin) *)
+  (*   |> Reader.lines *)
+  (*   |> Pipe.iter *)
+  (*     ~f:(exec_f conn) *)
+  (* end *)
 
 let () = never_returns (Scheduler.go ())

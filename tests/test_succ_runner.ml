@@ -30,7 +30,22 @@ let () =
       ~implementations:[
         Rpc.Rpc.implement
           (Oci_Data.rpc Test_succ.test_succ)
-          (fun _ q ->
-             return (q + 1))
+          (fun _ q -> return (q + 1));
+        Rpc.Rpc.implement
+          (Oci_Data.rpc Test_succ.test_fibo)
+          (fun conn q ->
+             match q with
+             | q when q < 0 -> return Int.min_value
+             | 0 -> return 1
+             | 1 -> return 1
+             | q ->
+               let q_1 = Oci_Runner.dispatch
+                   conn Test_succ.test_fibo (q-1) in
+               let q_2 = Oci_Runner.dispatch
+                   conn Test_succ.test_fibo (q-2) in
+               Deferred.both q_1 q_2
+               >>= fun (q_1,q_2) ->
+               return (q_1 + q_2))
+
       ]
   end

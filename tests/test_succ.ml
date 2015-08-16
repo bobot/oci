@@ -27,3 +27,9 @@ let test_succ = Oci_Data.register
     ~version:1
     ~bin_query:Int.bin_t
     ~bin_result:Int.bin_t
+
+let test_fibo = Oci_Data.register
+    ~name:"fibo"
+    ~version:1
+    ~bin_query:Int.bin_t
+    ~bin_result:Int.bin_t

@@ -32,4 +32,14 @@ let () =
     (fun conn x ->
        Rpc.Rpc.dispatch_exn (Oci_Data.rpc Test_succ.test_succ) conn x)
 
+
+let () =
+  Oci_Master.create_master_and_runner
+    ~hashable:Int.hashable
+    Test_succ.test_fibo
+    ~error:(fun _ -> Int.min_value)
+    ~binary_name:"test_succ_runner"
+    (fun conn x ->
+       Rpc.Rpc.dispatch_exn (Oci_Data.rpc Test_succ.test_fibo) conn x)
+
 let () = never_returns (Oci_Master.run ())
