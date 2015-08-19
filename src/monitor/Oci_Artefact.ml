@@ -34,6 +34,8 @@ type conf = {
   binaries: Oci_Filename.t;
   storage: Oci_Filename.t;
   runners: Oci_Filename.t;
+  permanent: Oci_Filename.t;
+  (** permanent storage for masters *)
   conf_monitor: Oci_Artefact_Api.artefact_api;
   api_for_runner: Oci_Filename.t Rpc.Implementations.t;
 }
@@ -96,6 +98,16 @@ let is_available id =
 
 let remove_dir dir =
   Async_shell.run "rm" ["-rf";"--"; Oci_Filename.get dir]
+
+let permanent_directory data =
+  let conf = get_conf () in
+  let dir =
+    Oci_Filename.make_absolute conf.permanent
+      (Oci_Filename.concat (Oci_Data.name data)
+         (Int.to_string (Oci_Data.version data))) in
+  Async_shell.run "mkdir" ["-p";"--";dir]
+  >>= fun () ->
+  return dir
 
 (* let create_conf ~storage ~superroot ~root ~user ~simple_exec_conn = *)
 (*   {storage; superroot; root; user; conn = simple_exec_conn} *)
@@ -203,7 +215,10 @@ let start_runner ~binary_name =
 let conn_monitor () =
   let implementations =
     Rpc.Implementations.create_exn
-      ~implementations:[]
+      ~implementations:[
+        Rpc.Rpc.implement Oci_Artefact_Api.rpc_stop_runner
+          (fun () () -> Oci_Artefact_Api.oci_shutdown ())
+      ]
       ~on_unknown_rpc:`Raise in
   let named_pipe = Sys.argv.(1) in
   Reader.open_file (named_pipe^".in")
@@ -239,14 +254,17 @@ let run () =
       runners = Oci_Filename.concat conf_monitor.oci_data "runners";
       binaries = Oci_Filename.concat conf_monitor.oci_data "binaries";
       storage = Oci_Filename.concat conf_monitor.oci_data "storage";
+      permanent = Oci_Filename.concat conf_monitor.oci_data "permanent";
       conf_monitor;
       api_for_runner = add_artefact_api !masters;
     } in
     gconf := Some conf;
+    if conf_monitor.debug_level then Log.Global.set_level `Debug;
     Async_shell.run "rm" ["-rf";"--";conf.runners;conf.binaries]
     >>> fun () ->
     Deferred.all_unit (List.map ~f:(Unix.mkdir ~p:() ?perm:None)
-                         [conf.runners;conf.binaries;conf.storage])
+                         [conf.runners;conf.binaries;
+                          conf.storage;conf.permanent])
     >>> fun () ->
     (** Copy binaries *)
     Sys.ls_dir conf_monitor.binaries

@@ -30,8 +30,8 @@ type artefact_api = {
   oci_data : Oci_Filename.t;
   oci_simple_exec : Oci_Filename.t;
   first_user_mapped: user;
+  debug_level : Bool.t;
 } with sexp, bin_io
-
 
 let get_configuration = Rpc.Rpc.create
     ~name:"Oci_Artefact.start"
@@ -121,3 +121,20 @@ let rpc_stop_runner =
     ~bin_query:Unit.bin_t
     ~bin_response:Unit.bin_t
 
+let oci_at_shutdown,oci_shutdown,oci_shutting_down =
+  let s = Stack.create () in
+  let r = ref false in
+  (fun d -> Stack.push s d),
+  (fun () ->
+     debug "Shutting down";
+     r := true;
+     s
+     |> Stack.fold ~init:[] ~f:(fun acc d -> d ()::acc)
+     |> Deferred.all_unit
+     >>= fun () ->
+     debug "Shutting down tasks finished";
+     Log.Global.flushed ()
+     >>= fun () ->
+     Shutdown.exit 0
+  ),
+  (fun () -> !r)

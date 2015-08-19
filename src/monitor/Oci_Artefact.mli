@@ -56,3 +56,6 @@ val start_runner:
     `start_runner ~binary_name` start the executable
     [binary_name^".native"] located in the directory of binaries *)
 
+val permanent_directory:
+  ('query,'result) Oci_Data.t -> Oci_Filename.t Deferred.t
+(** Give the permanent directory for this master *)

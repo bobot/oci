@@ -27,6 +27,11 @@
 open Core.Std
 open ExtUnix.Specific
 
+(** remove the process from the group of the process monitor
+    It allows to manage the shutdown nicely
+ *)
+let () = setpgid 0 0
+
 let mkdir ?(perm=0o750) dir =
   if not (Sys.file_exists_exn dir) then Unix.mkdir dir ~perm
 
@@ -135,6 +140,7 @@ let goto_child ~exec_in_parent =
     ignore (Unix.read fin ~buf:(Bytes.create 1) ~pos:0 ~len:1);
     Unix.close fin
   | `In_the_parent pid ->
+    (** execute the command and wait *)
     Unix.close fin;
     (exec_in_parent pid: unit);
     ignore (Unix.write fout ~buf:(Bytes.create 1) ~pos:0 ~len:1);
@@ -177,6 +183,27 @@ let just_goto_child () =
     do_as_the_child_on_error pid;
     exit 0
 
+
+let named_pipe_in = Sys.argv.(1)^".in"
+let named_pipe_out = Sys.argv.(1)^".out"
+
+let param : parameters =
+  let cin = In_channel.create named_pipe_in in
+  let param =
+    Bin_prot.Utils.bin_read_stream
+      ~read:(fun buf ~pos ~len ->
+          Bigstring.really_input ~pos ~len cin buf)
+      bin_reader_parameters
+  in
+  In_channel.close cin;
+  param
+
+let send_pid pid =
+  let cout = Out_channel.create named_pipe_out in
+  let buf = Bin_prot.Utils.bin_dump ~header:true Pid.bin_writer_t pid in
+  Bigstring.really_output cout  buf;
+  Out_channel.close cout
+
 let go_in_userns idmaps =
   (** the usermap can be set only completely outside the namespace, so we
       keep a child for doing that when we have a pid completely inside the
@@ -190,76 +217,12 @@ let go_in_userns idmaps =
           ];
   (** only the child will be in the new pid namespace, the parent is in an
       intermediary state not interesting *)
-  goto_child ~exec_in_parent:call_set_usermap
+  goto_child ~exec_in_parent:(fun pid ->
+      send_pid pid;
+      call_set_usermap pid)
   (* Printf.printf "User: %i (%i)\n%!" (Unix.getuid ()) (Unix.geteuid ()); *)
   (* Printf.printf "Pid: %i\n%!" (Unix.getpid ()); *)
   (* Printf.printf "User: %i (%i)\n%!" (Unix.getuid ()) (Unix.geteuid ()); *)
-
-(* let param = *)
-(*   let curr_uid = Unix.getuid () in *)
-(*   let curr_gid = Unix.getgid () in *)
-(*   let open Arg in *)
-(*   let param = ref { *)
-(*       rootfs = "rootfs"; *)
-(*       uidmap = [{extern_id=curr_uid; intern_id=0;length_id=1}]; *)
-(*       gidmap = [{extern_id=curr_gid; intern_id=0;length_id=1}]; *)
-(*       command = "/usr/bin/bash"; *)
-(*       argv = [||]; *)
-(*       env = [||]; *)
-(*       uid = 0; *)
-(*       gid = 0; *)
-(*       bind_system_mount = true; *)
-(*     } in *)
-(*   parse (align ~limit:80 [ *)
-(*       "--dir", *)
-(*       String (fun rootfs -> param := {!param with rootfs}), *)
-(*       "dir ​directory to use as the root directory"; *)
-(*       "--idmap", *)
-(*       Tuple [Set_int idmap_id;Set_int idmap_rangeid], *)
-(*       "internal_external_range maps additionally uid/gid *)
-(*          [internal;internal+range] to [external;external+range]\n\t\ *)
-(*        you need a configured /etc/subuid (man subuid)"; *)
-(*       "--uid", *)
-(*       Set_int setuid, *)
-(*       "uid Execute the command as this uid inside the user namespace"; *)
-(*       "--gid", *)
-(*       Set_int setgid, *)
-(*       "gid Execute the command as this gid inside the user namespace"; *)
-(*       "--arch", *)
-(*       Set_string arch, *)
-(*       "arch Specify the architecture of the image \ *)
-(*        (eg. amd64, i386, armel,armhf)"; *)
-(*       "--distr", *)
-(*       Tuple [Set_string distr; Set_string release], *)
-(*       "distr_release Specify the distribution and release of the image \ *)
-(*        (eg. centos 6, debian jessie, ubuntu precise, gentoo current)"; *)
-(*       "--", *)
-(*       Rest (fun s -> command := s::!command), *)
-(*       "Instead of running /bin/bash in the usernamespace,
-         run the given command" *)
-(*     ]) *)
-(*     (fun _ -> raise (Bad "no anonymous option")) *)
-(*     "Test for user-namespace: you need linux at least 3.18. \ *)
-(*      In the user-namespace the\n\ *)
-(*      current user is root.
-       Use LXC download template facilities for getting\n\ *)
-(*      the root filesystem."; *)
-(*   let idmap = *)
-(*     match !idmap_id, !idmap_rangeid with *)
-(*     | (-1), _ | _, (-1) -> KeepUser *)
-(*     | id, range -> IdMap(id,range) *)
-(*   in *)
-(*   let command = *)
-(*     match List.rev !command with *)
-(*     | [] -> "/bin/bash",[|"bash"|] *)
-(*     | (cmd::_) as l -> cmd, Array.of_list l in *)
-(*   !param *)
-
-
-let param : parameters = Bin_prot.Utils.bin_read_stream
-    ~read:(fun buf ~pos ~len ->
-        Bigstring.really_input ~pos ~len In_channel.stdin buf)
-    bin_reader_parameters
 
 let test_overlay () =
   (** for test *)

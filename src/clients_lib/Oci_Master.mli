@@ -44,6 +44,9 @@ val run: unit -> never_returns
 
 (** {2 Expert API} *)
 
+val oci_at_shutdown: (unit -> unit Deferred.t) -> unit
+(** Run when the masters will stop *)
+
 val register:
   ('query,'result) Oci_Data.t ->
   ('query -> 'result Deferred.t) ->
@@ -71,3 +74,7 @@ val start_runner:
 
 val stop_runner: Rpc.Connection.t -> unit Deferred.t
 (** Ask the runner to stop *)
+
+val permanent_directory:
+  ('query,'result) Oci_Data.t -> Oci_Filename.t Deferred.t
+(** Give the permanent directory for this master *)
