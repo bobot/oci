@@ -109,6 +109,29 @@ let permanent_directory data =
   >>= fun () ->
   return dir
 
+let artifact_data_permanent_file =
+  let conf = get_conf () in
+  let dir = Oci_Filename.make_absolute conf.permanent "Oci_Artefact_Api/data" in
+  Async_shell.run "mkdir" ["-p";"--";dir]
+  >>= fun () ->
+  return dir
+
+let loader_artifact_data () =
+  let conf = get_conf () in
+  artifact_data_permanent_file
+  >>= fun file ->
+  Oci_Std.read_if_exists file Int.bin_reader_t
+    (fun r -> conf.next_artefact_id <- r; return ())
+
+let saver_artifact_data () =
+  let conf = get_conf () in
+  artifact_data_permanent_file
+  >>= fun file ->
+  Oci_Std.backup_and_open_file file
+  >>= fun writer ->
+  Writer.write_bin_prot writer Int.bin_writer_t conf.next_artefact_id;
+  Writer.close writer
+
 (* let create_conf ~storage ~superroot ~root ~user ~simple_exec_conn = *)
 (*   {storage; superroot; root; user; conn = simple_exec_conn} *)
 
@@ -304,6 +327,7 @@ let run () =
                 (Oci_Filename.concat conf.binaries x))
          files)
     >>> fun () ->
+    register_saver ~loader:loader_artifact_data ~saver:saver_artifact_data;
     (* Clock.every' (Time.Span.create ~min:10 ()) save; *)
     Oci_Artefact_Api.oci_at_shutdown save;
     load ()

@@ -63,22 +63,12 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
           permanent_directory data
           >>= fun dir ->
           let file = Oci_Filename.make_absolute dir "data" in
-          Sys.file_exists_exn file
-          >>= fun exi ->
-          begin if exi then begin
-              Reader.open_file file
-              >>= fun reader ->
-              Reader.read_bin_prot reader bin_reader_save_data
-              >>= function
-              | `Eof -> return ()
-              | `Ok r ->
-                List.iter
-                  ~f:(fun (q,r) -> H.add_exn db ~key:q ~data:(return r))
-                  r;
-                return ()
-            end
-            else return ()
-          end
+          Oci_Std.read_if_exists file bin_reader_save_data
+            (fun r ->
+               List.iter
+                 ~f:(fun (q,r) -> H.add_exn db ~key:q ~data:(return r))
+                 r;
+               return ())
         )
       ~saver:(fun () ->
           let l = H.fold ~init:[]
@@ -92,18 +82,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
           permanent_directory data
           >>= fun dir ->
           let file = Oci_Filename.make_absolute dir "data" in
-          let file_bak = Oci_Filename.add_extension file "bak" in
-          Sys.file_exists_exn file
-          >>= fun exi ->
-          begin if exi then begin
-              Oci_Std.unlink_no_fail file_bak
-              >>= fun () ->
-              Unix.rename ~src:file ~dst:file_bak
-            end
-            else return ()
-          end
-          >>= fun () ->
-          Writer.open_file file
+          Oci_Std.backup_and_open_file file
           >>= fun writer ->
           Writer.write_bin_prot writer bin_writer_save_data l;
           Writer.close writer
