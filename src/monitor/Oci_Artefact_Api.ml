@@ -96,9 +96,9 @@ let rpc_create =
     ~name:"Oci_Artefact.create"
     ~version:1
     ~bin_query:Oci_Filename.bin_t
-    ~bin_response:bin_artefact
+    ~bin_response:Artefact.bin_t
 
-type rpc_link_to_query = artefact * Oci_Filename.t with bin_io
+type rpc_link_to_query = Artefact.t * Oci_Filename.t with bin_io
 
 let rpc_link_to =
   Rpc.Rpc.create

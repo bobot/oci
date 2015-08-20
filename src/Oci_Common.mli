@@ -20,12 +20,16 @@
 (*                                                                        *)
 (**************************************************************************)
 
-type artefact = int with sexp, bin_io, compare
+module Artefact : sig
+  type t with sexp, bin_io, compare
+  val to_string: t -> string
+  val of_int: int -> t
+end
 
 type user = {uid : int; gid : int} with sexp, compare, bin_io
 
 val pp_user: Format.formatter -> user -> unit
-val pp_chmod: user -> string
+val pp_chown: user -> string
 
 type user_kind =
   | Superroot

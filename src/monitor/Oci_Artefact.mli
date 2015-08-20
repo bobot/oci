@@ -24,7 +24,7 @@
 open Core.Std
 open Async.Std
 
-type t with sexp, bin_type_class
+type t = Oci_Common.Artefact.t
 
 val create: Oci_Filename.t -> t Deferred.t
 

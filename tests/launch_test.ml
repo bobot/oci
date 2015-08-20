@@ -27,6 +27,7 @@ open Async.Std
 let test = match Sys.argv.(2) with
   | "succ" -> Test_succ.test_succ
   | "fibo" -> Test_succ.test_fibo
+  | "fibo_artefact" -> Test_succ.test_fibo_artefact
   | _ -> failwith "succ or fibo"
 
 

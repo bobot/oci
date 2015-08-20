@@ -33,3 +33,15 @@ let test_fibo = Oci_Data.register
     ~version:1
     ~bin_query:Int.bin_t
     ~bin_result:Int.bin_t
+
+let test_fibo_artefact_aux = Oci_Data.register
+    ~name:"fibo_artefact_aux"
+    ~version:1
+    ~bin_query:Int.bin_t
+    ~bin_result:Oci_Common.Artefact.bin_t
+
+let test_fibo_artefact = Oci_Data.register
+    ~name:"fibo_artefact"
+    ~version:1
+    ~bin_query:Int.bin_t
+    ~bin_result:Int.bin_t

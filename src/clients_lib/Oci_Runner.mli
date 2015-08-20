@@ -30,7 +30,7 @@ val run:
   never_returns
 (** The runner waits for request. *)
 
-type artefact with sexp, bin_type_class
+type artefact = Oci_Common.Artefact.t with sexp, bin_io
 
 val create_artefact: t -> dir:string -> artefact Deferred.t
 val link_artefact: t -> artefact -> dir:string -> unit Deferred.t

@@ -22,13 +22,17 @@
 
 open Core.Std
 
-type artefact = Int.t with sexp, compare, bin_io
-let bin_artefact = Int.bin_t
+module Artefact = struct
+  type t = Int.t with sexp, compare, bin_io
+  (* let bin_t = Int.bin_t *)
+  let to_string = Int.to_string
+  let of_int = Fn.id
+end
 
 type user = {uid : int; gid : int} with sexp, compare, bin_io
 
 let pp_user fmt u = Format.fprintf fmt "%i,%i" u.uid u.gid
-let pp_chmod u = Printf.sprintf "%i:%i" u.uid u.gid
+let pp_chown u = Printf.sprintf "%i:%i" u.uid u.gid
 
 (** user in different namespace *)
 

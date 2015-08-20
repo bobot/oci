@@ -42,36 +42,33 @@ type conf = {
 
 let gconf = ref None
 
-type t = Oci_Common.artefact with sexp
-let bin_t = Oci_Common.bin_artefact
+type t = Oci_Common.Artefact.t
 
 exception Directory_should_not_exists of Oci_Filename.t
 
 let get_conf () =
   Option.value_exn
-    ~message:"The functions can't be used before starting the `run` function"
+    ~message:"Configuration can't be used before starting the `run` function"
     !gconf
 
 let dir_of_artefact id =
-  let dir = Oci_Filename.mk (string_of_int id) in
+  let dir = Oci_Filename.mk (Artefact.to_string id) in
   Oci_Filename.make_absolute (get_conf ()).storage dir
 
 let create src =
   let conf = get_conf () in
   conf.next_artefact_id <- conf.next_artefact_id + 1;
-  let id = conf.next_artefact_id in
+  let id = Artefact.of_int conf.next_artefact_id in
   let dst = dir_of_artefact id in
   Sys.file_exists_exn (Oci_Filename.get dst)
   >>= fun b ->
-  if not b then raise (Directory_should_not_exists dst);
-  Unix.mkdir (Oci_Filename.get dst)
-  >>= fun () ->
+  if b then raise (Directory_should_not_exists dst);
   Async_shell.run "cp" ["-a";"--";
                               Oci_Filename.get src;
                               Oci_Filename.get dst]
   >>= fun () ->
   Async_shell.run "chown" ["-R";
-                           pp_chmod (master_user Superroot);
+                           pp_chown (master_user Superroot);
                            Oci_Filename.get dst]
   >>=
   fun () -> return id
@@ -109,23 +106,22 @@ let permanent_directory data =
   >>= fun () ->
   return dir
 
-let artifact_data_permanent_file =
-  let conf = get_conf () in
-  let dir = Oci_Filename.make_absolute conf.permanent "Oci_Artefact_Api/data" in
+let artifact_data_permanent_file conf =
+  let dir = Oci_Filename.make_absolute conf.permanent "Oci_Artefact_Api" in
   Async_shell.run "mkdir" ["-p";"--";dir]
   >>= fun () ->
-  return dir
+  return (Oci_Filename.concat dir "data")
 
 let loader_artifact_data () =
   let conf = get_conf () in
-  artifact_data_permanent_file
+  artifact_data_permanent_file conf
   >>= fun file ->
   Oci_Std.read_if_exists file Int.bin_reader_t
     (fun r -> conf.next_artefact_id <- r; return ())
 
 let saver_artifact_data () =
   let conf = get_conf () in
-  artifact_data_permanent_file
+  artifact_data_permanent_file conf
   >>= fun file ->
   Oci_Std.backup_and_open_file file
   >>= fun writer ->
@@ -213,6 +209,8 @@ let start_runner ~binary_name =
   Unix.mkdir ~p:() etc
   >>= fun () ->
   Async_shell.run "cp" ["/etc/resolv.conf";"-t";etc]
+  >>= fun () ->
+  Async_shell.run "chown" [pp_chown (master_user Root);"-R";"--";rootfs]
   >>= fun () ->
   let binary =
     Oci_Filename.concat (get_conf ()).binaries

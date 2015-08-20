@@ -62,8 +62,7 @@ let run ~implementations =
   Scheduler.go ()
 
 
-type artefact = Oci_Common.artefact with sexp
-let bin_artefact = Oci_Common.bin_artefact
+type artefact = Oci_Common.Artefact.t with sexp, bin_io
 
 let create_artefact t ~dir =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_create t dir
