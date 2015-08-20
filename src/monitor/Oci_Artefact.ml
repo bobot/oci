@@ -124,6 +124,23 @@ let register_master data f =
            debug "Master %s from %s" (Oci_Data.name data) rootfs;
            f q))
 
+let savers = Stack.create ()
+
+let register_saver ~loader ~saver =
+  Stack.push savers (loader,saver)
+
+let save () =
+  info "Save masters data";
+  savers
+  |> Stack.fold ~f:(fun acc (_,f) -> f ()::acc) ~init:[]
+  |> Deferred.all_unit
+
+let load () =
+  info "Load masters data";
+  savers
+  |> Stack.fold ~f:(fun acc (f,_) -> f ()::acc) ~init:[]
+  |> Deferred.all_unit
+
 let exec_in_namespace parameters =
   Rpc.Rpc.dispatch_exn
     Oci_Artefact_Api.exec_in_namespace
@@ -286,6 +303,10 @@ let run () =
          ~f:(fun x -> Unix.chmod ~perm:0o555
                 (Oci_Filename.concat conf.binaries x))
          files)
+    >>> fun () ->
+    (* Clock.every' (Time.Span.create ~min:10 ()) save; *)
+    Oci_Artefact_Api.oci_at_shutdown save;
+    load ()
     >>> fun () ->
     let socket = Oci_Filename.concat conf_monitor.oci_data "oci.socket" in
     Async_shell.run "rm" ["-f";"--";socket]

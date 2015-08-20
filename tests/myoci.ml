@@ -23,9 +23,10 @@
 open Core.Std
 open Async.Std
 
+module MasterInt = Oci_Master.Make(Int)(Int)
+
 let () =
-  Oci_Master.create_master_and_runner
-    ~hashable:Int.hashable
+  MasterInt.create_master_and_runner
     Test_succ.test_succ
     ~error:(fun _ -> Int.min_value)
     ~binary_name:"test_succ_runner"
@@ -34,8 +35,7 @@ let () =
 
 
 let () =
-  Oci_Master.create_master_and_runner
-    ~hashable:Int.hashable
+  MasterInt.create_master_and_runner
     Test_succ.test_fibo
     ~error:(fun _ -> Int.min_value)
     ~binary_name:"test_succ_runner"

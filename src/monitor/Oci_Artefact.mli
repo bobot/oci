@@ -44,6 +44,10 @@ val register_master:
   ('query -> 'result Deferred.t) ->
   unit
 
+val register_saver:
+  loader:(unit -> unit Deferred.t) ->
+  saver:(unit -> unit Deferred.t) ->
+  unit
 
 val run: unit -> never_returns
 

@@ -25,22 +25,24 @@ open Async.Std
 
 (** {2 Simple API} *)
 
-val create_master:
-  hashable:('query Hashtbl.Hashable.t) ->
-  ('query,'result) Oci_Data.t ->
-  ('query -> 'result Deferred.t) ->
-  unit
-
-val create_master_and_runner:
-  hashable:('query Hashtbl.Hashable.t) ->
-  ('query,'result) Oci_Data.t ->
-  ?binary_name:string ->
-  error:(string -> 'result) ->
-  (Rpc.Connection.t -> 'query -> 'result Deferred.t) ->
-  unit
-
 val run: unit -> never_returns
 (** Once all the masters have been registered *)
+
+module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
+
+  val create_master:
+    (Query.t,Result.t) Oci_Data.t ->
+    (Query.t -> Result.t Deferred.t) ->
+    unit
+
+  val create_master_and_runner:
+    (Query.t,Result.t) Oci_Data.t ->
+    ?binary_name:string ->
+    error:(string -> Result.t) ->
+    (Rpc.Connection.t -> Query.t -> Result.t Deferred.t) ->
+    unit
+
+end
 
 (** {2 Expert API} *)
 
@@ -54,6 +56,11 @@ val register:
 (** There is only one master of a given sort by session. It must keep
       track of which tasks are running, and which tasks have been
       already run. *)
+
+val register_saver:
+  loader:(unit -> unit Deferred.t) ->
+  saver:(unit -> unit Deferred.t) ->
+  unit
 
 type runner_result =
   | Exec_Ok
