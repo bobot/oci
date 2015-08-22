@@ -53,7 +53,6 @@ let exec_in_namespace = Rpc.Rpc.create
 let start_in_namespace
     ?implementations ~initial_state
     ~exec_in_namespace ~parameters ~named_pipe () =
-  debug "Here";
   let named_pipe_in = named_pipe^".in" in
   let named_pipe_out = named_pipe^".out" in
   unlink_no_fail named_pipe_in

@@ -44,6 +44,13 @@ module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
 
 end
 
+val dispatch:
+  ('query,'result) Oci_Data.t -> Rpc.Connection.t ->
+  'query -> 'result Or_error.t Deferred.t
+val dispatch_exn:
+  ('query,'result) Oci_Data.t -> Rpc.Connection.t ->
+  'query -> 'result Deferred.t
+
 (** {2 Expert API} *)
 
 val oci_at_shutdown: (unit -> unit Deferred.t) -> unit
@@ -51,7 +58,7 @@ val oci_at_shutdown: (unit -> unit Deferred.t) -> unit
 
 val register:
   ('query,'result) Oci_Data.t ->
-  ('query -> 'result Deferred.t) ->
+  ('query -> 'result Or_error.t Deferred.t) ->
   unit
 (** There is only one master of a given sort by session. It must keep
       track of which tasks are running, and which tasks have been

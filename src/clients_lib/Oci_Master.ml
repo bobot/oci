@@ -40,10 +40,10 @@ let permanent_directory = Oci_Artefact.permanent_directory
 module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
   module H = Hashtbl.Make(Query)
 
-  type save_data = (Query.t * Result.t) list with bin_io
+  type save_data = (Query.t * Result.t Or_error.t) list with bin_io
 
-  let create_master data f =
-    let db : ('result Deferred.t) H.t = H.create () in
+  let create_master (data:(Query.t,Result.t) Oci_Data.t) f =
+    let db : (Result.t Or_error.t Deferred.t) H.t = H.create () in
     let f q =
       match H.find db q with
       | Some r -> r
@@ -52,7 +52,9 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
         let ivar_d = Ivar.read ivar in
         H.add_exn db ~key:q ~data:ivar_d;
         begin
-          f q
+          Monitor.try_with_or_error
+            ~name:"create_master"
+            (fun () -> f q)
           >>> fun r ->
           Ivar.fill ivar r
         end;
@@ -100,14 +102,10 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
             | Exec_Error s -> return s) error;
           choice begin
             conn >>= fun conn ->
-            Shutdown.at_shutdown (fun () -> Rpc.Connection.close conn);
-            f conn q
-            >>= fun res ->
-            stop_runner conn
-            >>= fun () ->
-            Rpc.Connection.close conn;
-            >>= fun () ->
-            return res
+            Monitor.protect
+              ~finally:(fun () -> stop_runner conn)
+              ~name:"create_master_and_runner"
+              (fun () -> f conn q)
           end (fun x -> x);
         ]
       end
@@ -115,3 +113,12 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
 
 end
 
+let dispatch d t q =
+  Rpc.Rpc.dispatch (Oci_Data.rpc d) t q
+  >>= fun r ->
+  return (Or_error.join r)
+
+let dispatch_exn d t q =
+  Rpc.Rpc.dispatch_exn (Oci_Data.rpc d) t q
+  >>= fun r ->
+  return (Or_error.ok_exn r)

@@ -142,9 +142,9 @@ let register_master data f =
       (Rpc.Rpc.implement (Oci_Data.rpc data)
          (fun rootfs q ->
             debug "%s called from %s" name rootfs;
-            Monitor.protect ~name
-              ~finally:(fun () -> return ())
-              (fun () -> f q)))
+            Monitor.try_with_join_or_error
+              ~name (fun () -> f q)
+         ))
 
 let savers = Stack.create ()
 
@@ -276,13 +276,6 @@ let conn_monitor () =
     reader writer
   >>= fun conn ->
   let conn = Result.ok_exn conn in
-  Shutdown.at_shutdown (fun () ->
-      Rpc.Connection.close conn
-      >>= fun () ->
-      Reader.close reader;
-      >>= fun () ->
-      Writer.close writer
-    );
   return conn
 
 let run () =
@@ -347,7 +340,10 @@ let run () =
       ~implementations:!masters
       ()
     >>> fun server ->
-    Shutdown.at_shutdown (fun () -> Tcp.Server.close server);
+    Shutdown.at_shutdown (fun () ->
+        Deferred.ignore (Clock.with_timeout
+                           (Time.Span.create ~sec:10 ())
+                           (Tcp.Server.close server)));
     Unix.chmod socket ~perm:0o777
     >>> fun () ->
     ()

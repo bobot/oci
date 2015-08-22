@@ -61,6 +61,9 @@ let run ~implementations =
   end;
   Scheduler.go ()
 
+let implement data f =
+  Rpc.Rpc.implement (Oci_Data.rpc data)
+    (fun t q -> f t q >>= fun r -> return (Or_error.return r))
 
 type artefact = Oci_Common.Artefact.t with sexp, bin_io
 
@@ -71,4 +74,12 @@ let link_artefact t src ~dir =
 let copy_artefact t src ~dir =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_copy_to t (src,dir)
 
-let dispatch t d q = Rpc.Rpc.dispatch_exn (Oci_Data.rpc d) t q
+let dispatch t d q =
+  Rpc.Rpc.dispatch (Oci_Data.rpc d) t q
+  >>= fun r ->
+  return (Or_error.join r)
+
+let dispatch_exn t d q =
+  Rpc.Rpc.dispatch_exn (Oci_Data.rpc d) t q
+  >>= fun r ->
+  return (Or_error.ok_exn r)

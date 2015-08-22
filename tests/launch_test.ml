@@ -38,7 +38,8 @@ let exec_f conn line =
     (int_of_string line)
   >>= fun r ->
   Printf.printf
-    "For %s: result %i\n%!" line r;
+    "For %s: result %s\n%!" line
+    (Sexp.to_string_hum ((Or_error.sexp_of_t Int.sexp_of_t) r));
   Writer.flushed (Lazy.force Writer.stdout)
 
 let _ =

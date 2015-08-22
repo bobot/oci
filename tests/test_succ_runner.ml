@@ -31,9 +31,9 @@ let test_fibo conn q =
   | 0 -> return 1
   | 1 -> return 1
   | q ->
-    let q_1 = Oci_Runner.dispatch
+    let q_1 = Oci_Runner.dispatch_exn
         conn Test_succ.test_fibo (q-1) in
-    let q_2 = Oci_Runner.dispatch
+    let q_2 = Oci_Runner.dispatch_exn
         conn Test_succ.test_fibo (q-2) in
     Deferred.both q_1 q_2
     >>= fun (q_1,q_2) ->
@@ -63,10 +63,10 @@ let test_fibo_artefact_aux conn q =
   | 0 -> save_fibo 1
   | 1 -> save_fibo 1
   | q ->
-    Oci_Runner.dispatch
+    Oci_Runner.dispatch_exn
       conn Test_succ.test_fibo_artefact_aux (q-1)
     >>= fun a_1 ->
-    Oci_Runner.dispatch
+    Oci_Runner.dispatch_exn
       conn Test_succ.test_fibo_artefact_aux (q-2)
     >>= fun a_2 ->
     Oci_Runner.link_artefact conn a_1 ~dir:"/fibo_1"
@@ -88,7 +88,7 @@ let test_fibo_artefact conn q =
     | `Eof -> invalid_arg "Bad fibo file"
     | `Ok r -> return r
   in
-  Oci_Runner.dispatch
+  Oci_Runner.dispatch_exn
       conn Test_succ.test_fibo_artefact_aux q
   >>= fun a ->
   Oci_Runner.link_artefact conn a ~dir:"/fibo"
@@ -100,7 +100,7 @@ let test_fibo_artefact conn q =
 
 
 let test_fibo_error_artefact conn q =
-  Oci_Runner.dispatch
+  Oci_Runner.dispatch_exn
       conn Test_succ.test_fibo_artefact_aux q
   >>= fun a ->
   Oci_Runner.link_artefact conn a ~dir:"/fibo"
@@ -117,20 +117,15 @@ let () =
   never_returns begin
     Oci_Runner.run
       ~implementations:[
-        Rpc.Rpc.implement
-          (Oci_Data.rpc Test_succ.test_succ)
-          test_succ;
-        Rpc.Rpc.implement
-          (Oci_Data.rpc Test_succ.test_fibo)
-          test_fibo;
-        Rpc.Rpc.implement
-          (Oci_Data.rpc Test_succ.test_fibo_artefact)
-          test_fibo_artefact;
-        Rpc.Rpc.implement
-          (Oci_Data.rpc Test_succ.test_fibo_artefact_aux)
-          test_fibo_artefact_aux;
-        Rpc.Rpc.implement
-          (Oci_Data.rpc Test_succ.test_fibo_error_artefact)
-          test_fibo_error_artefact;
+        Oci_Runner.implement
+          Test_succ.test_succ test_succ;
+        Oci_Runner.implement
+          Test_succ.test_fibo test_fibo;
+        Oci_Runner.implement
+          Test_succ.test_fibo_artefact test_fibo_artefact;
+        Oci_Runner.implement
+          Test_succ.test_fibo_artefact_aux test_fibo_artefact_aux;
+        Oci_Runner.implement
+          Test_succ.test_fibo_error_artefact test_fibo_error_artefact;
       ]
   end

@@ -30,6 +30,11 @@ val run:
   never_returns
 (** The runner waits for request. *)
 
+val implement:
+  ('query,'result) Oci_Data.t ->
+  (t -> 'query -> 'result Deferred.t) ->
+  t Rpc.Implementation.t
+
 type artefact = Oci_Common.Artefact.t with sexp, bin_io
 
 val create_artefact: t -> dir:string -> artefact Deferred.t
@@ -37,4 +42,7 @@ val link_artefact: t -> artefact -> dir:string -> unit Deferred.t
 (** ro *)
 val copy_artefact: t -> artefact -> dir:string -> unit Deferred.t
 (** rw *)
-val dispatch: t -> ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
+val dispatch:
+  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t
+val dispatch_exn:
+  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
