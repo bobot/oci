@@ -50,6 +50,15 @@ let () =
     (fun conn x ->
        Rpc.Rpc.dispatch_exn (Oci_Data.rpc Test_succ.test_fibo_artefact) conn x)
 
+let () =
+  MasterInt.create_master_and_runner
+    Test_succ.test_fibo_error_artefact
+    ~error:(fun _ -> Int.min_value)
+    ~binary_name:"test_succ_runner"
+    (fun conn x ->
+       Rpc.Rpc.dispatch_exn
+         (Oci_Data.rpc Test_succ.test_fibo_error_artefact) conn x)
+
 module MasterIntArtefact = Oci_Master.Make(Int)(Oci_Common.Artefact)
 
 let () =

@@ -98,6 +98,21 @@ let test_fibo_artefact conn q =
   return q_2
 
 
+
+let test_fibo_error_artefact conn q =
+  Oci_Runner.dispatch
+      conn Test_succ.test_fibo_artefact_aux q
+  >>= fun a ->
+  Oci_Runner.link_artefact conn a ~dir:"/fibo"
+  >>= fun () ->
+  Writer.open_file ~append:true "/fibo/result"
+  >>= fun writer ->
+  Writer.write_line writer "C'est une erreur!";
+  Writer.close writer;
+  >>= fun _ ->
+  return (-1)
+
+
 let () =
   never_returns begin
     Oci_Runner.run
@@ -114,5 +129,8 @@ let () =
         Rpc.Rpc.implement
           (Oci_Data.rpc Test_succ.test_fibo_artefact_aux)
           test_fibo_artefact_aux;
+        Rpc.Rpc.implement
+          (Oci_Data.rpc Test_succ.test_fibo_error_artefact)
+          test_fibo_error_artefact;
       ]
   end

@@ -137,22 +137,29 @@ let masters =
          ~implementations:[] ~on_unknown_rpc:`Close_connection)
 
 let register_master data f =
+  let name = (Printf.sprintf "Master %s" (Oci_Data.name data)) in
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Rpc.implement (Oci_Data.rpc data)
          (fun rootfs q ->
-           debug "Master %s from %s" (Oci_Data.name data) rootfs;
-           f q))
+            debug "%s called from %s" name rootfs;
+            Monitor.protect ~name
+              ~finally:(fun () -> return ())
+              (fun () -> f q)))
 
 let savers = Stack.create ()
 
 let register_saver ~loader ~saver =
   Stack.push savers (loader,saver)
 
-let save () =
-  info "Save masters data";
-  savers
-  |> Stack.fold ~f:(fun acc (_,f) -> f ()::acc) ~init:[]
-  |> Deferred.all_unit
+let save =
+  let sequence = Sequencer.create ~continue_on_error:true () in
+  let f () =
+    info "Save masters data";
+    savers
+    |> Stack.fold ~f:(fun acc (_,f) -> f ()::acc) ~init:[]
+    |> Deferred.all_unit
+  in
+  fun () -> Throttle.enqueue sequence f
 
 let load () =
   info "Load masters data";
@@ -326,10 +333,11 @@ let run () =
          files)
     >>> fun () ->
     register_saver ~loader:loader_artifact_data ~saver:saver_artifact_data;
-    (* Clock.every' (Time.Span.create ~min:10 ()) save; *)
-    Oci_Artefact_Api.oci_at_shutdown save;
     load ()
     >>> fun () ->
+    let save_at = Time.Span.create ~min:10 () in
+    Clock.every' ~start:(after save_at) save_at save;
+    Oci_Artefact_Api.oci_at_shutdown save;
     let socket = Oci_Filename.concat conf_monitor.oci_data "oci.socket" in
     Async_shell.run "rm" ["-f";"--";socket]
     >>> fun () ->

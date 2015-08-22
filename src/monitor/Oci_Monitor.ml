@@ -92,30 +92,37 @@ type conf = {
   current_user: user;
   first_user_mapped: user;
   mutable conn_to_artefact: Rpc.Connection.t option;
+  mutable wait_to_artefact: unit Deferred.t option;
   wrappers_dir : Oci_Filename.t;
   running_processes: process Bag.t;
 }
 
 
 let cleanup_running_processes conf () =
-  begin match conf.conn_to_artefact with
+  begin match conf.wait_to_artefact with
   | None ->
     info "No master to stop";
     return ()
-  | Some conn ->
+  | Some wait ->
     let timeout = Time.Span.create ~sec:10 () in
     info "Master have %s to stop nicely" (Time.Span.to_string_hum timeout);
-    Deferred.any_unit [
-      after timeout;
-      Deferred.ignore
-        (Rpc.Rpc.dispatch Oci_Artefact_Api.rpc_stop_runner conn ());
-    ]
+    Deferred.ignore
+      (Clock.with_timeout timeout
+         begin (match conf.conn_to_artefact with
+             | None -> return ()
+             | Some conn ->
+               Rpc.Rpc.dispatch Oci_Artefact_Api.rpc_stop_runner conn ()
+               >>= fun _ ->
+               wait)
+         end)
   end
   >>= fun () ->
   Bag.iter
     ~f:(fun process ->
-        debug "Send term signal to %s" (Pid.to_string process.wrapped);
-        Signal.send_i Signal.term (`Pid process.wrapped))
+        if not (Deferred.is_determined process.wrapper_wait) then begin
+          debug "Send term signal to %s" (Pid.to_string process.wrapped);
+          Signal.send_i Signal.term (`Pid process.wrapped)
+        end)
     conf.running_processes;
   conf.running_processes
   |> Bag.fold
@@ -203,6 +210,7 @@ let compute_conf ~oci_data =
   else
     let first_user_mapped = {uid=ustart;gid=gstart} in
     let conf = {current_user;first_user_mapped;conn_to_artefact=None;
+                wait_to_artefact=None;
                 wrappers_dir =
                   Oci_Filename.make_absolute oci_data "wrappers";
                 running_processes = Bag.create ()} in
@@ -258,6 +266,7 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity =
     ~initial_state:()
     ()
   >>= fun (error,conn) ->
+  conf.wait_to_artefact <- Some (error >>= fun _ -> return ());
   choose [
     choice error (function
         | Exec_Ok when Oci_Artefact_Api.oci_shutting_down () ->
