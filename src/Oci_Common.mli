@@ -39,6 +39,7 @@ type user_kind =
   (** root in the usernamespace of the runners *)
   | User
   (** A simple user in the usernamespace of the runners *)
+with sexp, compare, bin_io
 
 val master_user: user_kind -> user
 val runner_user: user_kind -> user

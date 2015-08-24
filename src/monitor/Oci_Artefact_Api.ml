@@ -31,6 +31,7 @@ type artefact_api = {
   oci_simple_exec : Oci_Filename.t;
   first_user_mapped: user;
   debug_level : Bool.t;
+  cleanup_rootfs: Bool.t;
 } with sexp, bin_io
 
 let get_configuration = Rpc.Rpc.create
@@ -97,7 +98,8 @@ let rpc_create =
     ~bin_query:Oci_Filename.bin_t
     ~bin_response:Artefact.bin_t
 
-type rpc_link_to_query = Artefact.t * Oci_Filename.t with bin_io
+type rpc_link_to_query =
+  Oci_Common.user_kind * Artefact.t * Oci_Filename.t with bin_io
 
 let rpc_link_to =
   Rpc.Rpc.create

@@ -38,9 +38,13 @@ val implement:
 type artefact = Oci_Common.Artefact.t with sexp, bin_io
 
 val create_artefact: t -> dir:string -> artefact Deferred.t
-val link_artefact: t -> artefact -> dir:string -> unit Deferred.t
+val link_artefact:
+  t -> ?user:Oci_Common.user_kind
+  -> artefact -> dir:string -> unit Deferred.t
 (** ro *)
-val copy_artefact: t -> artefact -> dir:string -> unit Deferred.t
+val copy_artefact:
+  t -> ?user:Oci_Common.user_kind
+  -> artefact -> dir:string -> unit Deferred.t
 (** rw *)
 val dispatch:
   t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t

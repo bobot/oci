@@ -225,7 +225,7 @@ let compute_conf ~oci_data =
     return conf
 
 
-let start_master ~conf ~master ~oci_data ~binaries ~verbosity =
+let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs =
   let open Oci_Wrapper_Api in
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
   let parameters = {
@@ -253,6 +253,7 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity =
                                 oci_simple_exec;
                                 first_user_mapped = conf.first_user_mapped;
                                 debug_level = verbosity = `Debug;
+                                cleanup_rootfs;
                                });
         Rpc.Rpc.implement Oci_Artefact_Api.exec_in_namespace
           (fun () -> exec_in_namespace conf)
@@ -285,7 +286,7 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity =
 
 
 
-let run master binaries oci_data verbosity () =
+let run master binaries oci_data verbosity cleanup_rootfs () =
   Log.Global.set_level verbosity;
   assert (not (Signal.is_managed_by_async Signal.term));
   (** Handle nicely terminating signals *)
@@ -302,7 +303,7 @@ let run master binaries oci_data verbosity () =
   compute_conf ~oci_data
   >>= fun conf ->
   Oci_Artefact_Api.oci_at_shutdown (cleanup_running_processes conf);
-  start_master ~conf ~binaries ~oci_data ~master ~verbosity
+  start_master ~conf ~binaries ~oci_data ~master ~verbosity ~cleanup_rootfs
 
 let () = Command.run begin
     let current_work_dir = Caml.Sys.getcwd () in
@@ -325,7 +326,9 @@ let () = Command.run begin
         flag "--oci-data" (map_to_absolute (required file))
           ~doc:" Specify where the OCI should store its files" +>
         flag "--verbosity" (optional_with_default `Info Log.Level.arg)
-          ~doc:" Specify the verbosity level (Debug,Error,Info)"
+          ~doc:" Specify the verbosity level (Debug,Error,Info)" +>
+        flag "--cleanup-rootfs" (optional_with_default true bool)
+          ~doc:" For debug can be set to false for keeping rootfs after running"
       )
       run
   end

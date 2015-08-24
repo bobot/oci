@@ -28,10 +28,10 @@ type t = Oci_Common.Artefact.t
 
 val create: Oci_Filename.t -> t Deferred.t
 
-val link_to: t -> Oci_Filename.t -> unit Deferred.t
+val link_to: Oci_Common.user_kind -> t -> Oci_Filename.t -> unit Deferred.t
 (** ro only *)
 
-val copy_to: t -> Oci_Filename.t -> unit Deferred.t
+val copy_to: Oci_Common.user_kind -> t -> Oci_Filename.t -> unit Deferred.t
 (** rw *)
 
 val is_available: t -> bool Deferred.t

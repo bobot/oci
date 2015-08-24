@@ -69,10 +69,10 @@ type artefact = Oci_Common.Artefact.t with sexp, bin_io
 
 let create_artefact t ~dir =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_create t dir
-let link_artefact t src ~dir =
-    Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_link_to t (src,dir)
-let copy_artefact t src ~dir =
-  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_copy_to t (src,dir)
+let link_artefact t ?(user=Oci_Common.Root) src ~dir =
+    Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_link_to t (user,src,dir)
+let copy_artefact t ?(user=Oci_Common.Root) src ~dir =
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_copy_to t (user,src,dir)
 
 let dispatch t d q =
   Rpc.Rpc.dispatch (Oci_Data.rpc d) t q

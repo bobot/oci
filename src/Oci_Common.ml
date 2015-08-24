@@ -42,6 +42,7 @@ type user_kind =
       root, In Artifact run with superroot as root *)
   | Root
   | User
+with sexp, compare, bin_io
 
 let master_user = function
   | Superroot -> {uid=0;gid=0}

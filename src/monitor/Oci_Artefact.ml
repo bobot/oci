@@ -44,7 +44,8 @@ let gconf = ref None
 
 type t = Oci_Common.Artefact.t
 
-exception Directory_should_not_exists of Oci_Filename.t
+exception Directory_should_not_exists of Oci_Filename.t with sexp
+exception Can't_copy_this_file of Oci_Filename.t with sexp
 
 let get_conf () =
   Option.value_exn
@@ -63,7 +64,8 @@ let create src =
   Sys.file_exists_exn (Oci_Filename.get dst)
   >>= fun b ->
   if b then raise (Directory_should_not_exists dst);
-  Async_shell.run "cp" ["-a";"--";
+  Async_shell.run
+    "cp" ["-a";"--";
                               Oci_Filename.get src;
                               Oci_Filename.get dst]
   >>= fun () ->
@@ -73,21 +75,52 @@ let create src =
   >>=
   fun () -> return id
 
-let link_to id dst =
-  let src = dir_of_artefact id in
-  Async_shell.run "rm" ["-rf";"--";Oci_Filename.get dst]
+let rec copydir ~hardlink ({uid;gid} as user) src dst =
+  Sys.file_exists_exn "dst"
+  >>= fun dst_exist -> begin
+    if dst_exist
+    then return ()
+    else
+      Unix.mkdir dst
+      >>= fun () ->
+      Unix.chown ~uid ~gid dst
+  end
   >>= fun () ->
-  Async_shell.run "cp" ["-rla";"--";
-                              Oci_Filename.get src;
-                              Oci_Filename.get dst]
+  Sys.ls_dir src
+  >>= fun files ->
+  Deferred.List.iter files ~f:(fun file ->
+      let src' = Oci_Filename.make_absolute src file in
+      let dst' = Oci_Filename.make_absolute dst file in
+      Unix.lstat src'
+      >>= function
+      | {kind = `Directory} ->
+        copydir ~hardlink user src' dst'
+      | {kind = `File} ->
+        Oci_Std.unlink_no_fail dst'
+        >>= fun () ->
+        if hardlink
+        then Unix.link ~target:src' ~link_name:dst' ()
+        else Async_shell.run "cp" ["-a";"--";src';dst']
+      | {kind = `Link} ->
+        Oci_Std.unlink_no_fail dst'
+        >>= fun () ->
+        Unix.readlink src'
+        >>= fun tgt ->
+        Unix.symlink ~src:tgt ~dst:dst'
+      | {kind = `Block|`Socket|`Fifo|`Char } ->
+        error "Can't copy this file: %s bad type" src';
+        raise (Can't_copy_this_file src')
+    )
 
-let copy_to id dst =
+let link_copy_to ~hardlink {uid;gid} id dst =
   let src = dir_of_artefact id in
-  Async_shell.run "rm" ["-rf";"--";Oci_Filename.get dst]
-  >>= fun () ->
-  Async_shell.run "cp" ["-a";"--";
-                              Oci_Filename.get src;
-                              Oci_Filename.get dst]
+  copydir ~hardlink {uid;gid} src dst
+
+let link_to_gen = link_copy_to ~hardlink:true
+let copy_to_gen = link_copy_to ~hardlink:false
+
+let link_to user = link_to_gen (Oci_Common.master_user user)
+let copy_to user = copy_to_gen (Oci_Common.master_user user)
 
 let is_available id =
   let src = dir_of_artefact id in
@@ -187,20 +220,20 @@ let add_artefact_api init =
     (** link_to *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_link_to
-      (fun rootfs (artefact,dst) ->
+      (fun rootfs (user,artefact,dst) ->
          assert (not (Oci_Filename.is_relative dst));
          let dst = Oci_Filename.make_relative "/" dst in
          let dst = Oci_Filename.make_absolute rootfs dst in
-         link_to artefact dst
+         link_to_gen (Oci_Common.master_user user) artefact dst
       );
     (** copy_to *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_copy_to
-      (fun rootfs (artefact,dst) ->
+      (fun rootfs (user,artefact,dst) ->
          assert (not (Oci_Filename.is_relative dst));
          let dst = Oci_Filename.make_relative "/" dst in
          let dst = Oci_Filename.make_absolute rootfs dst in
-         copy_to artefact dst
+         copy_to_gen (Oci_Common.master_user user) artefact dst
       )
   ]
 
@@ -250,9 +283,11 @@ let start_runner ~binary_name =
     r
     >>> fun (result,_) ->
     result
-    >>> fun _ ->
-    Async_shell.run "rm" ["-rf";"--";rootfs]
-    >>> fun () ->
+    >>> fun _ -> begin
+      if conf.conf_monitor.cleanup_rootfs
+      then Async_shell.run "rm" ["-rf";"--";rootfs]
+      else return ()
+    end >>> fun () ->
     ()
   end;
   r
