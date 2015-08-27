@@ -53,3 +53,10 @@ type create_rootfs_query = {
 
 val create_rootfs: (create_rootfs_query,rootfs) Oci_Data.t
 val find_rootfs: (Rootfs_Id.t,rootfs) Oci_Data.t
+
+type add_packages_query = {
+  id: Rootfs_Id.t;
+  packages: string list;
+} with sexp, bin_io
+
+val add_packages: (add_packages_query,rootfs) Oci_Data.t

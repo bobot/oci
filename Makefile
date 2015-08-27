@@ -2,9 +2,11 @@
 
 PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax postgresql cmdliner async_shell extunix core core_extended
 # I don't understand warning 18
+OCAML_WARNING=+a-4-9-18-41-30-42-44-40
+OCAML_WARN_ERROR=+5+10+8+12+20+11
 OPTIONS=-tag annot -no-sanitize -no-links -tag debug -use-ocamlfind	\
--cflags -w,+a-4-9-18-41-30-42-44-40 -cflags				\
--warn-error,+5+10+8+12+20+11 -cflag -bin-annot -j 8 -tag thread		\
+-cflags -w,$(OCAML_WARNING) -cflags				\
+-warn-error,$(OCAML_WARN_ERROR) -cflag -bin-annot -j 8 -tag thread		\
 -syntax camlp4o
 #OPTIONS += -cflags -warn-error,+a
 DIRECTORIES=src/common src/monitor src/utils src/clients_lib src/conductor tests src/script src src/wrapper
@@ -18,7 +20,7 @@ OCAMLBUILD=ocamlbuild \
 BINARY= src/wrapper/Oci_Wrapper.native				\
 	src/monitor/Oci_Simple_Exec.native tests/myoci.native	\
 	tests/test_succ_runner.native tests/launch_test.native  \
-	src/monitor/Oci_Monitor.native
+	src/monitor/Oci_Monitor.native src/Oci_Cmd_Runner.native
 
 all: .merlin
 	@mkdir -m 777 -p bin
@@ -76,4 +78,6 @@ clean:
 	@for PKG in $(PACKAGES); do echo PKG $$PKG >> .merlin.tmp; done
 	@for SRC in $(DIRECTORIES); do echo S $$SRC >> .merlin.tmp; done
 	@for SRC in $(DIRECTORIES); do echo B _build/$$SRC >> .merlin.tmp; done
+	@echo FLG -w $(OCAML_WARNING) >> .merlin.tmp
+	@echo FLG -w $(OCAML_WARN_ERROR) >> .merlin.tmp
 	@mv .merlin.tmp .merlin

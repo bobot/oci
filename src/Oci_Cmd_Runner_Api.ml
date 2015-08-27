@@ -22,51 +22,39 @@
 
 open Core.Std
 
-type rootfs_info = {
-  distribution: string;
-  release: string;
-  arch: string;
-  packages: string list;
-  (** additional packages that have been installed *)
-  comment: string;
+type run_query = {
+  prog: string;
+  args: string list;
+  runas: Oci_Common.user_kind;
 } with sexp, bin_io
 
-module Rootfs_Id = Int
-
-type rootfs = {
-  id: Rootfs_Id.t;
-  info: rootfs_info;
-  rootfs: Oci_Common.Artefact.t
-} with sexp, bin_io
-
-
-type create_rootfs_query = {
-  rootfs_info : rootfs_info;
-  rootfs_tar: Oci_Filename.t; (** absolute pathname *)
-  meta_tar: Oci_Filename.t option; (** absolute pathname *)
-} with sexp, bin_io
-
-let create_rootfs = Oci_Data.register
-    ~name:"Oci.Rootfs.create"
+let run = Oci_Data.register
+    ~name:"Oci_Cmd_Runner_Api.run"
     ~version:1
-    ~bin_query:bin_create_rootfs_query
-    ~bin_result:bin_rootfs
+    ~bin_query:bin_run_query
+    ~bin_result:Unit.bin_t
 
-let find_rootfs = Oci_Data.register
-    ~name:"Oci.Rootfs.find"
+
+let create_artefact = Oci_Data.register
+    ~name:"Oci_Cmd_Runner.create"
     ~version:1
-    ~bin_query:Int.bin_t
-    ~bin_result:bin_rootfs
+    ~bin_query:Oci_Filename.bin_t
+    ~bin_result:Oci_Common.Artefact.bin_t
 
-
-type add_packages_query = {
-  id: Rootfs_Id.t;
-  packages: string list;
+type link_copy_query = {
+  user: Oci_Common.user_kind;
+  artefact: Oci_Common.Artefact.t;
+  dst: Oci_Filename.t;
 } with sexp, bin_io
 
-let add_packages =
-  Oci_Data.register
-    ~name:"Oci.Rootfs.add_packages"
+let link_to = Oci_Data.register
+    ~name:"Oci_Cmd_Runner_Api.link_to"
     ~version:1
-    ~bin_query:bin_add_packages_query
-    ~bin_result:bin_rootfs
+    ~bin_query:bin_link_copy_query
+    ~bin_result:Unit.bin_t
+
+let copy_to = Oci_Data.register
+    ~name:"Oci_Cmd_Runner_Api.copy_to"
+    ~version:1
+    ~bin_query:bin_link_copy_query
+    ~bin_result:Unit.bin_t

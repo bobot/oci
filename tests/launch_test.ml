@@ -71,6 +71,14 @@ let test =
     exec find_rootfs (Rootfs_Id.of_string Sys.argv.(3))
       Rootfs_Id.sexp_of_t
       sexp_of_rootfs
+  | "add_packages" ->
+    let open Oci_Rootfs_Api in
+    exec add_packages
+      { id = (Rootfs_Id.of_string Sys.argv.(3));
+        packages = String.split ~on:',' Sys.argv.(4);
+      }
+      sexp_of_add_packages_query
+      sexp_of_rootfs
   | _ -> failwith "succ or fibo"
 
 

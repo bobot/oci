@@ -21,52 +21,19 @@
 (**************************************************************************)
 
 open Core.Std
+open Oci_Cmd_Runner_Api
 
-type rootfs_info = {
-  distribution: string;
-  release: string;
-  arch: string;
-  packages: string list;
-  (** additional packages that have been installed *)
-  comment: string;
-} with sexp, bin_io
-
-module Rootfs_Id = Int
-
-type rootfs = {
-  id: Rootfs_Id.t;
-  info: rootfs_info;
-  rootfs: Oci_Common.Artefact.t
-} with sexp, bin_io
-
-
-type create_rootfs_query = {
-  rootfs_info : rootfs_info;
-  rootfs_tar: Oci_Filename.t; (** absolute pathname *)
-  meta_tar: Oci_Filename.t option; (** absolute pathname *)
-} with sexp, bin_io
-
-let create_rootfs = Oci_Data.register
-    ~name:"Oci.Rootfs.create"
-    ~version:1
-    ~bin_query:bin_create_rootfs_query
-    ~bin_result:bin_rootfs
-
-let find_rootfs = Oci_Data.register
-    ~name:"Oci.Rootfs.find"
-    ~version:1
-    ~bin_query:Int.bin_t
-    ~bin_result:bin_rootfs
-
-
-type add_packages_query = {
-  id: Rootfs_Id.t;
-  packages: string list;
-} with sexp, bin_io
-
-let add_packages =
-  Oci_Data.register
-    ~name:"Oci.Rootfs.add_packages"
-    ~version:1
-    ~bin_query:bin_add_packages_query
-    ~bin_result:bin_rootfs
+let () =
+  never_returns (
+    Oci_Runner.run
+      ~implementations:[
+        Oci_Runner.implement run
+          (fun _ d -> Async_shell.run d.prog d.args);
+        Oci_Runner.implement create_artefact
+          (fun t dir -> Oci_Runner.create_artefact t ~dir);
+        Oci_Runner.implement link_to
+          (fun t d -> Oci_Runner.link_artefact t d.artefact ~dir:d.dst);
+        Oci_Runner.implement copy_to
+          (fun t d -> Oci_Runner.copy_artefact t d.artefact ~dir:d.dst);
+      ]
+  )

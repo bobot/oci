@@ -123,10 +123,66 @@ let create_new_rootfs rootfs_query =
 let find_rootfs key =
   return (Rootfs_Id.Table.find_exn !db_rootfs key)
 
+let add_packages (d:add_packages_query) =
+  let rootfs = Rootfs_Id.Table.find_exn !db_rootfs d.id in
+  Oci_Master.start_runner ~binary_name:"Oci_Cmd_Runner"
+  >>= fun (err,conn) ->
+  choose [
+    choice (err >>= function
+      | Exec_Ok -> never ()
+      | Exec_Error s -> return s) Or_error.error_string;
+    choice begin
+      conn >>= fun conn ->
+      Monitor.protect
+        ~finally:(fun () -> Oci_Master.stop_runner conn)
+        ~name:"add_packages"
+        (fun () ->
+           debug "Runner started";
+           Oci_Master.dispatch_exn Oci_Cmd_Runner_Api.copy_to conn {
+             user=Oci_Common.Root;
+             artefact=rootfs.rootfs;
+             dst="/";
+           }
+           >>= fun () ->
+           debug "Artefact obtained";
+           Oci_Master.dispatch_exn Oci_Cmd_Runner_Api.run conn {
+             prog = "apt-get";
+             args = ["update"];
+             runas = Root;
+           }
+           >>= fun () ->
+           debug "apt-get updated";
+           Oci_Master.dispatch_exn Oci_Cmd_Runner_Api.run conn {
+             prog = "apt-get";
+             args = "install"::
+                    "--yes"::
+                    "--option"::"Apt::Install-Recommends=false"::
+                    d.packages;
+             runas = Root;
+           }
+           >>= fun () ->
+           Oci_Master.dispatch_exn Oci_Cmd_Runner_Api.create_artefact conn "/"
+           >>= fun artefact ->
+           incr rootfs_next_id;
+           let id = Rootfs_Id.of_int_exn (!rootfs_next_id) in
+           Deferred.Or_error.return {
+             id;
+             info =
+               {rootfs.info with packages = d.packages @ rootfs.info.packages};
+             rootfs = artefact;
+           }
+        )
+    end Fn.id]
+
+
+
 let register_rootfs () =
   Oci_Master.register
     Oci_Rootfs_Api.create_rootfs
     (fun s -> Deferred.Or_error.try_with (fun () -> create_new_rootfs s));
   Oci_Master.register
     Oci_Rootfs_Api.find_rootfs
-    (fun s -> Deferred.Or_error.try_with (fun () -> find_rootfs s))
+    (fun s -> Deferred.Or_error.try_with (fun () -> find_rootfs s));
+  Oci_Master.register
+    Oci_Rootfs_Api.add_packages
+    (fun s -> Deferred.Or_error.try_with_join (fun () -> add_packages s))
