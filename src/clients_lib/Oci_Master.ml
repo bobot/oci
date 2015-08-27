@@ -31,11 +31,36 @@ type runner_result = Oci_Artefact_Api.exec_in_namespace_response =
 
 let register data f = Oci_Artefact.register_master data f
 let register_saver = Oci_Artefact.register_saver
+
 let run () = Oci_Artefact.run ()
 let start_runner ~binary_name = Oci_Artefact.start_runner ~binary_name
 let stop_runner conn =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_stop_runner conn ()
 let permanent_directory = Oci_Artefact.permanent_directory
+
+let simple_register_saver ?(init=(fun () -> return ())) ~basename
+    ~loader ~saver data bin_t =
+  Oci_Artefact.register_saver
+    ~loader:(fun () ->
+      permanent_directory data
+      >>= fun dir ->
+      init ()
+      >>= fun () ->
+      let file = Oci_Filename.make_absolute dir basename in
+      Oci_Std.read_if_exists file bin_t.Bin_prot.Type_class.reader loader
+    )
+    ~saver:(fun () ->
+      saver ()
+      >>= fun r ->
+      permanent_directory data
+      >>= fun dir ->
+      let file = Oci_Filename.make_absolute dir basename in
+      Oci_Std.backup_and_open_file file
+      >>= fun writer ->
+      Writer.write_bin_prot writer bin_t.Bin_prot.Type_class.writer r;
+      Writer.close writer
+    )
+
 
 module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
   module H = Hashtbl.Make(Query)

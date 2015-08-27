@@ -22,46 +22,38 @@
 
 open Core.Std
 
-module MasterInt = Oci_Master.Make(Int)(Int)
+type rootfs_info = {
+  distribution: string;
+  release: string;
+  arch: string;
+  packages: string list;
+  (** additional packages that have been installed *)
+  comment: string;
+} with sexp, bin_io
 
-let () =
-  MasterInt.create_master_and_runner
-    Test_succ.test_succ
-    ~error:(fun _ -> Int.min_value)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_succ)
+module Rootfs_Id = Int
+
+type rootfs = {
+  id: Rootfs_Id.t;
+  info: rootfs_info;
+  rootfs: Oci_Common.Artefact.t
+} with sexp, bin_io
 
 
-let () =
-  MasterInt.create_master_and_runner
-    Test_succ.test_fibo
-    ~error:(fun _ -> Int.min_value)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_fibo)
+type create_rootfs_query = {
+  rootfs_info : rootfs_info;
+  rootfs_tar: Oci_Filename.t; (** absolute pathname *)
+  meta_tar: Oci_Filename.t option; (** absolute pathname *)
+} with sexp, bin_io
 
-let () =
-  MasterInt.create_master_and_runner
-    Test_succ.test_fibo_artefact
-    ~error:(fun _ -> Int.min_value)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_fibo_artefact)
+let create_rootfs = Oci_Data.register
+    ~name:"Oci.Rootfs.create"
+    ~version:1
+    ~bin_query:bin_create_rootfs_query
+    ~bin_result:bin_rootfs
 
-let () =
-  MasterInt.create_master_and_runner
-    Test_succ.test_fibo_error_artefact
-    ~error:(fun _ -> Int.min_value)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_fibo_error_artefact)
-
-module MasterIntArtefact = Oci_Master.Make(Int)(Oci_Common.Artefact)
-
-let () =
-  MasterIntArtefact.create_master_and_runner
-    Test_succ.test_fibo_artefact_aux
-    ~error:(fun _ -> raise Exit)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_fibo_artefact_aux)
-
-let () = Oci_Rootfs.register_rootfs ()
-
-let () = never_returns (Oci_Master.run ())
+let find_rootfs = Oci_Data.register
+    ~name:"Oci.Rootfs.find"
+    ~version:1
+    ~bin_query:Int.bin_t
+    ~bin_result:bin_rootfs

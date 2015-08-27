@@ -64,6 +64,15 @@ val register:
       track of which tasks are running, and which tasks have been
       already run. *)
 
+val simple_register_saver:
+  ?init:(unit -> unit Deferred.t) ->
+  basename:string ->
+  loader:('data_to_save -> unit Deferred.t) ->
+  saver:(unit -> 'data_to_save Deferred.t) ->
+  ('query, 'result) Oci_Data.t ->
+  'data_to_save Bin_prot.Type_class.t ->
+   unit
+
 val register_saver:
   loader:(unit -> unit Deferred.t) ->
   saver:(unit -> unit Deferred.t) ->

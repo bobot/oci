@@ -76,6 +76,8 @@ let create src =
   fun () -> return id
 
 let rec copydir ~hardlink ({uid;gid} as user) src dst =
+  (** This function run as superroot (like all masters),
+      so it is root in its usernamespace *)
   Sys.file_exists_exn "dst"
   >>= fun dst_exist -> begin
     if dst_exist
@@ -100,7 +102,11 @@ let rec copydir ~hardlink ({uid;gid} as user) src dst =
         >>= fun () ->
         if hardlink
         then Unix.link ~target:src' ~link_name:dst' ()
-        else Async_shell.run "cp" ["-a";"--";src';dst']
+        else begin
+          Async_shell.run "cp" ["-a";"--";src';dst']
+          >>= fun () ->
+          Unix.chown ~uid ~gid dst'
+        end
       | {kind = `Link} ->
         Oci_Std.unlink_no_fail dst'
         >>= fun () ->

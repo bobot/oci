@@ -24,23 +24,55 @@
 open Core.Std
 open Async.Std
 
-let test = match Sys.argv.(2) with
-  | "succ" -> Test_succ.test_succ
-  | "fibo" -> Test_succ.test_fibo
-  | "fibo_artefact" -> Test_succ.test_fibo_artefact
-  | "fibo_error_artefact" -> Test_succ.test_fibo_error_artefact
-  | _ -> failwith "succ or fibo"
+let absolutize = Oci_Filename.make_absolute (Caml.Sys.getcwd ())
 
-
-let exec_f conn line =
-  Printf.printf "Read %s\n%!" line;
-  Rpc.Rpc.dispatch_exn (Oci_Data.rpc test) conn
-    (int_of_string line)
+let exec test input sexp_input sexp_output conn =
+  Printf.printf "Read %s\n%!"
+    (Sexp.to_string_hum (sexp_input input));
+  Rpc.Rpc.dispatch_exn (Oci_Data.rpc test) conn input
   >>= fun r ->
   Printf.printf
-    "For %s: result %s\n%!" line
-    (Sexp.to_string_hum ((Or_error.sexp_of_t Int.sexp_of_t) r));
+    "For %s: result %s\n%!"
+    (Sexp.to_string_hum (sexp_input input))
+    (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
   Writer.flushed (Lazy.force Writer.stdout)
+
+let test =
+  match Sys.argv.(2) with
+  | "succ" ->
+    exec Test_succ.test_succ
+      (int_of_string Sys.argv.(3)) Int.sexp_of_t Int.sexp_of_t
+  | "fibo" ->
+    exec Test_succ.test_fibo
+      (int_of_string Sys.argv.(3)) Int.sexp_of_t Int.sexp_of_t
+  | "fibo_artefact" ->
+    exec Test_succ.test_fibo_artefact
+      (int_of_string Sys.argv.(3)) Int.sexp_of_t Int.sexp_of_t
+  | "fibo_error_artefact" ->
+    exec Test_succ.test_fibo_error_artefact
+      (int_of_string Sys.argv.(3))
+      Int.sexp_of_t Int.sexp_of_t
+  | "rootfs" ->
+    let open Oci_Rootfs_Api in
+    exec create_rootfs
+      { meta_tar = Some (absolutize Sys.argv.(3));
+        rootfs_tar = absolutize Sys.argv.(4);
+        rootfs_info = { distribution = "debian";
+                        release = "jessie";
+                        arch = "amd64";
+                        packages = [];
+                        comment = "";
+                      }
+      }
+      sexp_of_create_rootfs_query
+      sexp_of_rootfs
+  | "lookup_rootfs" ->
+    let open Oci_Rootfs_Api in
+    exec find_rootfs (Rootfs_Id.of_string Sys.argv.(3))
+      Rootfs_Id.sexp_of_t
+      sexp_of_rootfs
+  | _ -> failwith "succ or fibo"
+
 
 let _ =
   Tcp.connect (Tcp.to_file Sys.argv.(1))
@@ -50,7 +82,7 @@ let _ =
     reader writer
   >>= fun conn ->
   let conn = Result.ok_exn conn in
-  exec_f conn Sys.argv.(3)
+  test conn
   >>= fun () ->
   Rpc.Connection.close conn;
   >>= fun () ->

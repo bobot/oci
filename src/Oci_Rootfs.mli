@@ -20,48 +20,4 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Core.Std
-
-module MasterInt = Oci_Master.Make(Int)(Int)
-
-let () =
-  MasterInt.create_master_and_runner
-    Test_succ.test_succ
-    ~error:(fun _ -> Int.min_value)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_succ)
-
-
-let () =
-  MasterInt.create_master_and_runner
-    Test_succ.test_fibo
-    ~error:(fun _ -> Int.min_value)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_fibo)
-
-let () =
-  MasterInt.create_master_and_runner
-    Test_succ.test_fibo_artefact
-    ~error:(fun _ -> Int.min_value)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_fibo_artefact)
-
-let () =
-  MasterInt.create_master_and_runner
-    Test_succ.test_fibo_error_artefact
-    ~error:(fun _ -> Int.min_value)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_fibo_error_artefact)
-
-module MasterIntArtefact = Oci_Master.Make(Int)(Oci_Common.Artefact)
-
-let () =
-  MasterIntArtefact.create_master_and_runner
-    Test_succ.test_fibo_artefact_aux
-    ~error:(fun _ -> raise Exit)
-    ~binary_name:"test_succ_runner"
-    (Oci_Master.dispatch_exn Test_succ.test_fibo_artefact_aux)
-
-let () = Oci_Rootfs.register_rootfs ()
-
-let () = never_returns (Oci_Master.run ())
+val register_rootfs: unit -> unit
