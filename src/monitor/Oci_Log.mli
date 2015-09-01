@@ -23,42 +23,37 @@
 open Core.Std
 open Async.Std
 
+type kind =
+  | Standard | Error | Chapter | Command
+    with sexp, bin_io
+
+type line = {
+  kind : kind;
+  line : string;
+} with sexp, bin_io
+
+
 type t
 
-val start:
-  implementations:
-    Async.Std.Rpc.Connection.t Rpc.Implementation.t list ->
-  never_returns
-(** The runner waits for request. *)
+include Binable.S with type t := t
 
-val implement:
-  ('query,'result) Oci_Data.t ->
-  (t -> 'query -> 'result Deferred.t) ->
-  Async.Std.Rpc.Connection.t Rpc.Implementation.t
+val line_invariant: line -> bool
 
-type artefact = Oci_Common.Artefact.t with sexp, bin_io
+val create: unit -> t
 
-val create_artefact: t -> dir:string -> artefact Deferred.t
-val link_artefact:
-  t -> ?user:Oci_Common.user_kind
-  -> artefact -> dir:string -> unit Deferred.t
-(** ro *)
-val copy_artefact:
-  t -> ?user:Oci_Common.user_kind
-  -> artefact -> dir:string -> unit Deferred.t
-(** rw *)
-val dispatch:
-  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t
-val dispatch_exn:
-  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
+exception Closed_Log
 
+val transfer: t -> line Pipe.Reader.t -> unit Deferred.t
+val write: t -> line -> unit
+val close: t -> unit
 
-val std_log: t -> ('a, unit, string, unit) format4 -> 'a
-val err_log: t -> ('a, unit, string, unit) format4 -> 'a
-val cha_log: t -> ('a, unit, string, unit) format4 -> 'a
-val cmd_log: t -> ('a, unit, string, unit) format4 -> 'a
+val read: t -> line Pipe.Reader.t Deferred.t
 
-val process_log: t -> Process.t -> unit
+val init:
+  dir:string ->
+  register_saver:(loader:(unit -> unit Deferred.t) ->
+                  saver:(unit -> unit Deferred.t) ->
+                  unit)
+  -> unit
 
-val run: t -> Process.t Or_error.t Deferred.t Process.with_create_args
-(** both Async_shell.run and process_log *)
+val t_type_id: t Univ_map.Key.t

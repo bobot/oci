@@ -29,12 +29,23 @@ let absolutize = Oci_Filename.make_absolute (Caml.Sys.getcwd ())
 let exec test input sexp_input sexp_output conn =
   Printf.printf "Read %s\n%!"
     (Sexp.to_string_hum (sexp_input input));
-  Rpc.Rpc.dispatch_exn (Oci_Data.rpc test) conn input
-  >>= fun r ->
-  Printf.printf
-    "For %s: result %s\n%!"
-    (Sexp.to_string_hum (sexp_input input))
-    (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
+  Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both test) conn input
+  >>= fun (p,_) ->
+  Pipe.iter p ~f:(function
+      | Oci_Data.Line line ->
+        Printf.printf
+          "[Log: %s] %s\n%!"
+          (Sexp.to_string_hum (Oci_Log.sexp_of_kind line.Oci_Log.kind))
+          line.Oci_Log.line;
+        Deferred.unit
+      | Oci_Data.Result r ->
+        Printf.printf
+          "[Result] For %s: result %s\n%!"
+          (Sexp.to_string_hum (sexp_input input))
+          (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
+        Deferred.unit
+    )
+  >>= fun () ->
   Writer.flushed (Lazy.force Writer.stdout)
 
 let test =

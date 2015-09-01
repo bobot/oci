@@ -35,6 +35,7 @@ type conf = {
   storage: Oci_Filename.t;
   runners: Oci_Filename.t;
   permanent: Oci_Filename.t;
+  log: Oci_Filename.t;
   (** permanent storage for masters *)
   conf_monitor: Oci_Artefact_Api.artefact_api;
   api_for_runner: Oci_Filename.t Rpc.Implementations.t;
@@ -182,8 +183,39 @@ let register_master data f =
          (fun rootfs q ->
             debug "%s called from %s" name rootfs;
             Monitor.try_with_join_or_error
-              ~name (fun () -> f q)
-         ))
+              ~name (fun () -> fst (f q))
+         ));
+  masters := Rpc.Implementations.add_exn !masters
+      (Rpc.Pipe_rpc.implement (Oci_Data.log data)
+         (fun rootfs q ~aborted:_ ->
+            debug "%s log called from %s" name rootfs;
+              Monitor.try_with_or_error ~name
+                (fun () -> Oci_Log.read (snd (f q)))
+         ));
+    masters := Rpc.Implementations.add_exn !masters
+      (Rpc.Pipe_rpc.implement (Oci_Data.both data)
+         (fun rootfs q ~aborted:_ ->
+            debug "%s both called from %s" name rootfs;
+            Monitor.try_with_or_error ~name
+              (fun () ->
+                 return begin
+                   Pipe.init (fun (writer:
+                                     'result Oci_Data.both Pipe.Writer.t) ->
+                       let res,log = (f q) in
+                       Oci_Log.read log
+                       >>= fun log ->
+                       Pipe.transfer log writer
+                         ~f:(fun l -> Oci_Data.Line l)
+                       >>= fun () ->
+                       res
+                       >>= fun res ->
+                       Pipe.write writer (Oci_Data.Result res)
+                     )
+                 end
+              )
+         )
+      )
+
 
 let savers = Stack.create ()
 
@@ -334,6 +366,7 @@ let run () =
       binaries = Oci_Filename.concat conf_monitor.oci_data "binaries";
       storage = Oci_Filename.concat conf_monitor.oci_data "storage";
       permanent = Oci_Filename.concat conf_monitor.oci_data "permanent";
+      log = Oci_Filename.concat conf_monitor.oci_data "log";
       conf_monitor;
       api_for_runner = add_artefact_api !masters;
     } in
@@ -342,8 +375,9 @@ let run () =
     Async_shell.run "rm" ["-rf";"--";conf.runners;conf.binaries]
     >>> fun () ->
     Deferred.all_unit (List.map ~f:(Unix.mkdir ~p:() ?perm:None)
-                         [conf.runners;conf.binaries;
-                          conf.storage;conf.permanent])
+                         [conf.runners; conf.binaries;
+                          conf.storage; conf.permanent;
+                          conf.log])
     >>> fun () ->
     (** Copy binaries *)
     Sys.ls_dir conf_monitor.binaries
@@ -367,6 +401,7 @@ let run () =
          files)
     >>> fun () ->
     register_saver ~loader:loader_artifact_data ~saver:saver_artifact_data;
+    Oci_Log.init ~dir:conf.log ~register_saver;
     load ()
     >>> fun () ->
     let save_at = Time.Span.create ~min:10 () in

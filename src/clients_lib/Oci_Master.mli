@@ -44,12 +44,23 @@ module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
 
 end
 
-val dispatch:
-  ('query,'result) Oci_Data.t -> Rpc.Connection.t ->
+val dispatch_runner:
+  ?msg:string ->
+  ?log:Oci_Log.t ->
+  ('query,'result) Oci_Data.t ->
+  Rpc.Connection.t ->
   'query -> 'result Or_error.t Deferred.t
-val dispatch_exn:
-  ('query,'result) Oci_Data.t -> Rpc.Connection.t ->
+val dispatch_runner_exn:
+  ?msg:string ->
+  ?log:Oci_Log.t ->
+  ('query,'result) Oci_Data.t ->
+  Rpc.Connection.t ->
   'query -> 'result Deferred.t
+
+val std_log: ?log:Oci_Log.t -> ('a, unit, string, unit) format4 -> 'a
+val err_log: ?log:Oci_Log.t -> ('a, unit, string, unit) format4 -> 'a
+val cha_log: ?log:Oci_Log.t -> ('a, unit, string, unit) format4 -> 'a
+val cmd_log: ?log:Oci_Log.t -> ('a, unit, string, unit) format4 -> 'a
 
 (** {2 Expert API} *)
 
@@ -58,7 +69,7 @@ val oci_at_shutdown: (unit -> unit Deferred.t) -> unit
 
 val register:
   ('query,'result) Oci_Data.t ->
-  ('query -> 'result Or_error.t Deferred.t) ->
+  ('query -> 'result Or_error.t Deferred.t * Oci_Log.t) ->
   unit
 (** There is only one master of a given sort by session. It must keep
       track of which tasks are running, and which tasks have been
@@ -94,6 +105,9 @@ val start_runner:
     error of the process, the second one is determined when the
     connection is established.
 *)
+
+val get_log: unit -> Oci_Log.t
+val attach_log: Oci_Log.t -> (unit -> 'a) -> 'a
 
 val stop_runner: Rpc.Connection.t -> unit Deferred.t
 (** Ask the runner to stop *)

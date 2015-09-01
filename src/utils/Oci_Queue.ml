@@ -20,45 +20,68 @@
 (*                                                                        *)
 (**************************************************************************)
 
+(** Queue on which reader can wait *)
+
+(** I was not able to find something like that in Core/Async
+    Async_stream seems deprecated and doesn't keep previous value
+ *)
+
 open Core.Std
 open Async.Std
 
-type t
+type 'a queue =
+  | Eof
+  | Next of 'a queue Deferred.t * 'a
 
-val start:
-  implementations:
-    Async.Std.Rpc.Connection.t Rpc.Implementation.t list ->
-  never_returns
-(** The runner waits for request. *)
+type 'a t = {
+  first: 'a queue Deferred.t;
+  mutable next: 'a queue Ivar.t;
+}
 
-val implement:
-  ('query,'result) Oci_Data.t ->
-  (t -> 'query -> 'result Deferred.t) ->
-  Async.Std.Rpc.Connection.t Rpc.Implementation.t
+let create () =
+  let first = Ivar.create () in
+  {
+    first = Ivar.read first;
+    next = first;
+  }
 
-type artefact = Oci_Common.Artefact.t with sexp, bin_io
+let read t =
+  Pipe.init (fun writer ->
+      let rec get q =
+        q
+        >>= function
+        | Eof -> return ()
+        | Next (q,v) ->
+        Pipe.write writer v
+        >>= fun () ->
+        get q
+      in
+      get t.first
+    )
 
-val create_artefact: t -> dir:string -> artefact Deferred.t
-val link_artefact:
-  t -> ?user:Oci_Common.user_kind
-  -> artefact -> dir:string -> unit Deferred.t
-(** ro *)
-val copy_artefact:
-  t -> ?user:Oci_Common.user_kind
-  -> artefact -> dir:string -> unit Deferred.t
-(** rw *)
-val dispatch:
-  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t
-val dispatch_exn:
-  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
+let add t v =
+  assert (Ivar.is_empty t.next); (** otherwise used after eof *)
+  let next = t.next in
+  let new_next = Ivar.create () in
+  t.next <- new_next;
+  Ivar.fill next (Next(Ivar.read new_next,v))
+
+let rec transfer_id t r =
+  Pipe.read' r
+  >>= function
+  | `Eof -> return ()
+  | `Ok q ->
+    assert (Ivar.is_empty t.next); (** otherwise used after eof *)
+    let new_next = Queue.fold
+        ~f:(fun next v ->
+            let new_next = Ivar.create () in
+            let new_last = Next(Ivar.read new_next,v) in
+            Ivar.fill next new_last;
+            new_next
+          ) ~init:t.next q in
+    t.next <- new_next;
+    transfer_id t r
 
 
-val std_log: t -> ('a, unit, string, unit) format4 -> 'a
-val err_log: t -> ('a, unit, string, unit) format4 -> 'a
-val cha_log: t -> ('a, unit, string, unit) format4 -> 'a
-val cmd_log: t -> ('a, unit, string, unit) format4 -> 'a
-
-val process_log: t -> Process.t -> unit
-
-val run: t -> Process.t Or_error.t Deferred.t Process.with_create_args
-(** both Async_shell.run and process_log *)
+let eof t =
+  Ivar.fill t.next Eof

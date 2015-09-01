@@ -25,7 +25,7 @@ open Oci_Cmd_Runner_Api
 
 let () =
   never_returns (
-    Oci_Runner.run
+    Oci_Runner.start
       ~implementations:[
         Oci_Runner.implement run
           (fun _ d -> Async_shell.run d.prog d.args);

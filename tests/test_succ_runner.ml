@@ -115,7 +115,7 @@ let test_fibo_error_artefact conn q =
 
 let () =
   never_returns begin
-    Oci_Runner.run
+    Oci_Runner.start
       ~implementations:[
         Oci_Runner.implement
           Test_succ.test_succ test_succ;

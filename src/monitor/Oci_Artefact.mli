@@ -41,7 +41,7 @@ val remove_dir: Oci_Filename.t -> unit Deferred.t
 
 val register_master:
   ('query,'result) Oci_Data.t ->
-  ('query -> 'result Or_error.t Deferred.t) ->
+  ('query -> 'result Or_error.t Deferred.t * Oci_Log.t) ->
   unit
 
 val register_saver:

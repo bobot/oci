@@ -20,45 +20,20 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Core.Std
 open Async.Std
 
-type t
+(** A queue where elements can't be removed. Can be also seen as a
+    pipe that return the same elements to all the readers. Keep in
+    memory all the elements previously inserted
+*)
 
-val start:
-  implementations:
-    Async.Std.Rpc.Connection.t Rpc.Implementation.t list ->
-  never_returns
-(** The runner waits for request. *)
+type 'a t
 
-val implement:
-  ('query,'result) Oci_Data.t ->
-  (t -> 'query -> 'result Deferred.t) ->
-  Async.Std.Rpc.Connection.t Rpc.Implementation.t
-
-type artefact = Oci_Common.Artefact.t with sexp, bin_io
-
-val create_artefact: t -> dir:string -> artefact Deferred.t
-val link_artefact:
-  t -> ?user:Oci_Common.user_kind
-  -> artefact -> dir:string -> unit Deferred.t
-(** ro *)
-val copy_artefact:
-  t -> ?user:Oci_Common.user_kind
-  -> artefact -> dir:string -> unit Deferred.t
-(** rw *)
-val dispatch:
-  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t
-val dispatch_exn:
-  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
-
-
-val std_log: t -> ('a, unit, string, unit) format4 -> 'a
-val err_log: t -> ('a, unit, string, unit) format4 -> 'a
-val cha_log: t -> ('a, unit, string, unit) format4 -> 'a
-val cmd_log: t -> ('a, unit, string, unit) format4 -> 'a
-
-val process_log: t -> Process.t -> unit
-
-val run: t -> Process.t Or_error.t Deferred.t Process.with_create_args
-(** both Async_shell.run and process_log *)
+val create: unit -> 'a t
+val read: 'a t -> 'a Pipe.Reader.t
+val add: 'a t -> 'a -> unit
+(** add an element *)
+val transfer_id: 'a t -> 'a Pipe.Reader.t -> unit Deferred.t
+(** add all the elements read from the pipe *)
+val eof: 'a t -> unit
+(** Close the queue, no more elements can be added *)

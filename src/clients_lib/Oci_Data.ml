@@ -24,12 +24,36 @@ open Core.Std
 open Async.Std
 open Rpc
 
-type ('query,'result) t = ('query,'result Or_error.t) Rpc.t
 
-let register ~name ~version ~bin_query ~bin_result =
-  Rpc.create ~name ~version ~bin_query ~bin_response:(Or_error.bin_t bin_result)
+type 'a both =
+  | Line of Oci_Log.line
+  | Result of 'a Or_error.t with sexp, bin_io
 
-let name = Rpc.name
-let version = Rpc.version
+type ('query,'result) t = {
+  result: ('query,'result Or_error.t) Rpc.t;
+  log: ('query, Oci_Log.line, Error.t) Pipe_rpc.t;
+  both: ('query, 'result both, Error.t)
+      Pipe_rpc.t;
+}
 
-let rpc ty = ty
+let register ~name ~version ~bin_query ~bin_result = {
+  result = Rpc.create ~name ~version
+      ~bin_query ~bin_response:(Or_error.bin_t bin_result);
+  log = Pipe_rpc.create ~name:(name^" Oci.log") ~version
+      ~bin_query
+      ~bin_response:Oci_Log.bin_line
+      ~bin_error:Error.bin_t
+      ();
+  both = Pipe_rpc.create ~name:(name^" Oci.both") ~version
+      ~bin_query
+      ~bin_response:(bin_both bin_result)
+      ~bin_error:Error.bin_t
+      ();
+}
+
+let name t = Rpc.name t.result
+let version t = Rpc.version t.result
+
+let rpc t = t.result
+let log t = t.log
+let both t = t.both
