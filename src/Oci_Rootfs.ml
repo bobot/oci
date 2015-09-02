@@ -184,8 +184,6 @@ let add_packages (d:add_packages_query) =
         )
     end Fn.id]
 
-
-
 let register_rootfs () =
   let register d f =
     Oci_Master.register d

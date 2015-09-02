@@ -144,7 +144,7 @@ let process_log t p =
   don't_wait_for (send_to_log t Oci_Log.Error (Process.stderr p))
 
 let process_create t ?working_dir ?env ~prog ~args () =
-  cmd_log t "Run: %S%s" prog (String.concat ~sep:" " args);
+  cmd_log t "Run: %s %s" prog (String.concat ~sep:" " args);
   let open Deferred.Or_error in
   Process.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
