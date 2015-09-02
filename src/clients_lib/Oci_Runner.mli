@@ -47,6 +47,9 @@ val copy_artefact:
   t -> ?user:Oci_Common.user_kind
   -> artefact -> dir:string -> unit Deferred.t
 (** rw *)
+
+val get_internet: t -> unit Deferred.t
+
 val dispatch:
   t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t
 val dispatch_exn:

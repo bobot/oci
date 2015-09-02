@@ -35,5 +35,7 @@ let () =
           (fun t d -> Oci_Runner.link_artefact t d.artefact ~dir:d.dst);
         Oci_Runner.implement copy_to
           (fun t d -> Oci_Runner.copy_artefact t d.artefact ~dir:d.dst);
+        Oci_Runner.implement get_internet
+          (fun t () -> Oci_Runner.get_internet t);
       ]
   )

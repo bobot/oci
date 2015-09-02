@@ -58,3 +58,10 @@ let copy_to = Oci_Data.register
     ~version:1
     ~bin_query:bin_link_copy_query
     ~bin_result:Unit.bin_t
+
+let get_internet =
+  Oci_Data.register
+    ~name:"Oci_Cmd_Runner_Api.get_internet"
+    ~version:1
+    ~bin_query:Unit.bin_t
+    ~bin_result:Unit.bin_t

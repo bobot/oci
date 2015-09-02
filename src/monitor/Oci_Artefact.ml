@@ -277,7 +277,16 @@ let add_artefact_api init =
          let dst = Oci_Filename.make_relative "/" dst in
          let dst = Oci_Filename.make_absolute rootfs dst in
          copy_to_gen (Oci_Common.master_user user) artefact dst
-      )
+      );
+    (** get_internet *)
+    Rpc.Rpc.implement
+      Oci_Artefact_Api.rpc_get_internet
+      (fun rootfs () ->
+         let resolv = "etc/resolv.conf" in
+         let src = Oci_Filename.make_absolute "/" resolv in
+         let dst = Oci_Filename.make_absolute rootfs resolv in
+         Async_shell.run "cp" ["--";src;dst]
+      );
   ]
 
 let start_runner ~binary_name =
@@ -308,7 +317,8 @@ let start_runner ~binary_name =
         [Root,1000;User,1];
     command = binary;
     argv = [named_pipe];
-    env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
+    env =
+      ["PATH","/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"];
     runuid = 0;
     rungid = 0;
     bind_system_mount = false;

@@ -115,6 +115,13 @@ let rpc_copy_to =
     ~bin_query:bin_rpc_link_to_query
     ~bin_response:Unit.bin_t
 
+let rpc_get_internet =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.get_internet"
+    ~version:1
+    ~bin_query:Unit.bin_t
+    ~bin_response:Unit.bin_t
+
 let rpc_stop_runner =
   Rpc.Rpc.create
     ~name:"Oci_Runner.stop_runner"

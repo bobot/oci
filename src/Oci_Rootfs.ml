@@ -50,15 +50,12 @@ let () =
     M.bin_t
     ~basename:"rootfs_next_id"
     ~saver:(fun () ->
-        info "rootfs: %i" (Rootfs_Id.Table.length !db_rootfs);
         let db_rootfs = Rootfs_Id.Table.to_alist !db_rootfs in
-        info "rootfs_alist: %i" (List.length db_rootfs);
         return {M.rootfs_next_id = !rootfs_next_id;
                 db_rootfs})
     ~loader:(fun r ->
         rootfs_next_id := r.M.rootfs_next_id;
         db_rootfs := Rootfs_Id.Table.of_alist_exn r.M.db_rootfs;
-        info "rootfs: %i" (Rootfs_Id.Table.length !db_rootfs);
         return ())
     ~init:(fun () ->
         testdir ()
@@ -150,6 +147,9 @@ let add_packages log (d:add_packages_query) =
              dst="/";
            }
            >>= fun () ->
+           Oci_Master.dispatch_runner_exn ~log
+             Oci_Cmd_Runner_Api.get_internet conn ()
+           >>= fun () ->
            Oci_Master.cha_log ~log "Update Apt Database";
            Oci_Master.dispatch_runner_exn ~log
              Oci_Cmd_Runner_Api.run conn {
@@ -174,12 +174,15 @@ let add_packages log (d:add_packages_query) =
            >>= fun artefact ->
            incr rootfs_next_id;
            let id = Rootfs_Id.of_int_exn (!rootfs_next_id) in
-           Deferred.Or_error.return {
+           let rootfs =  {
              id;
              info =
                {rootfs.info with packages = d.packages @ rootfs.info.packages};
              rootfs = artefact;
-           }
+           } in
+           Rootfs_Id.Table.add_exn !db_rootfs ~key:id ~data:rootfs;
+           Oci_Master.cha_log ~log "New rootfs created";
+           Deferred.Or_error.return rootfs
         )
     end Fn.id]
 

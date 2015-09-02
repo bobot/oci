@@ -234,7 +234,7 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs =
       Oci_Wrapper_Api.idmaps
         ~first_user_mapped:conf.first_user_mapped
         ~in_user:master_user
-        [Superroot,1;Root,1;User,1];
+        [Superroot,1;Root,1000;User,1];
     command = master;
     argv = [named_pipe];
     env = ["PATH","/usr/local/bin:/usr/bin:/bin"];

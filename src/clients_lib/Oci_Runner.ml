@@ -119,6 +119,11 @@ let copy_artefact t ?(user=Oci_Common.Root) src ~dir =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_copy_to
     t.connection (user,src,dir)
 
+let get_internet t =
+  cmd_log t "Get internet";
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_get_internet
+    t.connection ()
+
 let dispatch t d q =
   cmd_log t "Dispatch %s" (Oci_Data.name d);
   Rpc.Rpc.dispatch (Oci_Data.rpc d) t.connection q
