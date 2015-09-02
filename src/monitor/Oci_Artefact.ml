@@ -36,6 +36,7 @@ type conf = {
   runners: Oci_Filename.t;
   permanent: Oci_Filename.t;
   log: Oci_Filename.t;
+  git: Oci_Filename.t;
   (** permanent storage for masters *)
   conf_monitor: Oci_Artefact_Api.artefact_api;
   api_for_runner: Oci_Filename.t Rpc.Implementations.t;
@@ -57,26 +58,7 @@ let dir_of_artefact id =
   let dir = Oci_Filename.mk (Artefact.to_string id) in
   Oci_Filename.make_absolute (get_conf ()).storage dir
 
-let create src =
-  let conf = get_conf () in
-  conf.next_artefact_id <- conf.next_artefact_id + 1;
-  let id = Artefact.of_int conf.next_artefact_id in
-  let dst = dir_of_artefact id in
-  Sys.file_exists_exn (Oci_Filename.get dst)
-  >>= fun b ->
-  if b then raise (Directory_should_not_exists dst);
-  Async_shell.run
-    "cp" ["-a";"--";
-                              Oci_Filename.get src;
-                              Oci_Filename.get dst]
-  >>= fun () ->
-  Async_shell.run "chown" ["-R";
-                           pp_chown (master_user Superroot);
-                           Oci_Filename.get dst]
-  >>=
-  fun () -> return id
-
-let rec copydir ~hardlink ({uid;gid} as user) src dst =
+let rec copydir ~hardlink ~prune ({uid;gid} as user) src dst =
   (** This function run as superroot (like all masters),
       so it is root in its usernamespace *)
   Sys.file_exists_exn dst
@@ -94,34 +76,50 @@ let rec copydir ~hardlink ({uid;gid} as user) src dst =
   Deferred.List.iter files ~f:(fun file ->
       let src' = Oci_Filename.make_absolute src file in
       let dst' = Oci_Filename.make_absolute dst file in
-      Unix.lstat src'
-      >>= function
-      | {kind = `Directory} ->
-        copydir ~hardlink user src' dst'
-      | {kind = `File} ->
-        Oci_Std.unlink_no_fail dst'
-        >>= fun () ->
-        if hardlink
-        then Unix.link ~target:src' ~link_name:dst' ()
-        else begin
-          Async_shell.run "cp" ["-a";"--";src';dst']
+      if List.mem ~equal:Oci_Filename.equal prune src'
+      then return ()
+      else begin
+        Unix.lstat src'
+        >>= function
+        | { uid = 65534 } (* nobody *) | { gid = 65534 } (* nogroup *) ->
+          return ()
+        | {kind = `Directory} ->
+          copydir ~hardlink ~prune user src' dst'
+        | {kind = `File} ->
+          Oci_Std.unlink_no_fail dst'
           >>= fun () ->
-          Unix.chown ~uid ~gid dst'
-        end
-      | {kind = `Link} ->
-        Oci_Std.unlink_no_fail dst'
-        >>= fun () ->
-        Unix.readlink src'
-        >>= fun tgt ->
-        Unix.symlink ~src:tgt ~dst:dst'
-      | {kind = `Block|`Socket|`Fifo|`Char } ->
-        error "Can't copy this file: %s bad type" src';
-        raise (Can't_copy_this_file src')
+          if hardlink
+          then Unix.link ~target:src' ~link_name:dst' ()
+          else begin
+            Async_shell.run "cp" ["-a";"--";src';dst']
+            >>= fun () ->
+            Unix.chown ~uid ~gid dst'
+          end
+        | {kind = `Link} ->
+          Oci_Std.unlink_no_fail dst'
+          >>= fun () ->
+          Unix.readlink src'
+          >>= fun tgt ->
+          Unix.symlink ~src:tgt ~dst:dst'
+        | {kind = `Block|`Socket|`Fifo|`Char } ->
+          error "Can't copy this file: %s bad type" src';
+          raise (Can't_copy_this_file src')
+      end
     )
+let create ~prune src =
+  let conf = get_conf () in
+  conf.next_artefact_id <- conf.next_artefact_id + 1;
+  let id = Artefact.of_int conf.next_artefact_id in
+  let dst = dir_of_artefact id in
+  Sys.file_exists_exn (Oci_Filename.get dst)
+  >>= fun b ->
+  if b then raise (Directory_should_not_exists dst);
+  copydir ~hardlink:false ~prune (master_user Superroot) src dst
+  >>= fun () -> return id
 
 let link_copy_to ~hardlink {uid;gid} id dst =
   let src = dir_of_artefact id in
-  copydir ~hardlink {uid;gid} src dst
+  copydir ~hardlink ~prune:[] {uid;gid} src dst
 
 let link_to_gen = link_copy_to ~hardlink:true
 let copy_to_gen = link_copy_to ~hardlink:false
@@ -258,7 +256,14 @@ let add_artefact_api init =
          assert (not (Oci_Filename.is_relative src));
          let src = Oci_Filename.make_relative "/" src in
          let src = Oci_Filename.make_absolute rootfs src in
-         create src
+         create
+           ~prune:[
+             Oci_Filename.make_absolute rootfs "dev";
+             Oci_Filename.make_absolute rootfs "proc";
+             Oci_Filename.make_absolute rootfs "sys";
+             Oci_Filename.make_absolute rootfs "run";
+           ]
+           src
       );
     (** link_to *)
     Rpc.Rpc.implement
@@ -286,6 +291,14 @@ let add_artefact_api init =
          let src = Oci_Filename.make_absolute "/" resolv in
          let dst = Oci_Filename.make_absolute rootfs resolv in
          Async_shell.run "cp" ["--";src;dst]
+      );
+    (** git_clone *)
+    Rpc.Rpc.implement
+      Oci_Artefact_Api.rpc_git_clone
+      (fun rootfs (url,dst,user) ->
+        let dst = Oci_Filename.make_relative "/" dst in
+        let dst = Oci_Filename.make_absolute rootfs dst in
+        Oci_Git.clone ~user ~url ~dst
       );
   ]
 
@@ -321,7 +334,7 @@ let start_runner ~binary_name =
       ["PATH","/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"];
     runuid = 0;
     rungid = 0;
-    bind_system_mount = false;
+    bind_system_mount = true;
     prepare_network = false;
     workdir = None;
   } in
@@ -382,6 +395,7 @@ let run () =
       storage = Oci_Filename.concat conf_monitor.oci_data "storage";
       permanent = Oci_Filename.concat conf_monitor.oci_data "permanent";
       log = Oci_Filename.concat conf_monitor.oci_data "log";
+      git = Oci_Filename.concat conf_monitor.oci_data "git";
       conf_monitor;
       api_for_runner = add_artefact_api !masters;
     } in
@@ -392,7 +406,7 @@ let run () =
     Deferred.all_unit (List.map ~f:(Unix.mkdir ~p:() ?perm:None)
                          [conf.runners; conf.binaries;
                           conf.storage; conf.permanent;
-                          conf.log])
+                          conf.log; conf.git])
     >>> fun () ->
     (** Copy binaries *)
     Sys.ls_dir conf_monitor.binaries
@@ -417,6 +431,7 @@ let run () =
     >>> fun () ->
     register_saver ~loader:loader_artifact_data ~saver:saver_artifact_data;
     Oci_Log.init ~dir:conf.log ~register_saver;
+    Oci_Git.init ~dir:conf.git ~register_saver;
     load ()
     >>> fun () ->
     let save_at = Time.Span.create ~min:10 () in

@@ -76,12 +76,12 @@ let test =
                       }
       }
       sexp_of_create_rootfs_query
-      sexp_of_rootfs
+      Rootfs.sexp_of_t
   | "lookup_rootfs" ->
     let open Oci_Rootfs_Api in
     exec find_rootfs (Rootfs_Id.of_string Sys.argv.(3))
       Rootfs_Id.sexp_of_t
-      sexp_of_rootfs
+      Rootfs.sexp_of_t
   | "add_packages" ->
     let open Oci_Rootfs_Api in
     exec add_packages
@@ -89,7 +89,16 @@ let test =
         packages = String.split ~on:',' Sys.argv.(4);
       }
       sexp_of_add_packages_query
-      sexp_of_rootfs
+      Rootfs.sexp_of_t
+  | "ocaml" ->
+    fun conn ->
+      Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) conn
+        (Oci_Rootfs_Api.Rootfs_Id.of_string Sys.argv.(3))
+      >>= fun rootfs ->
+      exec Test_succ.test_ocaml
+        { rootfs = Or_error.ok_exn rootfs ; commit = Sys.argv.(4) }
+        Test_succ.Ocaml_Query.sexp_of_t
+        Oci_Common.Artefact.sexp_of_t conn
   | _ -> failwith "succ or fibo"
 
 

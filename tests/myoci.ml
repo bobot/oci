@@ -62,6 +62,17 @@ let () =
     ~binary_name:"test_succ_runner"
     (Oci_Master.dispatch_runner_exn Test_succ.test_fibo_artefact_aux)
 
+module MasterOcamlArtefact =
+  Oci_Master.Make(Test_succ.Ocaml_Query)(Oci_Common.Artefact)
+
+let () =
+  MasterOcamlArtefact.create_master_and_runner
+    Test_succ.test_ocaml
+    ~error:(fun _ -> raise Exit)
+    ~binary_name:"test_succ_runner"
+    (Oci_Master.dispatch_runner_exn Test_succ.test_ocaml)
+
+
 let () = Oci_Rootfs.register_rootfs ()
 
 let () = never_returns (Oci_Master.run ())

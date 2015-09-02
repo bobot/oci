@@ -29,7 +29,7 @@ open Oci_Rootfs_Api
     so it need to runs in masters task that should be done in a runner *)
 
 let rootfs_next_id = ref (-1)
-let db_rootfs : rootfs Rootfs_Id.Table.t ref = ref (Rootfs_Id.Table.create ())
+let db_rootfs : Rootfs.t Rootfs_Id.Table.t ref = ref (Rootfs_Id.Table.create ())
 
 let testdir () =
   Oci_Master.permanent_directory Oci_Rootfs_Api.create_rootfs
@@ -40,7 +40,7 @@ let testdir () =
 let () =
   let module M = struct
     type t = {rootfs_next_id: Int.t;
-              db_rootfs: (Rootfs_Id.t * rootfs) list;
+              db_rootfs: (Rootfs_Id.t * Rootfs.t) list;
              } with bin_io
   end in
   Oci_Master.simple_register_saver
@@ -106,10 +106,17 @@ let create_new_rootfs rootfs_query =
                               ))
        >>= fun () ->
        Oci_Master.cha_log "Create artefact";
-       Oci_Artefact.create rootfsdir
+       Oci_Artefact.create
+         ~prune:[
+           Oci_Filename.make_absolute rootfsdir "dev";
+           Oci_Filename.make_absolute rootfsdir "proc";
+           Oci_Filename.make_absolute rootfsdir "sys";
+           Oci_Filename.make_absolute rootfsdir "run";
+         ]
+         rootfsdir
        >>= fun a ->
        let rootfs = {
-         id;
+         Rootfs.id;
          info = rootfs_query.rootfs_info;
          rootfs = a
        } in
@@ -173,7 +180,7 @@ let add_packages (d:add_packages_query) =
            incr rootfs_next_id;
            let id = Rootfs_Id.of_int_exn (!rootfs_next_id) in
            let rootfs =  {
-             id;
+             Rootfs.id;
              info =
                {rootfs.info with packages = d.packages @ rootfs.info.packages};
              rootfs = artefact;

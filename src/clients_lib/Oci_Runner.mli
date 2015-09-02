@@ -49,6 +49,11 @@ val copy_artefact:
 (** rw *)
 
 val get_internet: t -> unit Deferred.t
+val git_clone: t ->
+  ?user:Oci_Common.user_kind ->
+  url:string ->
+  dst:Oci_Filename.t ->
+  unit Deferred.t
 
 val dispatch:
   t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t

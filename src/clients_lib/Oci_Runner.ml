@@ -124,6 +124,11 @@ let get_internet t =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_get_internet
     t.connection ()
 
+let git_clone t ?(user=Oci_Common.Root) ~url ~dst =
+  cmd_log t "Git clone %s in %s" url dst;
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_git_clone
+    t.connection (url,dst,user)
+
 let dispatch t d q =
   cmd_log t "Dispatch %s" (Oci_Data.name d);
   Rpc.Rpc.dispatch (Oci_Data.rpc d) t.connection q

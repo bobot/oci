@@ -38,12 +38,15 @@ module Rootfs_Id: sig
   include Interfaces.Stringable with type t := t
 end
 
-type rootfs = {
-  id: Rootfs_Id.t;
-  info: rootfs_info;
-  rootfs: Oci_Common.Artefact.t;
-} with sexp, bin_io
+module Rootfs : sig
+  type t = {
+    id: Rootfs_Id.t;
+    info: rootfs_info;
+    rootfs: Oci_Common.Artefact.t;
+  } with sexp, bin_io, compare
 
+  include Hashable.S with type t := t
+end
 
 type create_rootfs_query = {
   rootfs_info : rootfs_info;
@@ -51,12 +54,12 @@ type create_rootfs_query = {
   meta_tar: Oci_Filename.t option; (** absolute pathname *)
 } with sexp, bin_io
 
-val create_rootfs: (create_rootfs_query,rootfs) Oci_Data.t
-val find_rootfs: (Rootfs_Id.t,rootfs) Oci_Data.t
+val create_rootfs: (create_rootfs_query,Rootfs.t) Oci_Data.t
+val find_rootfs: (Rootfs_Id.t,Rootfs.t) Oci_Data.t
 
 type add_packages_query = {
   id: Rootfs_Id.t;
   packages: string list;
 } with sexp, bin_io
 
-val add_packages: (add_packages_query,rootfs) Oci_Data.t
+val add_packages: (add_packages_query,Rootfs.t) Oci_Data.t

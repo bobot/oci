@@ -33,12 +33,21 @@ type rootfs_info = {
 
 module Rootfs_Id = Int
 
-type rootfs = {
-  id: Rootfs_Id.t;
-  info: rootfs_info;
-  rootfs: Oci_Common.Artefact.t
-} with sexp, bin_io
+module Rootfs = struct
+  module T = struct
+    type t = {
+      id: Rootfs_Id.t;
+      info: rootfs_info;
+      rootfs: Oci_Common.Artefact.t;
+    } with sexp, bin_io
 
+    let compare x y = Rootfs_Id.compare x.id y.id
+    let hash x = Rootfs_Id.hash x.id
+  end
+  module Hash = Hashable.Make(T)
+  include T
+  include Hash
+end
 
 type create_rootfs_query = {
   rootfs_info : rootfs_info;
@@ -50,13 +59,13 @@ let create_rootfs = Oci_Data.register
     ~name:"Oci.Rootfs.create"
     ~version:1
     ~bin_query:bin_create_rootfs_query
-    ~bin_result:bin_rootfs
+    ~bin_result:Rootfs.bin_t
 
 let find_rootfs = Oci_Data.register
     ~name:"Oci.Rootfs.find"
     ~version:1
     ~bin_query:Int.bin_t
-    ~bin_result:bin_rootfs
+    ~bin_result:Rootfs.bin_t
 
 
 type add_packages_query = {
@@ -69,4 +78,4 @@ let add_packages =
     ~name:"Oci.Rootfs.add_packages"
     ~version:1
     ~bin_query:bin_add_packages_query
-    ~bin_result:bin_rootfs
+    ~bin_result:Rootfs.bin_t

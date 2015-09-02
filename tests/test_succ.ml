@@ -51,3 +51,20 @@ let test_fibo_error_artefact = Oci_Data.register
     ~version:1
     ~bin_query:Int.bin_t
     ~bin_result:Int.bin_t
+
+module Ocaml_Query = struct
+
+  type t = {
+    rootfs: Oci_Rootfs_Api.Rootfs.t;
+    commit: String.t;
+  } with sexp, bin_io, compare
+
+  let hash = Hashtbl.hash
+
+end
+
+let test_ocaml = Oci_Data.register
+    ~name:"ocaml.compilation"
+    ~version:1
+    ~bin_query:Ocaml_Query.bin_t
+    ~bin_result:Oci_Common.Artefact.bin_t

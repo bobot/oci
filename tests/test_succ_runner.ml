@@ -112,6 +112,24 @@ let test_fibo_error_artefact conn q =
   >>= fun _ ->
   return (-1)
 
+let test_ocaml t (q:Test_succ.Ocaml_Query.t) =
+  Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
+  >>= fun () ->
+  Oci_Runner.git_clone t
+    ~user:Root
+    ~url:"https://github.com/ocaml/ocaml.git"
+    ~dst:"/ocaml"
+  >>= fun () ->
+  Oci_Runner.run  t ~working_dir:"/ocaml"
+    ~prog:"git"
+    ~args:["checkout";q.commit] ()
+  >>= fun () ->
+  Oci_Runner.run t ~working_dir:"/ocaml"
+    ~prog:"./configure"
+    ~args:[] ()
+  >>= fun () ->
+  return q.rootfs.rootfs
+
 
 let () =
   never_returns begin
@@ -127,5 +145,7 @@ let () =
           Test_succ.test_fibo_artefact_aux test_fibo_artefact_aux;
         Oci_Runner.implement
           Test_succ.test_fibo_error_artefact test_fibo_error_artefact;
+        Oci_Runner.implement
+          Test_succ.test_ocaml test_ocaml;
       ]
   end

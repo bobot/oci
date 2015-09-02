@@ -111,12 +111,9 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
       ~saver:(fun () ->
           let l = H.fold ~init:[]
               ~f:(fun ~key ~data:(data,log) acc ->
-                  if Deferred.is_determined data
-                  then (data >>= fun data -> return (key,(data,log)))::acc
-                  else acc
+                  Option.fold ~init:acc (Deferred.peek data)
+                    ~f:(fun acc data -> (key,(data,log))::acc)
                 ) db in
-          Deferred.all l
-          >>= fun l ->
           permanent_directory data
           >>= fun dir ->
           let file = Oci_Filename.make_absolute dir "data" in

@@ -122,6 +122,16 @@ let rpc_get_internet =
     ~bin_query:Unit.bin_t
     ~bin_response:Unit.bin_t
 
+type rpc_git_clone_query =
+  (String.t * Oci_Filename.t * Oci_Common.user_kind) with bin_io
+
+let rpc_git_clone =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.git_clone"
+    ~version:1
+    ~bin_query:bin_rpc_git_clone_query
+    ~bin_response:Unit.bin_t
+
 let rpc_stop_runner =
   Rpc.Rpc.create
     ~name:"Oci_Runner.stop_runner"
