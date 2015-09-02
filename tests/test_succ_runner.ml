@@ -119,10 +119,11 @@ let test_ocaml t (q:Test_succ.Ocaml_Query.t) =
     ~user:Root
     ~url:"https://github.com/ocaml/ocaml.git"
     ~dst:"/ocaml"
+    ~commit:q.commit
   >>= fun () ->
-  Oci_Runner.run  t ~working_dir:"/ocaml"
+  Oci_Runner.run t ~working_dir:"/ocaml"
     ~prog:"git"
-    ~args:["checkout";q.commit] ()
+    ~args:["show";"--no-patch"] ()
   >>= fun () ->
   Oci_Runner.run t ~working_dir:"/ocaml"
     ~prog:"./configure"

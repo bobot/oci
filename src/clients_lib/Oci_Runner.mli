@@ -53,6 +53,7 @@ val git_clone: t ->
   ?user:Oci_Common.user_kind ->
   url:string ->
   dst:Oci_Filename.t ->
+  commit:Oci_Common.Commit.t ->
   unit Deferred.t
 
 val dispatch:

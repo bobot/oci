@@ -29,6 +29,22 @@ module Artefact = struct
   let of_int = Fn.id
 end
 
+module Commit = struct
+  exception BadGitCommitFormat of string with sexp
+  type t = String.t with sexp, compare, bin_io
+  let invariant x =
+    String.length x = 40 &&
+    String.for_all ~f:(function
+        | 'a' | 'b' | 'c' | 'd' | 'e' | 'f'
+        | '0' | '1' | '2' | '3' | '4' | '5'
+        | '6' | '7' | '8' | '9' -> true
+        | _ -> false) x
+
+  let to_string = Fn.id
+  let of_string_exn x =
+    if invariant x then x else raise (BadGitCommitFormat x)
+end
+
 type user = {uid : int; gid : int} with sexp, compare, bin_io
 
 let pp_user fmt u = Format.fprintf fmt "%i,%i" u.uid u.gid

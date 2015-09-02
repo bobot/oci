@@ -26,6 +26,13 @@ module Artefact : sig
   val of_int: int -> t
 end
 
+module Commit : sig
+  type t with sexp, bin_io, compare
+  val to_string: t -> string
+  val of_string_exn: string -> t
+end
+
+
 type user = {uid : int; gid : int} with sexp, compare, bin_io
 
 val pp_user: Format.formatter -> user -> unit

@@ -122,8 +122,12 @@ let rpc_get_internet =
     ~bin_query:Unit.bin_t
     ~bin_response:Unit.bin_t
 
-type rpc_git_clone_query =
-  (String.t * Oci_Filename.t * Oci_Common.user_kind) with bin_io
+type rpc_git_clone_query = {
+  url : String.t;
+  dst: Oci_Filename.t;
+  user: Oci_Common.user_kind;
+  commit: Oci_Common.Commit.t;
+} with bin_io
 
 let rpc_git_clone =
   Rpc.Rpc.create

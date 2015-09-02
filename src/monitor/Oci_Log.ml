@@ -99,7 +99,7 @@ let write_without_pushback id line =
 
 let close id =
   match Table.find db_log id with
-  | None -> raise Closed_Log
+  | None -> return ()
   | Some q -> Oci_Queue.close q
 
 let init ~dir ~register_saver =

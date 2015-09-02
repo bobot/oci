@@ -96,7 +96,8 @@ let test =
         (Oci_Rootfs_Api.Rootfs_Id.of_string Sys.argv.(3))
       >>= fun rootfs ->
       exec Test_succ.test_ocaml
-        { rootfs = Or_error.ok_exn rootfs ; commit = Sys.argv.(4) }
+        { rootfs = Or_error.ok_exn rootfs ;
+          commit = Oci_Common.Commit.of_string_exn Sys.argv.(4) }
         Test_succ.Ocaml_Query.sexp_of_t
         Oci_Common.Artefact.sexp_of_t conn
   | _ -> failwith "succ or fibo"

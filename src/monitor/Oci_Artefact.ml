@@ -106,6 +106,7 @@ let rec copydir ~hardlink ~prune ({uid;gid} as user) src dst =
           raise (Can't_copy_this_file src')
       end
     )
+
 let create ~prune src =
   let conf = get_conf () in
   conf.next_artefact_id <- conf.next_artefact_id + 1;
@@ -295,10 +296,10 @@ let add_artefact_api init =
     (** git_clone *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_git_clone
-      (fun rootfs (url,dst,user) ->
+      (fun rootfs {url;dst;user;commit} ->
         let dst = Oci_Filename.make_relative "/" dst in
         let dst = Oci_Filename.make_absolute rootfs dst in
-        Oci_Git.clone ~user ~url ~dst
+        Oci_Git.clone ~user ~url ~dst ~commit
       );
   ]
 
