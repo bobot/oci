@@ -149,23 +149,25 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
 
 end
 
-let write_log kind ?(log=get_log ()) fmt =
+let write_log kind fmt =
   Printf.ksprintf (fun s ->
+      let log = get_log () in
       s
       |> String.split_lines
       |> List.iter ~f:(fun line ->
           Oci_Log.write_without_pushback log {kind;line})
     ) fmt
 
-let std_log ?log fmt = write_log Oci_Log.Standard ?log fmt
-let err_log ?log fmt = write_log Oci_Log.Error ?log fmt
-let cmd_log ?log fmt = write_log Oci_Log.Command ?log fmt
-let cha_log ?log fmt = write_log Oci_Log.Chapter ?log fmt
+let std_log fmt = write_log Oci_Log.Standard fmt
+let err_log fmt = write_log Oci_Log.Error fmt
+let cmd_log fmt = write_log Oci_Log.Command fmt
+let cha_log fmt = write_log Oci_Log.Chapter fmt
 
 exception Internal_error with sexp
 
-let dispatch_runner ?msg ?(log=get_log()) d t q =
-  cmd_log ~log "dispatch %s%s" (Oci_Data.name d) (Option.value ~default:"" msg);
+let dispatch_runner ?msg d t q =
+  let log = get_log () in
+  cmd_log "dispatch %s%s" (Oci_Data.name d) (Option.value ~default:"" msg);
   let r : 'a Or_error.t Ivar.t = Ivar.create () in
   begin
     (Rpc.Pipe_rpc.dispatch (Oci_Data.both d) t q)
@@ -191,8 +193,9 @@ let dispatch_runner ?msg ?(log=get_log()) d t q =
   Ivar.read r
 
 
-let dispatch_runner_exn ?msg ?(log=get_log()) d t q =
-  cmd_log ~log "dispatch %s%s" (Oci_Data.name d) (Option.value ~default:"" msg);
+let dispatch_runner_exn ?msg d t q =
+  let log = get_log () in
+  cmd_log "dispatch %s%s" (Oci_Data.name d) (Option.value ~default:"" msg);
   let r = Ivar.create () in
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both d) t q
   >>= fun (p,_) ->

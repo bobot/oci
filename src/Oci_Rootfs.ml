@@ -23,8 +23,6 @@
 open Core.Std
 open Async.Std
 
-open Log.Global
-
 open Oci_Rootfs_Api
 
 (** The rootfs master is special because it create the environnement,
@@ -64,7 +62,7 @@ let () =
         >>= fun () ->
         Unix.mkdir ~p:() testdir)
 
-let create_new_rootfs log rootfs_query =
+let create_new_rootfs rootfs_query =
   testdir ()
   >>= fun testdir ->
   incr rootfs_next_id;
@@ -78,7 +76,7 @@ let create_new_rootfs log rootfs_query =
        match rootfs_query.meta_tar with
        | None -> return None
        | Some meta_tar ->
-         Oci_Master.cha_log ~log "Extract meta archive: %s" meta_tar;
+         Oci_Master.cha_log "Extract meta archive: %s" meta_tar;
          let metadir = Oci_Filename.make_absolute testdir "meta" in
          Unix.mkdir metadir
          >>= fun () ->
@@ -92,7 +90,7 @@ let create_new_rootfs log rootfs_query =
          else return None
        end
        >>= fun exclude ->
-       Oci_Master.cha_log ~log
+       Oci_Master.cha_log
          "Extract rootfs archive: %s" rootfs_query.rootfs_tar;
        let rootfsdir = Oci_Filename.make_absolute testdir "rootfs" in
        Unix.mkdir rootfsdir
@@ -107,7 +105,7 @@ let create_new_rootfs log rootfs_query =
                                | Some exclude -> ["--exclude-from";exclude]
                               ))
        >>= fun () ->
-       Oci_Master.cha_log ~log "Create artefact";
+       Oci_Master.cha_log "Create artefact";
        Oci_Artefact.create rootfsdir
        >>= fun a ->
        let rootfs = {
@@ -116,16 +114,16 @@ let create_new_rootfs log rootfs_query =
          rootfs = a
        } in
        Rootfs_Id.Table.add_exn !db_rootfs ~key:id ~data:rootfs;
-       Oci_Master.cha_log ~log "New rootfs created";
+       Oci_Master.cha_log "New rootfs created";
        return rootfs
     )
   >>= fun s ->
   Deferred.Or_error.return s
 
-let find_rootfs _ key =
+let find_rootfs key =
   Deferred.Or_error.return (Rootfs_Id.Table.find_exn !db_rootfs key)
 
-let add_packages log (d:add_packages_query) =
+let add_packages (d:add_packages_query) =
   let rootfs = Rootfs_Id.Table.find_exn !db_rootfs d.id in
   Oci_Master.start_runner ~binary_name:"Oci_Cmd_Runner"
   >>= fun (err,conn) ->
@@ -139,27 +137,27 @@ let add_packages log (d:add_packages_query) =
         ~finally:(fun () -> Oci_Master.stop_runner conn)
         ~name:"add_packages"
         (fun () ->
-           Oci_Master.cha_log ~log "Runner started";
-           Oci_Master.dispatch_runner_exn ~log
+           Oci_Master.cha_log "Runner started";
+           Oci_Master.dispatch_runner_exn
              Oci_Cmd_Runner_Api.copy_to conn {
              user=Oci_Common.Root;
              artefact=rootfs.rootfs;
              dst="/";
            }
            >>= fun () ->
-           Oci_Master.dispatch_runner_exn ~log
+           Oci_Master.dispatch_runner_exn
              Oci_Cmd_Runner_Api.get_internet conn ()
            >>= fun () ->
-           Oci_Master.cha_log ~log "Update Apt Database";
-           Oci_Master.dispatch_runner_exn ~log
+           Oci_Master.cha_log "Update Apt Database";
+           Oci_Master.dispatch_runner_exn
              Oci_Cmd_Runner_Api.run conn {
              prog = "apt-get";
              args = ["update"];
              runas = Root;
            }
            >>= fun () ->
-           Oci_Master.cha_log ~log "Install Package";
-           Oci_Master.dispatch_runner_exn ~log
+           Oci_Master.cha_log "Install Package";
+           Oci_Master.dispatch_runner_exn
              Oci_Cmd_Runner_Api.run conn {
              prog = "apt-get";
              args = "install"::
@@ -169,7 +167,7 @@ let add_packages log (d:add_packages_query) =
              runas = Root;
            }
            >>= fun () ->
-           Oci_Master.dispatch_runner_exn ~log
+           Oci_Master.dispatch_runner_exn
              Oci_Cmd_Runner_Api.create_artefact conn "/"
            >>= fun artefact ->
            incr rootfs_next_id;
@@ -181,7 +179,7 @@ let add_packages log (d:add_packages_query) =
              rootfs = artefact;
            } in
            Rootfs_Id.Table.add_exn !db_rootfs ~key:id ~data:rootfs;
-           Oci_Master.cha_log ~log "New rootfs created";
+           Oci_Master.cha_log "New rootfs created";
            Deferred.Or_error.return rootfs
         )
     end Fn.id]
@@ -192,7 +190,9 @@ let register_rootfs () =
   let register d f =
     Oci_Master.register d
     (fun s -> let log = Oci_Log.create () in
-      Deferred.Or_error.try_with_join (fun () -> f log s), log)
+      Deferred.Or_error.try_with_join
+        (fun () -> Oci_Master.attach_log log
+            (fun () -> f s)), log)
   in
   register Oci_Rootfs_Api.create_rootfs create_new_rootfs;
   register Oci_Rootfs_Api.find_rootfs find_rootfs;

@@ -46,21 +46,19 @@ end
 
 val dispatch_runner:
   ?msg:string ->
-  ?log:Oci_Log.t ->
   ('query,'result) Oci_Data.t ->
   Rpc.Connection.t ->
   'query -> 'result Or_error.t Deferred.t
 val dispatch_runner_exn:
   ?msg:string ->
-  ?log:Oci_Log.t ->
   ('query,'result) Oci_Data.t ->
   Rpc.Connection.t ->
   'query -> 'result Deferred.t
 
-val std_log: ?log:Oci_Log.t -> ('a, unit, string, unit) format4 -> 'a
-val err_log: ?log:Oci_Log.t -> ('a, unit, string, unit) format4 -> 'a
-val cha_log: ?log:Oci_Log.t -> ('a, unit, string, unit) format4 -> 'a
-val cmd_log: ?log:Oci_Log.t -> ('a, unit, string, unit) format4 -> 'a
+val std_log: ('a, unit, string, unit) format4 -> 'a
+val err_log: ('a, unit, string, unit) format4 -> 'a
+val cha_log: ('a, unit, string, unit) format4 -> 'a
+val cmd_log: ('a, unit, string, unit) format4 -> 'a
 
 (** {2 Expert API} *)
 
