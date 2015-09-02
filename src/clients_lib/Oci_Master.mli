@@ -93,8 +93,8 @@ type runner_result =
 
 val start_runner:
   binary_name:string ->
-  (runner_result Async_kernel.Deferred0.t *
-   Async.Std.Rpc.Connection.t Async_kernel.Deferred0.t)
+  (runner_result Deferred.t *
+   Async.Std.Rpc.Connection.t Deferred.t)
     Async.Std.Deferred.t
 (** Start the given runner in a namespace and start an Rpc connection.
     `start_runner ~binary_name` start the executable

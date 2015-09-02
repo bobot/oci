@@ -54,8 +54,8 @@ val run: unit -> never_returns
 
 val start_runner:
   binary_name:string ->
-  (Oci_Artefact_Api.exec_in_namespace_response Async_kernel.Deferred0.t *
-   Async.Std.Rpc.Connection.t Async_kernel.Deferred0.t)
+  (Oci_Artefact_Api.exec_in_namespace_response Deferred.t *
+   Async.Std.Rpc.Connection.t Deferred.t)
     Async.Std.Deferred.t
 (** Start the given runner in a namespace and start an Rpc connection.
     `start_runner ~binary_name` start the executable
