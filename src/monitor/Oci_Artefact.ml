@@ -178,19 +178,24 @@ let masters =
 
 let register_master data f =
   let name = (Printf.sprintf "Master %s" (Oci_Data.name data)) in
+  let f' q =
+    let res, log = f q in
+    upon res (fun _ -> don't_wait_for (Oci_Log.close log));
+    res,log
+  in
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Rpc.implement (Oci_Data.rpc data)
          (fun rootfs q ->
             debug "%s called from %s" name rootfs;
             Monitor.try_with_join_or_error
-              ~name (fun () -> fst (f q))
+              ~name (fun () -> fst (f' q))
          ));
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Pipe_rpc.implement (Oci_Data.log data)
          (fun rootfs q ~aborted:_ ->
             debug "%s log called from %s" name rootfs;
               Monitor.try_with_or_error ~name
-                (fun () -> Oci_Log.read (snd (f q)))
+                (fun () -> Oci_Log.read (snd (f' q)))
          ));
     masters := Rpc.Implementations.add_exn !masters
       (Rpc.Pipe_rpc.implement (Oci_Data.both data)
@@ -201,7 +206,7 @@ let register_master data f =
                  return begin
                    Pipe.init (fun (writer:
                                      'result Oci_Data.both Pipe.Writer.t) ->
-                       let res,log = (f q) in
+                       let res,log = (f' q) in
                        Oci_Log.read log
                        >>= fun log ->
                        Pipe.transfer log writer

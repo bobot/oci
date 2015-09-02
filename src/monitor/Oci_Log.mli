@@ -44,8 +44,8 @@ val create: unit -> t
 exception Closed_Log
 
 val transfer: t -> line Pipe.Reader.t -> unit Deferred.t
-val write: t -> line -> unit
-val close: t -> unit
+val write_without_pushback: t -> line -> unit
+val close: t -> unit Deferred.t
 
 val read: t -> line Pipe.Reader.t Deferred.t
 

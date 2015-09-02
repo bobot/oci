@@ -81,6 +81,7 @@ let create_new_rootfs log rootfs_query =
        match rootfs_query.meta_tar with
        | None -> return None
        | Some meta_tar ->
+         Oci_Master.cha_log ~log "Extract meta archive: %s" meta_tar;
          let metadir = Oci_Filename.make_absolute testdir "meta" in
          Unix.mkdir metadir
          >>= fun () ->
@@ -94,6 +95,8 @@ let create_new_rootfs log rootfs_query =
          else return None
        end
        >>= fun exclude ->
+       Oci_Master.cha_log ~log
+         "Extract rootfs archive: %s" rootfs_query.rootfs_tar;
        let rootfsdir = Oci_Filename.make_absolute testdir "rootfs" in
        Unix.mkdir rootfsdir
        >>= fun () ->
@@ -107,6 +110,7 @@ let create_new_rootfs log rootfs_query =
                                | Some exclude -> ["--exclude-from";exclude]
                               ))
        >>= fun () ->
+       Oci_Master.cha_log ~log "Create artefact";
        Oci_Artefact.create rootfsdir
        >>= fun a ->
        let rootfs = {
@@ -115,13 +119,14 @@ let create_new_rootfs log rootfs_query =
          rootfs = a
        } in
        Rootfs_Id.Table.add_exn !db_rootfs ~key:id ~data:rootfs;
+       Oci_Master.cha_log ~log "New rootfs created";
        return rootfs
     )
   >>= fun s ->
-  return s
+  Deferred.Or_error.return s
 
-let find_rootfs log key =
-  return (Rootfs_Id.Table.find_exn !db_rootfs key)
+let find_rootfs _ key =
+  Deferred.Or_error.return (Rootfs_Id.Table.find_exn !db_rootfs key)
 
 let add_packages log (d:add_packages_query) =
   let rootfs = Rootfs_Id.Table.find_exn !db_rootfs d.id in
@@ -137,7 +142,7 @@ let add_packages log (d:add_packages_query) =
         ~finally:(fun () -> Oci_Master.stop_runner conn)
         ~name:"add_packages"
         (fun () ->
-           debug "Runner started";
+           Oci_Master.cha_log ~log "Runner started";
            Oci_Master.dispatch_runner_exn ~log
              Oci_Cmd_Runner_Api.copy_to conn {
              user=Oci_Common.Root;
@@ -145,7 +150,7 @@ let add_packages log (d:add_packages_query) =
              dst="/";
            }
            >>= fun () ->
-           debug "Artefact obtained";
+           Oci_Master.cha_log ~log "Update Apt Database";
            Oci_Master.dispatch_runner_exn ~log
              Oci_Cmd_Runner_Api.run conn {
              prog = "apt-get";
@@ -153,7 +158,7 @@ let add_packages log (d:add_packages_query) =
              runas = Root;
            }
            >>= fun () ->
-           debug "apt-get updated";
+           Oci_Master.cha_log ~log "Install Package";
            Oci_Master.dispatch_runner_exn ~log
              Oci_Cmd_Runner_Api.run conn {
              prog = "apt-get";
@@ -181,18 +186,11 @@ let add_packages log (d:add_packages_query) =
 
 
 let register_rootfs () =
-  Oci_Master.register
-    Oci_Rootfs_Api.create_rootfs
-    (fun s ->
-       let log = Oci_Log.create () in
-       Deferred.Or_error.try_with (fun () -> create_new_rootfs log s), log);
-  Oci_Master.register
-    Oci_Rootfs_Api.find_rootfs
-    (fun s ->
-       let log = Oci_Log.create () in
-       Deferred.Or_error.try_with (fun () -> find_rootfs log s),log );
-  Oci_Master.register
-    Oci_Rootfs_Api.add_packages
-    (fun s ->
-       let log = Oci_Log.create () in
-       Deferred.Or_error.try_with_join (fun () -> add_packages log s), log)
+  let register d f =
+    Oci_Master.register d
+    (fun s -> let log = Oci_Log.create () in
+      Deferred.Or_error.try_with_join (fun () -> f log s), log)
+  in
+  register Oci_Rootfs_Api.create_rootfs create_new_rootfs;
+  register Oci_Rootfs_Api.find_rootfs find_rootfs;
+  register Oci_Rootfs_Api.add_packages add_packages

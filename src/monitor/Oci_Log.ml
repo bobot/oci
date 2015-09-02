@@ -92,15 +92,15 @@ let transfer id p =
   | None -> raise Closed_Log
   | Some q -> Oci_Queue.transfer_id q p
 
-let write id line =
+let write_without_pushback id line =
   match Table.find db_log id with
   | None -> raise Closed_Log
-  | Some q -> Oci_Queue.add q line
+  | Some q -> Oci_Queue.add_without_pushback q line
 
 let close id =
   match Table.find db_log id with
   | None -> raise Closed_Log
-  | Some q -> Oci_Queue.eof q
+  | Some q -> Oci_Queue.close q
 
 let init ~dir ~register_saver =
   permanent_dir := dir;

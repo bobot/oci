@@ -120,8 +120,8 @@ let cleanup_running_processes conf () =
   Bag.iter
     ~f:(fun process ->
         if not (Deferred.is_determined process.wrapper_wait) then begin
-          debug "Send term signal to %s" (Pid.to_string process.wrapped);
-          Signal.send_i Signal.term (`Pid process.wrapped)
+          debug "Send kill signal to %s" (Pid.to_string process.wrapped);
+          Signal.send_i Signal.kill (`Pid process.wrapped)
         end)
     conf.running_processes;
   conf.running_processes

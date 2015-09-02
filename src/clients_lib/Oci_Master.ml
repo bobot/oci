@@ -90,7 +90,8 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
             ~name:"create_master"
             (fun () -> attach_log log (fun () -> f q))
           >>> fun r ->
-          Oci_Log.close log;
+          Oci_Log.close log
+          >>> fun () ->
           Ivar.fill ivar r
         end;
         (ivar_d,log)
@@ -152,7 +153,8 @@ let write_log kind ?(log=get_log ()) fmt =
   Printf.ksprintf (fun s ->
       s
       |> String.split_lines
-      |> List.iter ~f:(fun line -> Oci_Log.write log {kind;line})
+      |> List.iter ~f:(fun line ->
+          Oci_Log.write_without_pushback log {kind;line})
     ) fmt
 
 let std_log ?log fmt = write_log Oci_Log.Standard ?log fmt
@@ -163,52 +165,50 @@ let cha_log ?log fmt = write_log Oci_Log.Chapter ?log fmt
 exception Internal_error with sexp
 
 let dispatch_runner ?msg ?(log=get_log()) d t q =
-  Option.iter msg ~f:(fun msg ->
-      cmd_log "dispatch %s: %s" (Oci_Data.name d) msg);
+  cmd_log ~log "dispatch %s%s" (Oci_Data.name d) (Option.value ~default:"" msg);
   let r : 'a Or_error.t Ivar.t = Ivar.create () in
-  don't_wait_for begin
+  begin
     (Rpc.Pipe_rpc.dispatch (Oci_Data.both d) t q)
     >>= fun res -> match Or_error.join res with
-      | Error _ as err -> Ivar.fill r err; Deferred.unit
-      | Ok (p, _) ->
-        let p = Pipe.map ~f:(function
-            | Oci_Data.Line l -> l
-            | Oci_Data.Result err ->
-              Ivar.fill r err;
-              match err with
-              | Core_kernel.Result.Ok _ ->
-                {Oci_Log.kind=Oci_Log.Standard;line="result received"}
-              | Core_kernel.Result.Error _ ->
-                {Oci_Log.kind=Oci_Log.Error;line="error received"};
-          )
-            p in
-        upon (Pipe.closed p)
-          (fun () -> Ivar.fill_if_empty r (Or_error.of_exn Internal_error));
-        Oci_Log.transfer log p
-  end;
+    | Error _ as err -> Ivar.fill r err; Deferred.unit
+    | Ok (p, _) ->
+      let p = Pipe.map ~f:(function
+          | Oci_Data.Line l -> l
+          | Oci_Data.Result err ->
+            Ivar.fill r err;
+            match err with
+            | Core_kernel.Result.Ok _ ->
+              {Oci_Log.kind=Oci_Log.Standard;line="result received"}
+            | Core_kernel.Result.Error _ ->
+              {Oci_Log.kind=Oci_Log.Error;line="error received"};
+        )
+          p in
+      upon (Pipe.closed p)
+        (fun () -> Ivar.fill_if_empty r (Or_error.of_exn Internal_error));
+      Oci_Log.transfer log p
+  end
+  >>= fun () ->
   Ivar.read r
 
 
 let dispatch_runner_exn ?msg ?(log=get_log()) d t q =
-  Option.iter msg ~f:(fun msg ->
-      cmd_log "dispatch %s: %s" (Oci_Data.name d) msg);
+  cmd_log ~log "dispatch %s%s" (Oci_Data.name d) (Option.value ~default:"" msg);
   let r = Ivar.create () in
-  don't_wait_for begin
-    Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both d) t q
-    >>= fun (p,_) ->
-    let p = Pipe.map ~f:(function
-        | Oci_Data.Line l -> l
-        | Oci_Data.Result (Core_kernel.Result.Ok res) ->
-          Ivar.fill r res;
-          {kind=Oci_Log.Standard;line="result received"}
-        | Oci_Data.Result (Core_kernel.Result.Error err) ->
-          Oci_Log.write log
-            {kind=Oci_Log.Error;line="error received"};
-          Error.raise err
-      )
-        p in
-    upon (Pipe.closed p)
-      (fun () -> if Ivar.is_empty r then raise Internal_error);
-    Oci_Log.transfer log p
-  end;
+  Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both d) t q
+  >>= fun (p,_) ->
+  let p = Pipe.map ~f:(function
+      | Oci_Data.Line l -> l
+      | Oci_Data.Result (Core_kernel.Result.Ok res) ->
+        Ivar.fill r res;
+        {kind=Oci_Log.Standard;line="result received"}
+      | Oci_Data.Result (Core_kernel.Result.Error err) ->
+        Oci_Log.write_without_pushback log
+          {kind=Oci_Log.Error;line="error received"};
+        Error.raise err
+    )
+      p in
+  upon (Pipe.closed p)
+    (fun () -> if Ivar.is_empty r then raise Internal_error);
+  Oci_Log.transfer log p
+  >>= fun () ->
   Ivar.read r

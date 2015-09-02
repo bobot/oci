@@ -60,5 +60,8 @@ val cmd_log: t -> ('a, unit, string, unit) format4 -> 'a
 
 val process_log: t -> Process.t -> unit
 
-val run: t -> Process.t Or_error.t Deferred.t Process.with_create_args
-(** both Async_shell.run and process_log *)
+val process_create:
+  t -> Process.t Or_error.t Deferred.t Process.with_create_args
+(** both Process.create and process_log *)
+
+val run: t -> unit Deferred.t Process.with_create_args

@@ -31,9 +31,10 @@ type 'a t
 
 val create: unit -> 'a t
 val read: 'a t -> 'a Pipe.Reader.t
-val add: 'a t -> 'a -> unit
+val add: 'a t -> 'a -> unit Deferred.t
+val add_without_pushback: 'a t -> 'a -> unit
 (** add an element *)
 val transfer_id: 'a t -> 'a Pipe.Reader.t -> unit Deferred.t
 (** add all the elements read from the pipe *)
-val eof: 'a t -> unit
+val close: 'a t -> unit Deferred.t
 (** Close the queue, no more elements can be added *)
