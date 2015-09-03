@@ -29,7 +29,7 @@ type artefact_api = {
   binaries : Oci_Filename.t;
   oci_data : Oci_Filename.t;
   oci_simple_exec : Oci_Filename.t;
-  first_user_mapped: user;
+  first_user_mapped: User.t;
   debug_level : Bool.t;
   cleanup_rootfs: Bool.t;
 } with sexp, bin_io
@@ -90,12 +90,18 @@ let start_in_namespace
   let error = exec_in_namespace (parameters:Oci_Wrapper_Api.parameters) in
   return (error,conn)
 
+type rpc_create_query = {
+  src: Oci_Filename.t;
+  prune: Oci_Filename.t list;
+  rooted_at: Oci_Filename.t;
+  only_new: bool;
+} with sexp, bin_io
 
 let rpc_create =
   Rpc.Rpc.create
     ~name:"Oci_Artefact.create"
     ~version:1
-    ~bin_query:Oci_Filename.bin_t
+    ~bin_query:bin_rpc_create_query
     ~bin_response:Artefact.bin_t
 
 type rpc_link_to_query =

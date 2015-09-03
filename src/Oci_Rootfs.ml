@@ -113,7 +113,9 @@ let create_new_rootfs rootfs_query =
            Oci_Filename.make_absolute rootfsdir "sys";
            Oci_Filename.make_absolute rootfsdir "run";
          ]
-         rootfsdir
+         ~only_new:false
+         ~rooted_at:rootfsdir
+         ~src:rootfsdir
        >>= fun a ->
        let rootfs = {
          Rootfs.id;

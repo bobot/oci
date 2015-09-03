@@ -58,7 +58,9 @@ let dir_of_artefact id =
   let dir = Oci_Filename.mk (Artefact.to_string id) in
   Oci_Filename.make_absolute (get_conf ()).storage dir
 
-let rec copydir ~hardlink ~prune ({uid;gid} as user) src dst =
+let rec copydir
+    ~hardlink ~prune_dir ~prune_user
+    ~chown:({User.uid;gid} as chown) src dst =
   (** This function run as superroot (like all masters),
       so it is root in its usernamespace *)
   Sys.file_exists_exn dst
@@ -66,7 +68,7 @@ let rec copydir ~hardlink ~prune ({uid;gid} as user) src dst =
     if dst_exist
     then return ()
     else
-      Unix.mkdir dst
+      Unix.mkdir ~p:() dst
       >>= fun () ->
       Unix.chown ~uid ~gid dst
   end
@@ -76,7 +78,7 @@ let rec copydir ~hardlink ~prune ({uid;gid} as user) src dst =
   Deferred.List.iter files ~f:(fun file ->
       let src' = Oci_Filename.make_absolute src file in
       let dst' = Oci_Filename.make_absolute dst file in
-      if List.mem ~equal:Oci_Filename.equal prune src'
+      if List.mem ~equal:Oci_Filename.equal prune_dir src'
       then return ()
       else begin
         Unix.lstat src'
@@ -84,7 +86,10 @@ let rec copydir ~hardlink ~prune ({uid;gid} as user) src dst =
         | { uid = 65534 } (* nobody *) | { gid = 65534 } (* nogroup *) ->
           return ()
         | {kind = `Directory} ->
-          copydir ~hardlink ~prune user src' dst'
+          copydir ~hardlink ~prune_dir ~prune_user ~chown src' dst'
+        | {kind = (`File | `Link); uid; gid}
+          when List.mem ~equal:User.equal prune_user {uid;gid}
+          -> return ()
         | {kind = `File} ->
           Oci_Std.unlink_no_fail dst'
           >>= fun () ->
@@ -107,7 +112,8 @@ let rec copydir ~hardlink ~prune ({uid;gid} as user) src dst =
       end
     )
 
-let create ~prune src =
+let create ~prune ~rooted_at ~only_new ~src =
+  assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:src);
   let conf = get_conf () in
   conf.next_artefact_id <- conf.next_artefact_id + 1;
   let id = Artefact.of_int conf.next_artefact_id in
@@ -115,12 +121,18 @@ let create ~prune src =
   Sys.file_exists_exn (Oci_Filename.get dst)
   >>= fun b ->
   if b then raise (Directory_should_not_exists dst);
-  copydir ~hardlink:false ~prune (master_user Superroot) src dst
+  let dst = Oci_Filename.reparent ~oldd:rooted_at ~newd:dst src in
+  copydir
+    ~hardlink:false
+    ~prune_dir:prune
+    ~prune_user:(if only_new then [master_user Superroot] else [])
+    ~chown:(master_user Superroot)
+    src dst
   >>= fun () -> return id
 
-let link_copy_to ~hardlink {uid;gid} id dst =
+let link_copy_to ~hardlink chown id dst =
   let src = dir_of_artefact id in
-  copydir ~hardlink ~prune:[] {uid;gid} src dst
+  copydir ~hardlink ~prune_dir:[] ~prune_user:[] ~chown src dst
 
 let link_to_gen = link_copy_to ~hardlink:true
 let copy_to_gen = link_copy_to ~hardlink:false
@@ -253,18 +265,19 @@ let add_artefact_api init =
     (** create *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_create
-      (fun rootfs src ->
+      (fun rootfs {src;prune;rooted_at;only_new} ->
          assert (not (Oci_Filename.is_relative src));
-         let src = Oci_Filename.make_relative "/" src in
-         let src = Oci_Filename.make_absolute rootfs src in
+         let reparent = Oci_Filename.reparent ~oldd:"/" ~newd:rootfs in
          create
-           ~prune:[
-             Oci_Filename.make_absolute rootfs "dev";
-             Oci_Filename.make_absolute rootfs "proc";
-             Oci_Filename.make_absolute rootfs "sys";
-             Oci_Filename.make_absolute rootfs "run";
-           ]
-           src
+           ~prune:(
+             Oci_Filename.make_absolute rootfs "dev"::
+             Oci_Filename.make_absolute rootfs "proc"::
+             Oci_Filename.make_absolute rootfs "sys"::
+             Oci_Filename.make_absolute rootfs "run"::
+             prune)
+           ~rooted_at:(reparent rooted_at)
+           ~src:(reparent src)
+           ~only_new
       );
     (** link_to *)
     Rpc.Rpc.implement
@@ -316,7 +329,7 @@ let start_runner ~binary_name =
   >>= fun () ->
   Async_shell.run "cp" ["/etc/resolv.conf";"-t";etc]
   >>= fun () ->
-  Async_shell.run "chown" [pp_chown (master_user Root);"-R";"--";rootfs]
+  Async_shell.run "chown" [User.pp_chown (master_user Root);"-R";"--";rootfs]
   >>= fun () ->
   let binary =
     Oci_Filename.concat (get_conf ()).binaries

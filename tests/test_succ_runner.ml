@@ -129,8 +129,19 @@ let test_ocaml t (q:Test_succ.Ocaml_Query.t) =
     ~prog:"./configure"
     ~args:[] ()
   >>= fun () ->
-  return q.rootfs.rootfs
-
+  Oci_Runner.run t ~working_dir:"/ocaml"
+    ~prog:"make"
+    ~args:["world.opt"] ()
+  >>= fun () ->
+  (* Oci_Runner.test t ~working_dir:"/ocaml" *)
+  (*   ~prog:"make test" *)
+  (*   ~args:[] () *)
+  (* >>= fun b -> *)
+  Oci_Runner.run t ~working_dir:"/ocaml"
+    ~prog:"make"
+    ~args:["install"] ()
+  >>= fun () ->
+  Oci_Runner.create_artefact t ~dir:"/usr"
 
 let () =
   never_returns begin

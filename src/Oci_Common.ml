@@ -45,11 +45,14 @@ module Commit = struct
     if invariant x then x else raise (BadGitCommitFormat x)
 end
 
-type user = {uid : int; gid : int} with sexp, compare, bin_io
+module User = struct
+  type t = {uid : int; gid : int} with sexp, compare, bin_io
 
-let pp_user fmt u = Format.fprintf fmt "%i,%i" u.uid u.gid
-let pp_chown u = Printf.sprintf "%i:%i" u.uid u.gid
-
+  let equal a b = a.uid = b.uid && a.gid = b.gid
+  let pp_t fmt u = Format.fprintf fmt "%i,%i" u.uid u.gid
+  let pp_chown u = Printf.sprintf "%i:%i" u.uid u.gid
+end
+open User
 (** user in different namespace *)
 
 type user_kind =

@@ -32,11 +32,13 @@ module Commit : sig
   val of_string_exn: string -> t
 end
 
+module User: sig
+  type t = {uid : int; gid : int} with sexp, compare, bin_io
 
-type user = {uid : int; gid : int} with sexp, compare, bin_io
-
-val pp_user: Format.formatter -> user -> unit
-val pp_chown: user -> string
+  val equal: t -> t -> bool
+  val pp_t: Format.formatter -> t -> unit
+  val pp_chown: t -> string
+end
 
 type user_kind =
   | Superroot
@@ -48,6 +50,6 @@ type user_kind =
   (** A simple user in the usernamespace of the runners *)
 with sexp, compare, bin_io
 
-val master_user: user_kind -> user
-val runner_user: user_kind -> user
-val outside_user: first_user_mapped:user ->  user_kind -> user
+val master_user: user_kind -> User.t
+val runner_user: user_kind -> User.t
+val outside_user: first_user_mapped:User.t ->  user_kind -> User.t

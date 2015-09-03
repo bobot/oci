@@ -22,7 +22,6 @@
 
 open Core.Std
 open Async.Std
-open Oci_Common
 
 open Oci_Simple_Exec_Api
 

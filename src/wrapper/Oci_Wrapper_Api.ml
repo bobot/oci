@@ -22,8 +22,8 @@
 open Core.Std
 
 type idmap = {
-  extern_id: Oci_Common.user;
-  intern_id: Oci_Common.user;
+  extern_id: Oci_Common.User.t;
+  intern_id: Oci_Common.User.t;
   length_id: int;
 } with sexp, bin_io
 

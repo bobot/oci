@@ -26,7 +26,12 @@ open Async.Std
 
 type t = Oci_Common.Artefact.t
 
-val create: prune:Oci_Filename.t list -> Oci_Filename.t -> t Deferred.t
+val create:
+  prune:Oci_Filename.t list ->
+  rooted_at:Oci_Filename.t ->
+  only_new:Bool.t ->
+  src:Oci_Filename.t ->
+  t Deferred.t
 
 val link_to: Oci_Common.user_kind -> t -> Oci_Filename.t -> unit Deferred.t
 (** ro only *)

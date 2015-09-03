@@ -89,8 +89,8 @@ type process = {
 
 
 type conf = {
-  current_user: user;
-  first_user_mapped: user;
+  current_user: User.t;
+  first_user_mapped: User.t;
   mutable conn_to_artefact: Rpc.Connection.t option;
   mutable wait_to_artefact: unit Deferred.t option;
   wrappers_dir : Oci_Filename.t;
@@ -196,7 +196,7 @@ let exec_in_namespace =
 let compute_conf ~oci_data =
   User_and_group.for_this_process_exn ()
   >>= fun ug ->
-  let current_user = {uid=Unix.getuid ();gid=Unix.getgid ()} in
+  let current_user = {User.uid=Unix.getuid ();gid=Unix.getgid ()} in
   get_etc_sub_config ~user:(User_and_group.user ug) ~file:"/etc/subuid"
   >>= fun (ustart, ulen) ->
   get_etc_sub_config ~user:(User_and_group.user ug) ~file:"/etc/subgid"
@@ -208,7 +208,7 @@ let compute_conf ~oci_data =
     Shutdown.exit 1
   end
   else
-    let first_user_mapped = {uid=ustart;gid=gstart} in
+    let first_user_mapped = {User.uid=ustart;gid=gstart} in
     let conf = {current_user;first_user_mapped;conn_to_artefact=None;
                 wait_to_artefact=None;
                 wrappers_dir =

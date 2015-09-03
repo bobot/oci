@@ -106,10 +106,11 @@ let cha_log t fmt = write_log Oci_Log.Chapter t fmt
 
 type artefact = Oci_Common.Artefact.t with sexp, bin_io
 
-let create_artefact t ~dir =
+let create_artefact ?(rooted_at="/") ?(prune=[]) ?(only_new=true) t ~dir =
+  assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:dir);
   cmd_log t "Create artefact %s" dir;
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_create
-    t.connection dir
+    t.connection {prune;src=dir;rooted_at;only_new}
 let link_artefact t ?(user=Oci_Common.Root) src ~dir =
   cmd_log t "Link artefact to %s" dir;
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_link_to

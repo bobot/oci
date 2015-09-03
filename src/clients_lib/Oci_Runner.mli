@@ -38,7 +38,14 @@ val implement:
 
 type artefact = Oci_Common.Artefact.t with sexp, bin_io
 
-val create_artefact: t -> dir:string -> artefact Deferred.t
+val create_artefact:
+  ?rooted_at:Oci_Filename.t ->
+  (** default: "/" *)
+  ?prune:Oci_Filename.t list ->
+  ?only_new:bool ->
+  (** specifies if linked files should be forgotten (default: true) *)
+  t ->
+  dir:string -> artefact Deferred.t
 val link_artefact:
   t -> ?user:Oci_Common.user_kind
   -> artefact -> dir:string -> unit Deferred.t
