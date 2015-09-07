@@ -378,7 +378,7 @@ let start_runner ~binary_name =
       (Oci_Filename.add_extension binary_name "native") in
   let named_pipe = Oci_Filename.concat "oci" "oci_runner" in
   let parameters : Oci_Wrapper_Api.parameters = {
-    rootfs = Some rootfs;
+    rootfs = rootfs;
     idmaps =
       Oci_Wrapper_Api.idmaps
         ~first_user_mapped:conf.conf_monitor.first_user_mapped

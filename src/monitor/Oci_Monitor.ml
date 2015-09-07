@@ -230,7 +230,7 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs
   let open Oci_Wrapper_Api in
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
   let parameters = {
-    rootfs = None;
+    rootfs = "/";
     idmaps =
       Oci_Wrapper_Api.idmaps
         ~first_user_mapped:conf.first_user_mapped
@@ -241,7 +241,7 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs
     env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
     runuid = 0;
     rungid = 0;
-    bind_system_mount = false;
+    bind_system_mount = true;
     prepare_network = false;
     workdir = None;
   } in

@@ -105,7 +105,7 @@ let filter_deps_for deps repo =
 let () =
   let ocaml = mk_repo
     ~name:"ocaml"
-    ~url:"https://github.com/ocaml/ocaml.git"
+    ~url:"git@git.frama-c.com:bobot/ocaml.git"
     ~deps:[]
     ~cmds:[
       "./configure",[];
@@ -118,7 +118,7 @@ let () =
     ~url:"git@git.frama-c.com:bobot/ocamlfind.git"
     ~deps:[ocaml]
     ~cmds:[
-      "autoconf",[];
+      "./configure",[];
       "make",["all"];
       "make",["opt"];
       "make",["install"];

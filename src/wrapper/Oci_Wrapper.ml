@@ -41,7 +41,9 @@ let mount_inside ~dir ~src ~tgt ?(fstype="") ~flags ?(option="") () =
   mount ~source:src ~target:tgt ~fstype flags ~data:option
 
 let mount_base dir =
+(*
   mount ~source:dir ~target:dir ~fstype:"" [MS_BIND;MS_PRIVATE;MS_REC] ~data:"";
+*)
   mount_inside ~dir ~src:"proc" ~tgt:"proc" ~fstype:"proc"
     ~flags:[MS_NOSUID; MS_NOEXEC; MS_NODEV] ();
   mount_inside ~dir ~src:"/sys" ~tgt:"sys" ~flags:[MS_BIND; MS_REC] ();
@@ -245,16 +247,11 @@ let () =
     test_userns_availability ();
     (* Option.iter param.rootfs ~f:(mkdir ~perm:0o750); *)
     go_in_userns param.idmaps;
-    begin match param.rootfs with
-    | None -> ()
-    | Some rootfs ->
-      (** make the mount private and mount basic directories *)
-      if param.bind_system_mount then
-        mount_base rootfs;
-      (** chroot in the directory *)
-      (* do_chroot rootfs *)
-      Unix.chdir rootfs
-    end;
+    (** make the mount private and mount basic directories *)
+    if param.bind_system_mount then
+      mount_base param.rootfs;
+    (** chroot in the directory *)
+    Unix.chdir param.rootfs;
     (** group must be changed before uid... *)
     setresgid param.rungid param.rungid param.rungid;
     setresuid param.runuid param.runuid param.runuid;

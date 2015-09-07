@@ -35,7 +35,7 @@ let idmaps ~in_user ~first_user_mapped =
       })
 
 type parameters = {
-  rootfs: Oci_Filename.t option;
+  rootfs: Oci_Filename.t;
   idmaps: idmap list;
   command: string;
   argv: string list;
