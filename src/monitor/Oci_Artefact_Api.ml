@@ -32,6 +32,7 @@ type artefact_api = {
   first_user_mapped: User.t;
   debug_level : Bool.t;
   cleanup_rootfs: Bool.t;
+  identity_file: string option;
 } with sexp, bin_io
 
 let get_configuration = Rpc.Rpc.create

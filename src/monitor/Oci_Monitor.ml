@@ -225,7 +225,8 @@ let compute_conf ~oci_data =
     return conf
 
 
-let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs =
+let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs
+    ~identity_file =
   let open Oci_Wrapper_Api in
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
   let parameters = {
@@ -248,13 +249,22 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs =
       ~on_unknown_rpc:`Raise
       ~implementations:[
         Rpc.Rpc.implement Oci_Artefact_Api.get_configuration
-          (fun () () -> return {Oci_Artefact_Api.binaries;
-                                oci_data;
-                                oci_simple_exec;
-                                first_user_mapped = conf.first_user_mapped;
-                                debug_level = verbosity = `Debug;
-                                cleanup_rootfs;
-                               });
+          (fun () () -> begin
+               match identity_file with
+               | Some file ->
+                 Reader.file_contents file
+                 >>= fun s -> return (Some s)
+               | None -> return None
+             end
+             >>= fun identity_file ->
+             return {Oci_Artefact_Api.binaries;
+                     oci_data;
+                     oci_simple_exec;
+                     first_user_mapped = conf.first_user_mapped;
+                     debug_level = verbosity = `Debug;
+                     cleanup_rootfs;
+                     identity_file;
+                    });
         Rpc.Rpc.implement Oci_Artefact_Api.exec_in_namespace
           (fun () -> exec_in_namespace conf)
       ]
@@ -286,7 +296,7 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs =
 
 
 
-let run master binaries oci_data verbosity cleanup_rootfs () =
+let run master binaries oci_data identity_file verbosity cleanup_rootfs () =
   Log.Global.set_level verbosity;
   assert (not (Signal.is_managed_by_async Signal.term));
   (** Handle nicely terminating signals *)
@@ -304,16 +314,18 @@ let run master binaries oci_data verbosity cleanup_rootfs () =
   >>= fun conf ->
   Oci_Artefact_Api.oci_at_shutdown (cleanup_running_processes conf);
   start_master ~conf ~binaries ~oci_data ~master ~verbosity ~cleanup_rootfs
+    ~identity_file
 
 let () = Command.run begin
     let current_work_dir = Caml.Sys.getcwd () in
-    let map_to_absolute =
-      Command.Spec.map_flag ~f:begin
-        fun f ->
-          if Oci_Filename.is_relative f
-          then Oci_Filename.make_absolute current_work_dir f
-          else f
-      end
+    let map_to_absolute f =
+      if Oci_Filename.is_relative f
+      then Oci_Filename.make_absolute current_work_dir f
+      else f
+    in
+    let map_to_absolute_o =
+      Command.Spec.map_flag ~f:(Option.map ~f:map_to_absolute) in
+    let map_to_absolute = Command.Spec.map_flag ~f:map_to_absolute
     in
     Command.async_basic
       ~summary:"Start OCI continous integration framework"
@@ -325,6 +337,8 @@ let () = Command.run begin
           ~doc:" Specify where the runners are" +>
         flag "--oci-data" (map_to_absolute (required file))
           ~doc:" Specify where the OCI should store its files" +>
+        flag "--identity-file" (map_to_absolute_o (optional file))
+          ~doc:" Specify an identity file to use for ssh connection" +>
         flag "--verbosity" (optional_with_default `Info Log.Level.arg)
           ~doc:" Specify the verbosity level (Debug,Error,Info)" +>
         flag "--cleanup-rootfs" (optional_with_default true bool)

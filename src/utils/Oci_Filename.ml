@@ -41,5 +41,6 @@ let equal = String.equal
 let mk x = x
 let get x = x
 
-let is_subdir ~parent ~children = is_subdir children parent
+let is_subdir ~parent ~children =
+  equal parent children ||  is_subdir children parent
 let reparent ~oldd ~newd file = reparent oldd newd file

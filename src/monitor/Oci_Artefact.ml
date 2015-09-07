@@ -106,6 +106,17 @@ let rec copydir
           Unix.readlink src'
           >>= fun tgt ->
           Unix.symlink ~src:tgt ~dst:dst'
+          >>= fun () ->
+          assert (not (Oci_Filename.is_relative dst'));
+          if hardlink
+          then return () (** keep superroot uid *)
+          else
+            In_thread.run (fun () ->
+                ExtUnix.Specific.fchownat
+                  (ExtUnix.Specific.file_descr_of_int 0) (** dumb *)
+                  dst' uid gid
+                  [ExtUnix.Specific.AT_SYMLINK_NOFOLLOW]
+              )
         | {kind = `Block|`Socket|`Fifo|`Char } ->
           error "Can't copy this file: %s bad type" src';
           raise (Can't_copy_this_file src')
@@ -187,20 +198,51 @@ let masters =
   ref (Rpc.Implementations.create_exn
          ~implementations:[] ~on_unknown_rpc:`Close_connection)
 
-let register_master data f =
+module Direct_Master = struct
+  type t =
+    | DM: ('q,'r) Oci_Data.t * ('q -> 'r Deferred.Or_error.t) -> t
+  let db = Type_equal.Id.Uid.Table.create ()
+
+  let add_exn ~key:d ~data:f =
+    Type_equal.Id.Uid.Table.add_exn
+      db
+      ~key:(Type_equal.Id.uid (Oci_Data.id d))
+      ~data:(DM(d,f))
+
+  let find_exn (type q) (type r) (d:(q,r) Oci_Data.t) :
+    (q -> r Deferred.Or_error.t) =
+    match Type_equal.Id.Uid.Table.find_exn
+            db (Type_equal.Id.uid (Oci_Data.id d)) with
+    | DM(d',f) ->
+      match Type_equal.Id.same_witness_exn (Oci_Data.id d) (Oci_Data.id d') with
+      | Type_equal.T -> f
+
+end
+
+let dispatch_master d q =
+  Monitor.try_with_join_or_error
+  (fun () -> (Direct_Master.find_exn d) q)
+
+let dispatch_master_exn d q =
+  Deferred.Or_error.ok_exn
+    ((Direct_Master.find_exn d) q)
+
+let register_master data f : unit =
   let name = (Printf.sprintf "Master %s" (Oci_Data.name data)) in
   let f' q =
     let res, log = f q in
     upon res (fun _ -> don't_wait_for (Oci_Log.close log));
     res,log
   in
+  let simple_rpc rootfs q =
+    debug "%s called from %s" name rootfs;
+    Monitor.try_with_join_or_error
+      ~name (fun () -> fst (f' q)) in
+  Direct_Master.add_exn
+    ~key:data
+    ~data:(simple_rpc "a master");
   masters := Rpc.Implementations.add_exn !masters
-      (Rpc.Rpc.implement (Oci_Data.rpc data)
-         (fun rootfs q ->
-            debug "%s called from %s" name rootfs;
-            Monitor.try_with_join_or_error
-              ~name (fun () -> fst (f' q))
-         ));
+      (Rpc.Rpc.implement (Oci_Data.rpc data) simple_rpc);
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Pipe_rpc.implement (Oci_Data.log data)
          (fun rootfs q ~aborted:_ ->
@@ -208,7 +250,7 @@ let register_master data f =
               Monitor.try_with_or_error ~name
                 (fun () -> Oci_Log.read (snd (f' q)))
          ));
-    masters := Rpc.Implementations.add_exn !masters
+  masters := Rpc.Implementations.add_exn !masters
       (Rpc.Pipe_rpc.implement (Oci_Data.both data)
          (fun rootfs q ~aborted:_ ->
             debug "%s both called from %s" name rootfs;
@@ -274,7 +316,7 @@ let add_artefact_api init =
              Oci_Filename.make_absolute rootfs "proc"::
              Oci_Filename.make_absolute rootfs "sys"::
              Oci_Filename.make_absolute rootfs "run"::
-             prune)
+             (List.map ~f:reparent prune))
            ~rooted_at:(reparent rooted_at)
            ~src:(reparent src)
            ~only_new
@@ -437,6 +479,21 @@ let run () =
                               files)
     end
     >>> fun () ->
+    (** Write ssh key *)
+    Deferred.Option.bind
+      (return conf.conf_monitor.identity_file)
+      (fun src ->
+         let dst = Oci_Filename.concat conf.binaries "ssh_identity" in
+         Oci_Std.unlink_no_fail dst
+         >>= fun () ->
+         Writer.open_file ~perm:0o400 dst
+         >>= fun writer ->
+         Writer.write writer src;
+         Writer.close writer
+         >>= fun () ->
+         Deferred.Option.return dst
+      )
+    >>> fun identity_file ->
     Deferred.all_unit
       (List.map
          ~f:(fun x -> Unix.chmod ~perm:0o555
@@ -445,7 +502,7 @@ let run () =
     >>> fun () ->
     register_saver ~loader:loader_artifact_data ~saver:saver_artifact_data;
     Oci_Log.init ~dir:conf.log ~register_saver;
-    Oci_Git.init ~dir:conf.git ~register_saver;
+    Oci_Git.init ~dir:conf.git ~register_saver ~identity_file;
     load ()
     >>> fun () ->
     let save_at = Time.Span.create ~min:10 () in

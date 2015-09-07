@@ -1,2 +1,3 @@
 <tmp>: -traverse
 <bin>: -traverse
+<oci-data>: -traverse

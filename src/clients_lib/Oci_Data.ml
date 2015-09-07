@@ -30,14 +30,16 @@ type 'a both =
   | Result of 'a Or_error.t with sexp, bin_io
 
 type ('query,'result) t = {
-  result: ('query,'result Or_error.t) Rpc.t;
+  rpc: ('query,'result Or_error.t) Rpc.t;
   log: ('query, Oci_Log.line, Error.t) Pipe_rpc.t;
   both: ('query, 'result both, Error.t)
       Pipe_rpc.t;
-}
+  id : ('query * 'result) Type_equal.Id.t;
+} with fields
+
 
 let register ~name ~version ~bin_query ~bin_result = {
-  result = Rpc.create ~name ~version
+  rpc = Rpc.create ~name ~version
       ~bin_query ~bin_response:(Or_error.bin_t bin_result);
   log = Pipe_rpc.create ~name:(name^" Oci.log") ~version
       ~bin_query
@@ -49,11 +51,8 @@ let register ~name ~version ~bin_query ~bin_result = {
       ~bin_response:(bin_both bin_result)
       ~bin_error:Error.bin_t
       ();
+  id = Type_equal.Id.create ~name sexp_of_opaque;
 }
 
-let name t = Rpc.name t.result
-let version t = Rpc.version t.result
-
-let rpc t = t.result
-let log t = t.log
-let both t = t.both
+let name t = Rpc.name t.rpc
+let version t = Rpc.version t.rpc

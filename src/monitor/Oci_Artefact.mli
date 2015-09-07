@@ -69,3 +69,11 @@ val start_runner:
 val permanent_directory:
   ('query,'result) Oci_Data.t -> Oci_Filename.t Deferred.t
 (** Give the permanent directory for this master *)
+
+
+val dispatch_master:
+  ('query,'result) Oci_Data.t ->
+  'query -> 'result Or_error.t Deferred.t
+val dispatch_master_exn:
+  ('query,'result) Oci_Data.t ->
+  'query -> 'result Deferred.t

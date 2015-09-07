@@ -51,16 +51,16 @@ let exec test input sexp_input sexp_output conn =
 let test =
   match Sys.argv.(2) with
   | "succ" ->
-    exec Test_succ.test_succ
+    exec Tests.test_succ
       (int_of_string Sys.argv.(3)) Int.sexp_of_t Int.sexp_of_t
   | "fibo" ->
-    exec Test_succ.test_fibo
+    exec Tests.test_fibo
       (int_of_string Sys.argv.(3)) Int.sexp_of_t Int.sexp_of_t
   | "fibo_artefact" ->
-    exec Test_succ.test_fibo_artefact
+    exec Tests.test_fibo_artefact
       (int_of_string Sys.argv.(3)) Int.sexp_of_t Int.sexp_of_t
   | "fibo_error_artefact" ->
-    exec Test_succ.test_fibo_error_artefact
+    exec Tests.test_fibo_error_artefact
       (int_of_string Sys.argv.(3))
       Int.sexp_of_t Int.sexp_of_t
   | "rootfs" ->
@@ -95,11 +95,31 @@ let test =
       Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) conn
         (Oci_Rootfs_Api.Rootfs_Id.of_string Sys.argv.(3))
       >>= fun rootfs ->
-      exec Test_succ.test_ocaml
+      exec Tests.test_ocaml
         { rootfs = Or_error.ok_exn rootfs ;
           commit = Oci_Common.Commit.of_string_exn Sys.argv.(4) }
-        Test_succ.Ocaml_Query.sexp_of_t
+        Tests.Ocaml_Query.sexp_of_t
         Oci_Common.Artefact.sexp_of_t conn
+  | "repo" ->
+    let commits =
+      Sys.argv.(5)
+      |> String.split ~on:','
+      |> List.map ~f:(fun l ->
+        match String.split ~on:':' l with
+        | [name;commit] -> (name,Oci_Common.Commit.of_string_exn commit)
+        | _ -> invalid_argf "Bad commit spec %s" l ())
+      |> String.Map.of_alist_exn in
+    fun conn ->
+      Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) conn
+        (Oci_Rootfs_Api.Rootfs_Id.of_string Sys.argv.(3))
+      >>= fun rootfs ->
+      exec Tests.CompileGitRepo.rpc
+        { rootfs = Or_error.ok_exn rootfs ;
+          name = Sys.argv.(4);
+          commits}
+        Tests.CompileGitRepo.Query.sexp_of_t
+        Oci_Common.Artefact.sexp_of_t conn
+
   | _ -> failwith "succ or fibo"
 
 

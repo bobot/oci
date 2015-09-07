@@ -164,7 +164,8 @@ exception Internal_error with sexp
 
 let dispatch_runner ?msg d t q =
   let log = get_log () in
-  cmd_log "dispatch %s%s" (Oci_Data.name d) (Option.value ~default:"" msg);
+  cmd_log "dispatch runner %s%s"
+    (Oci_Data.name d) (Option.value ~default:"" msg);
   let r : 'a Or_error.t Ivar.t = Ivar.create () in
   begin
     (Rpc.Pipe_rpc.dispatch (Oci_Data.both d) t q)
@@ -192,7 +193,8 @@ let dispatch_runner ?msg d t q =
 
 let dispatch_runner_exn ?msg d t q =
   let log = get_log () in
-  cmd_log "dispatch %s%s" (Oci_Data.name d) (Option.value ~default:"" msg);
+  cmd_log "dispatch runner %s%s"
+    (Oci_Data.name d) (Option.value ~default:"" msg);
   let r = Ivar.create () in
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both d) t q
   >>= fun (p,_) ->
@@ -212,3 +214,13 @@ let dispatch_runner_exn ?msg d t q =
   Oci_Log.transfer log p
   >>= fun () ->
   Ivar.read r
+
+let dispatch_master ?msg d q =
+  cmd_log "dispatch master %s%s"
+    (Oci_Data.name d) (Option.value ~default:"" msg);
+  Oci_Artefact.dispatch_master d q
+
+let dispatch_master_exn ?msg d q =
+  cmd_log "dispatch master %s%s"
+    (Oci_Data.name d) (Option.value ~default:"" msg);
+  Oci_Artefact.dispatch_master_exn d q

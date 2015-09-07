@@ -32,10 +32,13 @@ type rootfs_info = {
 } with sexp, bin_io
 
 module Rootfs_Id: sig
-  type t with sexp, bin_io
-  module Table: Hashtbl.S_binable with type key = t
+  type t
   include Interfaces.Intable with type t := t
   include Interfaces.Stringable with type t := t
+  include Interfaces.Comparable with type t := t
+  include Interfaces.Hashable with type t := t
+  include Interfaces.Sexpable with type t := t
+  include Interfaces.Binable with type t := t
 end
 
 module Rootfs : sig

@@ -55,6 +55,15 @@ val dispatch_runner_exn:
   Rpc.Connection.t ->
   'query -> 'result Deferred.t
 
+val dispatch_master:
+  ?msg:string ->
+  ('query,'result) Oci_Data.t ->
+  'query -> 'result Or_error.t Deferred.t
+val dispatch_master_exn:
+  ?msg:string ->
+  ('query,'result) Oci_Data.t ->
+  'query -> 'result Deferred.t
+
 val std_log: ('a, unit, string, unit) format4 -> 'a
 val err_log: ('a, unit, string, unit) format4 -> 'a
 val cha_log: ('a, unit, string, unit) format4 -> 'a

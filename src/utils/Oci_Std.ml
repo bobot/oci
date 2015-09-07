@@ -1,12 +1,17 @@
 include Async_extra.Log.Global
 
+open Core.Std
 open Async.Std
 
 let unlink_no_fail filename =
-  Sys.file_exists_exn filename
-  >>= fun b ->
-  if b then Unix.unlink filename
-  else return ()
+  (** Sys.file_exists follows symlink *)
+  Monitor.try_with
+    (fun () -> Unix.lstat filename)
+  >>= function
+  | Ok _ -> Unix.unlink filename
+  | Error _ -> return ()
+  (* | Error (Unix.Unix_error _) -> return () *)
+  (* | Error exn -> raise exn *)
 
 let backup_and_open_file file =
   let file_bak = Oci_Filename.add_extension file "bak" in

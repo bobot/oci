@@ -19,7 +19,7 @@ OCAMLBUILD=ocamlbuild \
 
 BINARY= src/wrapper/Oci_Wrapper.native				\
 	src/monitor/Oci_Simple_Exec.native tests/myoci.native	\
-	tests/test_succ_runner.native tests/launch_test.native  \
+	tests/tests_runner.native tests/launch_test.native  \
 	src/monitor/Oci_Monitor.native src/Oci_Cmd_Runner.native
 
 all: .merlin

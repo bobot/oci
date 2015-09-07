@@ -44,4 +44,8 @@ val log: ('query,'result) t -> ('query, Oci_Log.line, Error.t) Rpc.Pipe_rpc.t
 val both:
   ('query,'result) t ->
   ('query, 'result both, Error.t) Rpc.Pipe_rpc.t
-(** the invariant is that [Result r] appear only once at the end of the stream *)
+(**
+   the invariant is that [Result r] appear only once at the end of the stream
+*)
+val id:   ('query,'result) t -> ('query * 'result) Type_equal.Id.t
+
