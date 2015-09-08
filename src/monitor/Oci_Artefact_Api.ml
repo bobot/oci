@@ -33,6 +33,7 @@ type artefact_api = {
   debug_level : Bool.t;
   cleanup_rootfs: Bool.t;
   identity_file: string option;
+  proc: Int.t;
 } with sexp, bin_io
 
 let get_configuration = Rpc.Rpc.create
@@ -149,6 +150,13 @@ let rpc_stop_runner =
     ~version:1
     ~bin_query:Unit.bin_t
     ~bin_response:Unit.bin_t
+
+let rpc_get_or_release_proc =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.get_or_release_proc"
+    ~version:1
+    ~bin_query:Int.bin_t
+    ~bin_response:Int.bin_t
 
 let oci_at_shutdown,oci_shutdown,oci_shutting_down =
   let s = Stack.create () in

@@ -36,8 +36,25 @@ type repo = {
   name : string;
   url : string;
   deps: repo list;
-  cmds: (string * string list) list;
+  cmds: Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd list;
 }
+
+let run cmd args : Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd = {
+  cmd;
+  args = List.map args ~f:(fun s -> `S s);
+  proc_requested = 1;
+}
+
+let make ?(j=1) ?(vars=[]) targets :
+  Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd = {
+  cmd = "make";
+  args =
+    `S "-j" :: `Proc ::
+    List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
+    List.map targets ~f:(fun s -> `S s);
+  proc_requested = j;
+}
+
 
 let repos = String.Table.create ()
 let mk_repo ~name ~url ~deps ~cmds =

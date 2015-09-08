@@ -31,6 +31,8 @@ let test_fibo conn q =
   | 0 -> return 1
   | 1 -> return 1
   | q ->
+    Oci_Runner.release_proc conn 1
+    >>= fun () ->
     let q_1 = Oci_Runner.dispatch_exn
         conn Tests.test_fibo (q-1) in
     let q_2 = Oci_Runner.dispatch_exn
@@ -63,12 +65,16 @@ let test_fibo_artefact_aux conn q =
   | 0 -> save_fibo 1
   | 1 -> save_fibo 1
   | q ->
+    Oci_Runner.release_proc conn 1
+    >>= fun () ->
     Oci_Runner.dispatch_exn
       conn Tests.test_fibo_artefact_aux (q-1)
     >>= fun a_1 ->
     Oci_Runner.dispatch_exn
       conn Tests.test_fibo_artefact_aux (q-2)
     >>= fun a_2 ->
+    Oci_Runner.get_proc conn 1
+    >>= fun _ ->
     Oci_Runner.link_artefact conn a_1 ~dir:"/fibo_1"
     >>= fun () ->
     Oci_Runner.link_artefact conn a_2 ~dir:"/fibo_2"
@@ -88,9 +94,13 @@ let test_fibo_artefact conn q =
     | `Eof -> invalid_arg "Bad fibo file"
     | `Ok r -> return r
   in
+  Oci_Runner.release_proc conn 1
+  >>= fun () ->
   Oci_Runner.dispatch_exn
       conn Tests.test_fibo_artefact_aux q
   >>= fun a ->
+  Oci_Runner.get_proc conn 1
+  >>= fun _ ->
   Oci_Runner.link_artefact conn a ~dir:"/fibo"
   >>= fun () ->
   read_fibo "/fibo/result"

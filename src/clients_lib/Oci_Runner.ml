@@ -136,6 +136,22 @@ let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
     "git" ["-C";dst;"checkout";"--detach";
            Oci_Common.Commit.to_string commit]
 
+let get_proc t requested =
+  if not (0 < requested) then
+    invalid_argf "get_proc: requested proc (%i) should be positive"
+      requested ();
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_get_or_release_proc
+    t.connection requested
+
+let release_proc t released =
+  if not (0 < released) then
+    invalid_argf "get_proc: released proc (%i) should be positive"
+      released ();
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_get_or_release_proc
+    t.connection (-released)
+  >>= fun _ ->
+  Deferred.unit
+
 let dispatch t d q =
   cmd_log t "Dispatch %s" (Oci_Data.name d);
   Rpc.Rpc.dispatch (Oci_Data.rpc d) t.connection q

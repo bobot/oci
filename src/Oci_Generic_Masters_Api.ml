@@ -24,10 +24,17 @@ open Core.Std
 
 module CompileGitRepoRunner = struct
 
+  type cmd = {
+    cmd: string;
+    args: [ `S of string |
+            `Proc] list;
+    proc_requested : int;
+  } with sexp, bin_io, compare
+
   type query = {
     rootfs: Oci_Rootfs_Api.Rootfs.t;
     commit: Oci_Common.Commit.t;
-    cmds: (string * string list) list;
+    cmds: cmd list;
     url: string;
     artefacts: Oci_Common.Artefact.t list;
   } with sexp, bin_io, compare

@@ -27,6 +27,11 @@ open Oci_Common
 
 open Log.Global
 
+type runners_data = {
+  rootfs: Oci_Filename.t;
+  mutable proc_got: Int.t;
+}
+
 type conf = {
   mutable next_artefact_id: Int.t;
   mutable next_runner_id: Int.t;
@@ -39,7 +44,8 @@ type conf = {
   git: Oci_Filename.t;
   (** permanent storage for masters *)
   conf_monitor: Oci_Artefact_Api.artefact_api;
-  api_for_runner: Oci_Filename.t Rpc.Implementations.t;
+  api_for_runner: runners_data Rpc.Implementations.t;
+  proc: unit Pipe.Reader.t * unit Pipe.Writer.t;
 }
 
 let gconf = ref None
@@ -190,8 +196,29 @@ let saver_artifact_data () =
   Writer.write_bin_prot writer Int.bin_writer_t conf.next_artefact_id;
   Writer.close writer
 
-(* let create_conf ~storage ~superroot ~root ~user ~simple_exec_conn = *)
-(*   {storage; superroot; root; user; conn = simple_exec_conn} *)
+
+let create_proc nb =
+  let (_, writer) as r = Pipe.create () in
+  for _i=1 to nb do
+    Pipe.write_without_pushback writer ()
+  done;
+  r
+
+let get_proc nb =
+  let conf = get_conf () in
+  let (reader, _) = conf.proc in
+  Pipe.read_at_most reader ~num_values:nb
+  >>= function
+  | `Eof -> assert false
+  | `Ok q -> return (Queue.length q)
+
+let release_proc nb =
+  let conf = get_conf () in
+  let (_, writer)  = conf.proc in
+  for _i=1 to nb do
+    Pipe.write_without_pushback writer ()
+  done
+
 
 (** {2 Management} *)
 let masters =
@@ -236,25 +263,25 @@ let register_master
     upon res (fun _ -> don't_wait_for (Oci_Log.close log));
     res,log
   in
-  let simple_rpc rootfs q =
+  let simple_rpc {rootfs} q =
     debug "%s called from %s" name rootfs;
     Monitor.try_with_join_or_error
       ~name (fun () -> fst (f' q)) in
   Direct_Master.add_exn
     ~key:data
-    ~data:(simple_rpc "a master");
+    ~data:(simple_rpc {rootfs="a master";proc_got=0});
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Rpc.implement (Oci_Data.rpc data) simple_rpc);
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Pipe_rpc.implement (Oci_Data.log data)
-         (fun rootfs q ~aborted:_ ->
+         (fun {rootfs} q ~aborted:_ ->
             debug "%s log called from %s" name rootfs;
               Monitor.try_with_or_error ~name
                 (fun () -> Oci_Log.read (snd (f' q)))
          ));
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Pipe_rpc.implement (Oci_Data.both data)
-         (fun rootfs q ~aborted:_ ->
+         (fun {rootfs} q ~aborted:_ ->
             debug "%s both called from %s" name rootfs;
             Monitor.try_with_or_error ~name
               (fun () ->
@@ -313,7 +340,7 @@ let add_artefact_api init =
     (** create *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_create
-      (fun rootfs {src;prune;rooted_at;only_new} ->
+      (fun {rootfs} {src;prune;rooted_at;only_new} ->
          assert (not (Oci_Filename.is_relative src));
          let reparent = Oci_Filename.reparent ~oldd:"/" ~newd:rootfs in
          create
@@ -330,7 +357,7 @@ let add_artefact_api init =
     (** link_to *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_link_to
-      (fun rootfs (user,artefact,dst) ->
+      (fun {rootfs} (user,artefact,dst) ->
          assert (not (Oci_Filename.is_relative dst));
          let dst = Oci_Filename.make_relative "/" dst in
          let dst = Oci_Filename.make_absolute rootfs dst in
@@ -339,7 +366,7 @@ let add_artefact_api init =
     (** copy_to *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_copy_to
-      (fun rootfs (user,artefact,dst) ->
+      (fun {rootfs} (user,artefact,dst) ->
          assert (not (Oci_Filename.is_relative dst));
          let dst = Oci_Filename.make_relative "/" dst in
          let dst = Oci_Filename.make_absolute rootfs dst in
@@ -348,7 +375,7 @@ let add_artefact_api init =
     (** get_internet *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_get_internet
-      (fun rootfs () ->
+      (fun {rootfs} () ->
          let resolv = "etc/resolv.conf" in
          let src = Oci_Filename.make_absolute "/" resolv in
          let dst = Oci_Filename.make_absolute rootfs resolv in
@@ -357,10 +384,27 @@ let add_artefact_api init =
     (** git_clone *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_git_clone
-      (fun rootfs {url;dst;user;commit} ->
+      (fun {rootfs} {url;dst;user;commit} ->
         let dst = Oci_Filename.make_relative "/" dst in
         let dst = Oci_Filename.make_absolute rootfs dst in
         Oci_Git.clone ~user ~url ~dst ~commit
+      );
+    (** get_or_release *)
+    Rpc.Rpc.implement
+      Oci_Artefact_Api.rpc_get_or_release_proc
+      (fun d requested ->
+         if 0 < requested then begin
+           get_proc requested
+           >>= fun got ->
+           d.proc_got <- d.proc_got + got;
+           return got
+         end
+         else begin
+           assert (0 <= d.proc_got + requested);
+           d.proc_got <- d.proc_got + requested;
+           release_proc (-requested);
+           return requested
+         end
       );
   ]
 
@@ -368,6 +412,8 @@ let start_runner ~binary_name =
   let conf = get_conf () in
   conf.next_runner_id <- conf.next_runner_id + 1;
   let runner_id = conf.next_runner_id in
+  get_proc 1
+  >>= fun proc_got ->
   let rootfs = Oci_Filename.concat (get_conf ()).runners
       (Oci_Filename.mk (string_of_int runner_id)) in
   Unix.mkdir ~p:() (Oci_Filename.concat rootfs "oci")
@@ -401,17 +447,19 @@ let start_runner ~binary_name =
     workdir = None;
   } in
   info "Start runner %s" binary_name;
+  let initial_state = {rootfs;proc_got} in
   let r =
     Oci_Artefact_Api.start_in_namespace
       ~exec_in_namespace ~parameters
       ~implementations:conf.api_for_runner
-      ~initial_state:rootfs
+      ~initial_state
       ~named_pipe:(Oci_Filename.concat rootfs named_pipe) () in
   begin
     r
     >>> fun (result,_) ->
     result
     >>> fun _ -> begin
+      release_proc initial_state.proc_got;
       if conf.conf_monitor.cleanup_rootfs
       then Async_shell.run "rm" ["-rf";"--";rootfs]
       else return ()
@@ -460,6 +508,7 @@ let run () =
       git = Oci_Filename.concat conf_monitor.oci_data "git";
       conf_monitor;
       api_for_runner = add_artefact_api !masters;
+      proc = create_proc conf_monitor.proc;
     } in
     gconf := Some conf;
     if conf_monitor.debug_level then Log.Global.set_level `Debug;
@@ -519,7 +568,8 @@ let run () =
     >>> fun () ->
     Rpc.Connection.serve
       ~where_to_listen:(Tcp.on_file socket)
-      ~initial_connection_state:(fun _ _ -> "external socket")
+      ~initial_connection_state:(fun _ _ -> {rootfs="external socket";
+                                             proc_got=0})
       ~implementations:!masters
       ()
     >>> fun server ->

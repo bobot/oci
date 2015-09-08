@@ -225,7 +225,8 @@ let compute_conf ~oci_data =
     return conf
 
 
-let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs
+let start_master ~conf ~master ~oci_data ~binaries
+    ~proc ~verbosity ~cleanup_rootfs
     ~identity_file =
   let open Oci_Wrapper_Api in
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
@@ -264,6 +265,7 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs
                      debug_level = verbosity = `Debug;
                      cleanup_rootfs;
                      identity_file;
+                     proc;
                     });
         Rpc.Rpc.implement Oci_Artefact_Api.exec_in_namespace
           (fun () -> exec_in_namespace conf)
@@ -296,7 +298,9 @@ let start_master ~conf ~master ~oci_data ~binaries ~verbosity ~cleanup_rootfs
 
 
 
-let run master binaries oci_data identity_file verbosity cleanup_rootfs () =
+let run
+    master binaries oci_data identity_file proc
+    verbosity cleanup_rootfs () =
   Log.Global.set_level verbosity;
   assert (not (Signal.is_managed_by_async Signal.term));
   (** Handle nicely terminating signals *)
@@ -313,7 +317,8 @@ let run master binaries oci_data identity_file verbosity cleanup_rootfs () =
   compute_conf ~oci_data
   >>= fun conf ->
   Oci_Artefact_Api.oci_at_shutdown (cleanup_running_processes conf);
-  start_master ~conf ~binaries ~oci_data ~master ~verbosity ~cleanup_rootfs
+  start_master ~conf ~binaries ~oci_data ~master
+    ~proc ~verbosity ~cleanup_rootfs
     ~identity_file
 
 let () = Command.run begin
@@ -339,6 +344,8 @@ let () = Command.run begin
           ~doc:" Specify where the OCI should store its files" +>
         flag "--identity-file" (map_to_absolute_o (optional file))
           ~doc:" Specify an identity file to use for ssh connection" +>
+        flag "--proc" (optional_with_default 4 int)
+          ~doc:" Maximum number of worker to run simultaneously" +>
         flag "--verbosity" (optional_with_default `Info Log.Level.arg)
           ~doc:" Specify the verbosity level (Debug,Error,Info)" +>
         flag "--cleanup-rootfs" (optional_with_default true bool)

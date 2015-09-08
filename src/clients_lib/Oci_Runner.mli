@@ -63,6 +63,9 @@ val git_clone: t ->
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
 
+val get_proc: t -> int -> int Deferred.t
+val release_proc: t -> int -> unit Deferred.t
+
 val dispatch:
   t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t
 val dispatch_exn:
