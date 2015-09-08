@@ -123,65 +123,6 @@ let rec copydir
       end
     )
 
-let rec copydir_blocking
-    ~hardlink ~prune_dir ~prune_user
-    ~chown:({User.uid;gid} as chown) src dst =
-  let open Core.Std in
-  (** This function run as superroot (like all masters),
-      so it is root in its usernamespace *)
-  let dst_exist = Sys.file_exists_exn dst in
-  if dst_exist
-  then ()
-  else begin
-    Core_extended.Shell.run "mkdir" ["-p";"--";dst];
-    Unix.chown ~uid ~gid dst;
-  end;
-  let files = Sys.ls_dir src in
-  List.iter files ~f:(fun file ->
-      let src' = Oci_Filename.make_absolute src file in
-      let dst' = Oci_Filename.make_absolute dst file in
-      if List.mem ~equal:Oci_Filename.equal prune_dir src'
-      then ()
-      else begin
-        let src'_stat = Unix.lstat src' in
-        match src'_stat with
-        | { st_uid = 65534 } (* nobody *) | { st_gid = 65534 } (* nogroup *) ->
-          ()
-        | {st_kind = S_DIR} ->
-          copydir_blocking ~hardlink ~prune_dir ~prune_user ~chown src' dst'
-        | {st_kind = (S_REG | S_LNK); st_uid=uid; st_gid=gid}
-          when List.mem ~equal:User.equal prune_user {uid;gid}
-          -> ()
-        | {st_kind = S_REG} ->
-          Oci_Std.unlink_no_fail_blocking dst';
-          if hardlink
-          then Unix.link ~target:src' ~link_name:dst' ()
-          else begin
-            Core_extended.Shell.run "cp" ["-a";"--";src';dst'];
-            Unix.chown ~uid ~gid dst'
-          end
-        | {st_kind = S_LNK} ->
-          Oci_Std.unlink_no_fail_blocking dst';
-          let tgt = Unix.readlink src' in
-          Unix.symlink ~src:tgt ~dst:dst';
-          assert (not (Oci_Filename.is_relative dst'));
-          if hardlink
-          then () (** keep superroot uid *)
-          else
-            ExtUnix.Specific.fchownat
-              (ExtUnix.Specific.file_descr_of_int 0) (** dumb *)
-              dst' uid gid
-              [ExtUnix.Specific.AT_SYMLINK_NOFOLLOW]
-        | {st_kind = S_BLK|S_SOCK|S_FIFO|S_CHR } ->
-          Async.Std.Log.Global.error "Can't copy this file: %s bad type" src';
-          raise (Can't_copy_this_file src')
-      end
-    )
-
-let copydir_in_thread  ~hardlink ~prune_dir ~prune_user ~chown src dst =
-  In_thread.run ~name:"copydir" (fun () ->
-      copydir_blocking  ~hardlink ~prune_dir ~prune_user ~chown src dst)
-
 let create ~prune ~rooted_at ~only_new ~src =
   assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:src);
   let conf = get_conf () in
@@ -192,7 +133,7 @@ let create ~prune ~rooted_at ~only_new ~src =
   >>= fun b ->
   if b then raise (Directory_should_not_exists dst);
   let dst = Oci_Filename.reparent ~oldd:rooted_at ~newd:dst src in
-  copydir_in_thread
+  copydir
     ~hardlink:false
     ~prune_dir:prune
     ~prune_user:(if only_new then [master_user Superroot] else [])
@@ -202,7 +143,7 @@ let create ~prune ~rooted_at ~only_new ~src =
 
 let link_copy_to ~hardlink chown id dst =
   let src = dir_of_artefact id in
-  copydir_in_thread ~hardlink ~prune_dir:[] ~prune_user:[] ~chown src dst
+  copydir ~hardlink ~prune_dir:[] ~prune_user:[] ~chown src dst
 
 let link_to_gen = link_copy_to ~hardlink:true
 let copy_to_gen = link_copy_to ~hardlink:false
