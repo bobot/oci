@@ -37,7 +37,16 @@ let exec_one test input sexp_input sexp_output conn =
     (Sexp.to_string_hum (sexp_input input));
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both test) conn input
   >>= fun (p,_) ->
+  let open Textutils.Std in
   Pipe.iter p ~f:(function
+      | Oci_Data.Line line when Console.is_color_tty () ->
+        Format.printf
+          "[%a] %s\n%!"
+          Time.pp line.Oci_Log.time
+          (Console.Ansi.string_with_attr
+             [Oci_Log.color_of_kind line.Oci_Log.kind]
+             line.Oci_Log.line);
+        Deferred.unit
       | Oci_Data.Line line ->
         Format.printf
           "[%a: %a] %s@."

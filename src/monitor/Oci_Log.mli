@@ -27,6 +27,8 @@ type kind =
   | Standard | Error | Chapter | Command
     with sexp, bin_io
 
+val color_of_kind: kind -> [> `Black | `Underscore | `Red | `Blue]
+
 type line = {
   kind : kind;
   line : string;

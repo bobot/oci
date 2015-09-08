@@ -1,6 +1,6 @@
 
 
-PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax async_shell extunix core core_extended
+PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax async_shell extunix core core_extended textutils
 # I don't understand warning 18
 OCAML_WARNING=+a-4-9-18-41-30-42-44-40
 OCAML_WARN_ERROR=+5+10+8+12+20+11

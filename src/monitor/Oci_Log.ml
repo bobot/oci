@@ -38,6 +38,11 @@ type line = {
 let line kind line =
   {kind;line;time=Time.now ()}
 
+let color_of_kind = function
+  | Standard -> `Black
+  | Error -> `Red
+  | Chapter -> `Underscore
+  | Command -> `Blue
 
 module Log_Id : Int_intf.S = Int
 

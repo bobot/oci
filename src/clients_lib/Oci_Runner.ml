@@ -113,11 +113,11 @@ let create_artefact ?(rooted_at="/") ?(prune=[]) ?(only_new=true) t ~dir =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_create
     t.connection {prune;src=dir;rooted_at;only_new}
 let link_artefact t ?(user=Oci_Common.Root) src ~dir =
-  cmd_log t "Link artefact to %s" dir;
+  cmd_log t "Link artefact %s to %s" (Oci_Common.Artefact.to_string src)dir;
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_link_to
     t.connection (user,src,dir)
 let copy_artefact t ?(user=Oci_Common.Root) src ~dir =
-  cmd_log t "Copy artefact to %s" dir;
+  cmd_log t "Copy artefact %s to %s" (Oci_Common.Artefact.to_string src)dir;
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_copy_to
     t.connection (user,src,dir)
 
@@ -156,7 +156,7 @@ let process_log t p =
   don't_wait_for (send_to_log t Oci_Log.Error (Process.stderr p))
 
 let process_create t ?working_dir ?env ~prog ~args () =
-  cmd_log t "Run: %s %s" prog (String.concat ~sep:" " args);
+  cmd_log t "%s %s" prog (String.concat ~sep:" " args);
   let open Deferred.Or_error in
   Process.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
