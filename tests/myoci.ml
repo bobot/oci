@@ -113,7 +113,7 @@ let () =
       "make",["install"];
     ]
   in
-  let _ocamlfind = mk_repo
+  let ocamlfind = mk_repo
     ~name:"ocamlfind"
     ~url:"git@git.frama-c.com:bobot/ocamlfind.git"
     ~deps:[ocaml]
@@ -123,6 +123,36 @@ let () =
       "make",["opt"];
       "make",["install"];
     ]
+  in
+  let ocamlgraph = mk_repo
+    ~name:"ocamlgraph"
+    ~url:"https://github.com/backtrack/ocamlgraph.git"
+    ~deps:[ocaml;ocamlfind]
+    ~cmds:[
+      "./configure",[];
+      "make",[];
+      "make",["install"];
+    ]
+  in
+  let framac = mk_repo
+      ~name:"frama-c"
+      ~url:"git@git.frama-c.com:frama-c/frama-c.git"
+      ~deps:[ocaml;ocamlfind;ocamlgraph]
+      ~cmds:[
+        "./configure",[];
+        "make",[];
+        "make",["install"];
+      ]
+  in
+  let _genassigns = mk_repo
+      ~name:"genassigns"
+      ~url:"git@git.frama-c.com:frama-c/genassigns.git"
+      ~deps:[ocaml;ocamlfind;ocamlgraph;framac]
+      ~cmds:[
+        "./configure",[];
+        "make",[];
+        "make",["install"];
+      ]
   in
   ()
 
