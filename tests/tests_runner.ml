@@ -144,35 +144,6 @@ let test_ocaml t (q:Tests.Ocaml_Query.t) =
   Oci_Runner.create_artefact t ~dir:"/usr"
 
 
-let compile_git_repo_runner t (q:Tests.CompileGitRepoRunner.query) =
-  let working_dir = "/checkout" in
-  Oci_Runner.cha_log t "Link Rootfs";
-  Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
-  >>= fun () ->
-  Oci_Runner.cha_log t "Link Artefacts";
-  Deferred.List.iter
-  ~f:(fun artefact ->
-      Oci_Runner.link_artefact t artefact ~dir:"/"
-    ) q.artefacts
-  >>= fun () ->
-  Oci_Runner.cha_log t "Clone repository at %s"
-    (Oci_Common.Commit.to_string q.commit);
-  Oci_Runner.git_clone t
-    ~user:Root
-    ~url:q.url
-    ~dst:working_dir
-    ~commit:q.commit
-  >>= fun () ->
-  Oci_Runner.cha_log t "Compile and install";
-  Deferred.List.iter
-    ~f:(fun (prog,args) ->
-        Oci_Runner.run t ~working_dir ~prog ~args ()
-      ) q.cmds
-  >>= fun () ->
-  Oci_Runner.create_artefact t
-    ~dir:"/"
-    ~prune:[working_dir]
-
 let () =
   never_returns begin
     Oci_Runner.start
@@ -189,7 +160,5 @@ let () =
           Tests.test_fibo_error_artefact test_fibo_error_artefact;
         Oci_Runner.implement
           Tests.test_ocaml test_ocaml;
-        Oci_Runner.implement
-          Tests.CompileGitRepoRunner.rpc compile_git_repo_runner;
       ]
   end

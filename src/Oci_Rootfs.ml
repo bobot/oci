@@ -193,7 +193,7 @@ let add_packages (d:add_packages_query) =
         )
     end Fn.id]
 
-let register_rootfs () =
+let init () =
   let register d f =
     Oci_Master.register d
     (fun s -> let log = Oci_Log.create () in

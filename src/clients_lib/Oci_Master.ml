@@ -194,11 +194,14 @@ let dispatch_runner ?msg d t q =
   >>= fun () ->
   Ivar.read r
 
+let print_msg msg =
+  msg
+  |> Option.map ~f:(fun s -> " "^s)
+  |> Option.value ~default:""
 
 let dispatch_runner_exn ?msg d t q =
   let log = get_log () in
-  cmd_log "dispatch runner %s%s"
-    (Oci_Data.name d) (Option.value ~default:"" msg);
+  cmd_log "dispatch runner %s%s" (Oci_Data.name d) (print_msg msg);
   let r = Ivar.create () in
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both d) t q
   >>= fun (p,_) ->
@@ -220,11 +223,9 @@ let dispatch_runner_exn ?msg d t q =
   Ivar.read r
 
 let dispatch_master ?msg d q =
-  cmd_log "dispatch master %s%s"
-    (Oci_Data.name d) (Option.value ~default:"" msg);
+  cmd_log "dispatch master %s%s" (Oci_Data.name d) (print_msg msg);
   Oci_Artefact.dispatch_master d q
 
 let dispatch_master_exn ?msg d q =
-  cmd_log "dispatch master %s%s"
-    (Oci_Data.name d) (Option.value ~default:"" msg);
+  cmd_log "dispatch master %s%s" (Oci_Data.name d) (print_msg msg);
   Oci_Artefact.dispatch_master_exn d q

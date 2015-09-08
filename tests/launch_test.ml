@@ -143,11 +143,11 @@ let test =
       Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) conn
         (Oci_Rootfs_Api.Rootfs_Id.of_string Sys.argv.(3))
       >>= fun rootfs ->
-      exec Tests.CompileGitRepo.rpc
+      exec Oci_Generic_Masters_Api.CompileGitRepo.rpc
         { rootfs = Or_error.ok_exn rootfs ;
           name = Sys.argv.(4);
           commits}
-        Tests.CompileGitRepo.Query.sexp_of_t
+        Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
         Oci_Common.Artefact.sexp_of_t conn
 
   | _ -> failwith "succ or fibo"

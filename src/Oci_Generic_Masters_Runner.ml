@@ -21,50 +21,45 @@
 (**************************************************************************)
 
 open Core.Std
+open Async.Std
 
-let test_succ = Oci_Data.register
-    ~name:"succ"
-    ~version:1
-    ~bin_query:Int.bin_t
-    ~bin_result:Int.bin_t
+let compile_git_repo_runner
+    t (q:Oci_Generic_Masters_Api.CompileGitRepoRunner.query) =
+  let working_dir = "/checkout" in
+  Oci_Runner.cha_log t "Link Rootfs";
+  Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
+  >>= fun () ->
+  Oci_Runner.cha_log t "Link Artefacts";
+  Deferred.List.iter
+  ~f:(fun artefact ->
+      Oci_Runner.link_artefact t artefact ~dir:"/"
+    ) q.artefacts
+  >>= fun () ->
+  Oci_Runner.cha_log t "Clone repository at %s"
+    (Oci_Common.Commit.to_string q.commit);
+  Oci_Runner.git_clone t
+    ~user:Root
+    ~url:q.url
+    ~dst:working_dir
+    ~commit:q.commit
+  >>= fun () ->
+  Oci_Runner.cha_log t "Compile and install";
+  Deferred.List.iter
+    ~f:(fun (prog,args) ->
+        Oci_Runner.run t ~working_dir ~prog ~args ()
+      ) q.cmds
+  >>= fun () ->
+  Oci_Runner.create_artefact t
+    ~dir:"/"
+    ~prune:[working_dir]
 
-let test_fibo = Oci_Data.register
-    ~name:"fibo"
-    ~version:1
-    ~bin_query:Int.bin_t
-    ~bin_result:Int.bin_t
 
-let test_fibo_artefact_aux = Oci_Data.register
-    ~name:"fibo_artefact_aux"
-    ~version:1
-    ~bin_query:Int.bin_t
-    ~bin_result:Oci_Common.Artefact.bin_t
-
-let test_fibo_artefact = Oci_Data.register
-    ~name:"fibo_artefact"
-    ~version:1
-    ~bin_query:Int.bin_t
-    ~bin_result:Int.bin_t
-
-let test_fibo_error_artefact = Oci_Data.register
-    ~name:"fibo_error_artefact"
-    ~version:1
-    ~bin_query:Int.bin_t
-    ~bin_result:Int.bin_t
-
-module Ocaml_Query = struct
-
-  type t = {
-    rootfs: Oci_Rootfs_Api.Rootfs.t;
-    commit: Oci_Common.Commit.t;
-  } with sexp, bin_io, compare
-
-  let hash = Hashtbl.hash
-
-end
-
-let test_ocaml = Oci_Data.register
-    ~name:"ocaml.compilation"
-    ~version:1
-    ~bin_query:Ocaml_Query.bin_t
-    ~bin_result:Oci_Common.Artefact.bin_t
+let () =
+  never_returns begin
+    Oci_Runner.start
+      ~implementations:[
+        Oci_Runner.implement
+          Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc
+          compile_git_repo_runner;
+      ]
+  end
