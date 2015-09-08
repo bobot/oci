@@ -65,6 +65,8 @@ val git_clone: t ->
 
 val get_proc: t -> int -> int Deferred.t
 val release_proc: t -> int -> unit Deferred.t
+val get_release_proc: t -> int -> (int -> 'a Deferred.t) -> 'a Deferred.t
+
 
 val dispatch:
   t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t

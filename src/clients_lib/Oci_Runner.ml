@@ -152,6 +152,20 @@ let release_proc t released =
   >>= fun _ ->
   Deferred.unit
 
+let get_release_proc t requested f =
+  begin
+    if 1 < requested
+    then get_proc t (requested-1)
+    else return 0
+  end
+  >>= fun got ->
+  Monitor.protect
+    ~finally:(fun () ->
+        if 1 < got
+        then release_proc t got
+        else return ())
+    (fun () -> f (got+1))
+
 let dispatch t d q =
   cmd_log t "Dispatch %s" (Oci_Data.name d);
   Rpc.Rpc.dispatch (Oci_Data.rpc d) t.connection q

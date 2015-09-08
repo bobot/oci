@@ -45,24 +45,17 @@ let compile_git_repo_runner
   >>= fun () ->
   Oci_Runner.cha_log t "Compile and install";
   Deferred.List.iter
-    ~f:(fun cmd -> begin
-          if 1 < cmd.proc_requested
-          then Oci_Runner.get_proc t (cmd.proc_requested-1)
-          else return 1
-        end
-        >>= fun got ->
-        let args =
-          List.map cmd.args
-            ~f:(function
-                | `S s -> s
-                | `Proc -> string_of_int (got+1))
-        in
-        Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args ()
-        >>= fun () -> begin
-          if 1 < got
-          then Oci_Runner.release_proc t got
-          else return ()
-        end
+    ~f:(fun cmd ->
+        Oci_Runner.get_release_proc t cmd.proc_requested
+          (fun got ->
+             let args =
+               List.map cmd.args
+                 ~f:(function
+                     | `S s -> s
+                     | `Proc -> string_of_int got)
+             in
+             Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args ()
+          )
       ) q.cmds
   >>= fun () ->
   Oci_Runner.create_artefact t
