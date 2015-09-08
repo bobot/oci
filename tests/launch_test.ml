@@ -32,8 +32,8 @@ let pp_kind fmt = function
   | Oci_Log.Error -> Format.fprintf fmt "E"
   | Oci_Log.Command -> Format.fprintf fmt "C"
 
-let exec test input sexp_input sexp_output conn =
-  Printf.printf "Read %s\n%!"
+let exec_one test input sexp_input sexp_output conn =
+  Printf.printf "Input %s\n%!"
     (Sexp.to_string_hum (sexp_input input));
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both test) conn input
   >>= fun (p,_) ->
@@ -54,6 +54,20 @@ let exec test input sexp_input sexp_output conn =
     )
   >>= fun () ->
   Writer.flushed (Lazy.force Writer.stdout)
+
+let forget test input sexp_input _sexp_output conn =
+  Printf.printf "Forget %s\n%!"
+    (Sexp.to_string_hum (sexp_input input));
+  Rpc.Rpc.dispatch_exn (Oci_Data.forget test) conn input
+  >>= fun r ->
+  Format.printf "%s@."
+    (Sexp.to_string_hum ((Or_error.sexp_of_t Unit.sexp_of_t) r));
+  Deferred.unit
+
+let exec test input sexp_input sexp_output conn =
+  if Sys.getenv "OCIFORGET" = None
+  then exec_one test input sexp_input sexp_output conn
+  else forget test input sexp_input sexp_output conn
 
 let test =
   match Sys.argv.(2) with

@@ -47,5 +47,10 @@ val both:
 (**
    the invariant is that [Result r] appear only once at the end of the stream
 *)
+val forget: ('query,'result) t -> ('query, unit Or_error.t) Rpc.Rpc.t
+(** If the 'query are memoized forget the previous computation.
+    does nothing if there is nothing to forget *)
+
+
 val id:   ('query,'result) t -> ('query * 'result) Type_equal.Id.t
 

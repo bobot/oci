@@ -29,7 +29,7 @@ type runner_result = Oci_Artefact_Api.exec_in_namespace_response =
   | Exec_Ok
   | Exec_Error of string with bin_io
 
-let register data f = Oci_Artefact.register_master data f
+let register = Oci_Artefact.register_master
 let register_saver = Oci_Artefact.register_saver
 
 let run () = Oci_Artefact.run ()
@@ -96,6 +96,10 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
         end;
         (ivar_d,log)
     in
+    let forget q =
+      if H.mem db q then H.remove db q;
+      Deferred.Or_error.return ()
+    in
     register_saver
       ~loader:(fun () ->
           permanent_directory data
@@ -122,7 +126,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
           Writer.write_bin_prot writer bin_writer_save_data l;
           Writer.close writer
         );
-    register data f
+    register ~forget data f
 
   let create_master_and_runner data ?(binary_name=Oci_Data.name data) ~error f =
     create_master data

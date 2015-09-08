@@ -227,7 +227,9 @@ let dispatch_master_exn d q =
   Deferred.Or_error.ok_exn
     ((Direct_Master.find_exn d) q)
 
-let register_master data f : unit =
+let register_master
+    ?(forget=fun _ -> Deferred.Or_error.return ())
+    data f : unit =
   let name = (Printf.sprintf "Master %s" (Oci_Data.name data)) in
   let f' q =
     let res, log = f q in
@@ -272,7 +274,11 @@ let register_master data f : unit =
                  end
               )
          )
-      )
+      );
+  let forget _ q = Monitor.try_with_join_or_error (fun () -> forget q) in
+  masters := Rpc.Implementations.add_exn !masters
+      (Rpc.Rpc.implement (Oci_Data.forget data) forget);
+  ()
 
 
 let savers = Stack.create ()

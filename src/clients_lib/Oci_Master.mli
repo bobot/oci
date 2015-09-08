@@ -75,6 +75,7 @@ val oci_at_shutdown: (unit -> unit Deferred.t) -> unit
 (** Run when the masters will stop *)
 
 val register:
+  ?forget: ('query -> unit Or_error.t Deferred.t) ->
   ('query,'result) Oci_Data.t ->
   ('query -> 'result Or_error.t Deferred.t * Oci_Log.t) ->
   unit

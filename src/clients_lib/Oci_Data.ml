@@ -34,9 +34,9 @@ type ('query,'result) t = {
   log: ('query, Oci_Log.line, Error.t) Pipe_rpc.t;
   both: ('query, 'result both, Error.t)
       Pipe_rpc.t;
+  forget: ('query,unit Or_error.t) Rpc.t;
   id : ('query * 'result) Type_equal.Id.t;
 } with fields
-
 
 let register ~name ~version ~bin_query ~bin_result = {
   rpc = Rpc.create ~name ~version
@@ -51,6 +51,9 @@ let register ~name ~version ~bin_query ~bin_result = {
       ~bin_response:(bin_both bin_result)
       ~bin_error:Error.bin_t
       ();
+  forget = Rpc.create ~name:(name ^ " Oci.forget")
+      ~version
+      ~bin_query ~bin_response:(Or_error.bin_t Unit.bin_t);
   id = Type_equal.Id.create ~name sexp_of_opaque;
 }
 

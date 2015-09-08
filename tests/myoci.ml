@@ -132,7 +132,7 @@ let () =
       "autoconf",[];
       "./configure",[];
       "make",[];
-      "make",["install"];
+      "make",["install-findlib"];
     ]
   in
   let framac = mk_repo
