@@ -30,14 +30,14 @@ type kind =
 type line = {
   kind : kind;
   line : string;
+  time : Time.t;
 } with sexp, bin_io
 
+val line: kind -> string -> line
 
 type t
 
 include Binable.S with type t := t
-
-val line_invariant: line -> bool
 
 val create: unit -> t
 

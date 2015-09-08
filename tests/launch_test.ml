@@ -26,6 +26,12 @@ open Async.Std
 
 let absolutize = Oci_Filename.make_absolute (Caml.Sys.getcwd ())
 
+let pp_kind fmt = function
+  | Oci_Log.Chapter -> Format.fprintf fmt "P"
+  | Oci_Log.Standard -> Format.fprintf fmt "S"
+  | Oci_Log.Error -> Format.fprintf fmt "E"
+  | Oci_Log.Command -> Format.fprintf fmt "C"
+
 let exec test input sexp_input sexp_output conn =
   Printf.printf "Read %s\n%!"
     (Sexp.to_string_hum (sexp_input input));
@@ -33,14 +39,15 @@ let exec test input sexp_input sexp_output conn =
   >>= fun (p,_) ->
   Pipe.iter p ~f:(function
       | Oci_Data.Line line ->
-        Printf.printf
-          "[Log: %s] %s\n%!"
-          (Sexp.to_string_hum (Oci_Log.sexp_of_kind line.Oci_Log.kind))
+        Format.printf
+          "[%a: %a] %s@."
+          pp_kind line.Oci_Log.kind
+          Time.pp line.Oci_Log.time
           line.Oci_Log.line;
         Deferred.unit
       | Oci_Data.Result r ->
-        Printf.printf
-          "[Result] For %s: result %s\n%!"
+        Format.printf
+          "[Result] For %s: result %s@."
           (Sexp.to_string_hum (sexp_input input))
           (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
         Deferred.unit

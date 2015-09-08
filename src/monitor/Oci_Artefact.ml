@@ -111,7 +111,7 @@ let rec copydir
           if hardlink
           then return () (** keep superroot uid *)
           else
-            In_thread.run (fun () ->
+            In_thread.syscall_exn ~name:"fchownat" (fun () ->
                 ExtUnix.Specific.fchownat
                   (ExtUnix.Specific.file_descr_of_int 0) (** dumb *)
                   dst' uid gid

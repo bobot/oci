@@ -126,9 +126,10 @@ let () =
   in
   let ocamlgraph = mk_repo
     ~name:"ocamlgraph"
-    ~url:"https://github.com/backtrack/ocamlgraph.git"
+    ~url:"https://github.com/backtracking/ocamlgraph.git"
     ~deps:[ocaml;ocamlfind]
     ~cmds:[
+      "autoconf",[];
       "./configure",[];
       "make",[];
       "make",["install"];
@@ -139,6 +140,7 @@ let () =
       ~url:"git@git.frama-c.com:frama-c/frama-c.git"
       ~deps:[ocaml;ocamlfind;ocamlgraph]
       ~cmds:[
+        "autoconf",[];
         "./configure",[];
         "make",[];
         "make",["install"];
@@ -149,6 +151,7 @@ let () =
       ~url:"git@git.frama-c.com:frama-c/genassigns.git"
       ~deps:[ocaml;ocamlfind;ocamlgraph;framac]
       ~cmds:[
+        "autoconf",[];
         "./configure",[];
         "make",[];
         "make",["install"];

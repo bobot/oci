@@ -13,6 +13,14 @@ let unlink_no_fail filename =
   (* | Error (Unix.Unix_error _) -> return () *)
   (* | Error exn -> raise exn *)
 
+let unlink_no_fail_blocking filename =
+  let open Core.Std in
+  (** Sys.file_exists follows symlink *)
+  try
+    ignore (Unix.lstat filename);
+    Unix.unlink filename
+  with _ -> ()
+
 let backup_and_open_file file =
   let file_bak = Oci_Filename.add_extension file "bak" in
   Sys.file_exists_exn file

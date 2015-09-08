@@ -96,7 +96,8 @@ let write_log kind t fmt =
       s
       |> String.split_lines
       |> List.iter
-        ~f:(fun line -> Pipe.write_without_pushback t.log {kind;line})
+        ~f:(fun line -> Pipe.write_without_pushback t.log
+               (Oci_Log.line kind line))
     ) fmt
 
 let std_log t fmt = write_log Oci_Log.Standard t fmt
@@ -150,7 +151,7 @@ let dispatch_exn t d q =
 let process_log t p =
   let send_to_log t kind reader =
     let reader = Reader.lines reader in
-    Pipe.transfer ~f:(fun line -> {kind;line}) reader t.log in
+    Pipe.transfer ~f:(fun line -> Oci_Log.line kind line) reader t.log in
   don't_wait_for (send_to_log t Oci_Log.Standard (Process.stdout p));
   don't_wait_for (send_to_log t Oci_Log.Error (Process.stderr p))
 

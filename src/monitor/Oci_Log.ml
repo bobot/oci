@@ -30,9 +30,14 @@ type kind =
 type line = {
   kind : kind;
   line : string;
+  time : Time.t;
 } with sexp, bin_io
 
-let line_invariant line = not (String.contains line.line '\n')
+(* let line_invariant line = not (String.contains line.line '\n') *)
+
+let line kind line =
+  {kind;line;time=Time.now ()}
+
 
 module Log_Id : Int_intf.S = Int
 

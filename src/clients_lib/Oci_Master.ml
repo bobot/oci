@@ -152,7 +152,7 @@ let write_log kind fmt =
       s
       |> String.split_lines
       |> List.iter ~f:(fun line ->
-          Oci_Log.write_without_pushback log {kind;line})
+          Oci_Log.write_without_pushback log (Oci_Log.line kind line))
     ) fmt
 
 let std_log fmt = write_log Oci_Log.Standard fmt
@@ -178,9 +178,9 @@ let dispatch_runner ?msg d t q =
             Ivar.fill r err;
             match err with
             | Core_kernel.Result.Ok _ ->
-              {Oci_Log.kind=Oci_Log.Standard;line="result received"}
+              Oci_Log.line Oci_Log.Standard "result received"
             | Core_kernel.Result.Error _ ->
-              {Oci_Log.kind=Oci_Log.Error;line="error received"};
+              Oci_Log.line Oci_Log.Error "error received"
         )
           p in
       upon (Pipe.closed p)
@@ -202,10 +202,10 @@ let dispatch_runner_exn ?msg d t q =
       | Oci_Data.Line l -> l
       | Oci_Data.Result (Core_kernel.Result.Ok res) ->
         Ivar.fill r res;
-        {kind=Oci_Log.Standard;line="result received"}
+        Oci_Log.line Oci_Log.Standard "result received"
       | Oci_Data.Result (Core_kernel.Result.Error err) ->
         Oci_Log.write_without_pushback log
-          {kind=Oci_Log.Error;line="error received"};
+          (Oci_Log.line Oci_Log.Error "error received");
         Error.raise err
     )
       p in
