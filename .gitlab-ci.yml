@@ -1,0 +1,7 @@
+Test:
+  script:
+  - eval `opam config env`
+  - make
+  tags: 
+  except:
+  - tags
