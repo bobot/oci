@@ -1,4 +1,4 @@
-Test:
+'Test':
   script:
   - eval `opam config env`
   - make
