@@ -47,8 +47,7 @@ let get_etc_sub_config ~user ~file =
   |> Pipe.read
   >>= function
   | `Eof ->
-    Printf.eprintf
-      "This user doesn't have subuid or subgid configured (cf %s) \n%!"
+    eprintf "This user doesn't have subuid or subgid configured (cf %s) \n%!"
       file;
     Shutdown.exit 1
   | `Ok start_len -> return start_len
@@ -202,7 +201,7 @@ let compute_conf ~oci_data =
   get_etc_sub_config ~user:(User_and_group.user ug) ~file:"/etc/subgid"
   >>= fun (gstart, glen) ->
   if ulen < 1001 || glen < 1001 then begin
-    Printf.eprintf
+    eprintf
       "This user doesn't have enough subuid or \
        subgid configured (1001 needed)\n%!";
     Shutdown.exit 1

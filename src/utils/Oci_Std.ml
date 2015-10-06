@@ -1,7 +1,7 @@
-include Async_extra.Log.Global
-
 open Core.Std
 open Async.Std
+
+include Log.Global
 
 let unlink_no_fail filename =
   (** Sys.file_exists follows symlink *)

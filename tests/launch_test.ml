@@ -33,8 +33,7 @@ let pp_kind fmt = function
   | Oci_Log.Command -> Format.fprintf fmt "C"
 
 let exec_one test input sexp_input sexp_output conn =
-  Printf.printf "Input %s\n%!"
-    (Sexp.to_string_hum (sexp_input input));
+  printf "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both test) conn input
   >>= fun (p,_) ->
   let open Textutils.Std in
@@ -65,8 +64,7 @@ let exec_one test input sexp_input sexp_output conn =
   Writer.flushed (Lazy.force Writer.stdout)
 
 let forget test input sexp_input _sexp_output conn =
-  Printf.printf "Forget %s\n%!"
-    (Sexp.to_string_hum (sexp_input input));
+  printf "Forget %s\n%!" (Sexp.to_string_hum (sexp_input input));
   Rpc.Rpc.dispatch_exn (Oci_Data.forget test) conn input
   >>= fun r ->
   Format.printf "%s@."
