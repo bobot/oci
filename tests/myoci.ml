@@ -122,7 +122,7 @@ let () =
   let _genassigns = mk_repo
       ~name:"genassigns"
       ~url:"git@git.frama-c.com:frama-c/genassigns.git"
-      ~deps:[ocaml;ocamlfind;ocamlgraph;framac]
+      ~deps:[framac]
       ~cmds:[
         run "autoconf" [];
         run "./configure" [];

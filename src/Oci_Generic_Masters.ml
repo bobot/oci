@@ -25,7 +25,7 @@ open Async.Std
 
 let binary_name = "Oci_Generic_Masters_Runner"
 
-(** Git Repo *)
+(** {2 Git Repo} *)
 
 module MasterCompileGitRepoArtefact =
   Oci_Master.Make
@@ -56,23 +56,23 @@ let make ?(j=1) ?(vars=[]) targets :
 }
 
 
-let repos = String.Table.create ()
+let repos_db = String.Table.create ()
 let mk_repo ~name ~url ~deps ~cmds =
   let r = {name;url;deps;cmds} in
-  String.Table.add_exn repos ~key:name ~data:r;
+  String.Table.add_exn repos_db ~key:name ~data:r;
   r
 let rec used_repos s repo =
   List.fold repo.deps
     ~f:used_repos ~init:(String.Set.add s repo.name)
 
-let rec check_deps_for deps repo =
-  if not (String.Map.mem deps repo.name)
-  then invalid_argf "Missing commit number for %s" repo.name ();
-  List.iter ~f:(check_deps_for deps) repo.deps
+let check_deps_for deps used_repos =
+  String.Set.iter ~f:(fun repo ->
+      if not (String.Map.mem deps repo)
+      then invalid_argf "Missing commit number for %s" repo ();
+    ) used_repos
 
-let filter_deps_for deps repo =
-  let used = used_repos String.Set.empty repo in
-  String.Map.filter deps ~f:(fun ~key ~data:_ -> String.Set.mem used key)
+let filter_deps_for deps used_repos =
+  String.Map.filter deps ~f:(fun ~key ~data:_ -> String.Set.mem used_repos key)
 
 let init_compile_git_repo () =
   MasterCompileGitRepoArtefact.create_master_and_runner
@@ -80,18 +80,21 @@ let init_compile_git_repo () =
     ~error:(fun _ -> raise Exit)
     ~binary_name
     (fun conn q ->
-       let repo = String.Table.find_exn repos q.name in
-       check_deps_for q.commits repo;
+       let repo = String.Table.find_exn repos_db q.name in
+       let repos = used_repos String.Set.empty repo in
+       check_deps_for q.commits repos;
        Deferred.List.map
-         repo.deps
+         (String.Set.to_list (String.Set.remove repos repo.name))
          ~how:`Parallel
          ~f:(fun dep ->
+             let repo = String.Table.find_exn repos_db dep in
+             let repos = used_repos String.Set.empty repo in
              Oci_Master.dispatch_master_exn
-               ~msg:dep.name
+               ~msg:dep
                Oci_Generic_Masters_Api.CompileGitRepo.rpc {
-               name=dep.name;
+               name=dep;
                rootfs=q.rootfs;
-               commits=filter_deps_for q.commits dep
+               commits=filter_deps_for q.commits repos
              })
          >>= fun artefacts ->
          Oci_Master.dispatch_runner_exn
