@@ -71,7 +71,7 @@ dep:
 
 clean:
 	rm -rf bin
-	ocamlbuild -clean
+	$(OCAMLBUILD) -clean
 
 .merlin: Makefile
 	@echo "Generating Merlin files"

@@ -30,6 +30,11 @@ val clone:
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
 
+val get_remote_branch_commit:
+  url:String.t ->
+  refspec:String.t ->
+  Oci_Common.Commit.t option Deferred.t
+
 val init:
   dir:string ->
   register_saver:(loader:(unit -> unit Deferred.t) ->

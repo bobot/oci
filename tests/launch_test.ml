@@ -129,15 +129,33 @@ let test =
         Tests.Ocaml_Query.sexp_of_t
         Oci_Common.Artefact.sexp_of_t conn
   | "repo" ->
-    let commits =
-      Sys.argv.(5)
-      |> String.split ~on:','
-      |> List.map ~f:(fun l ->
-        match String.split ~on:':' l with
-        | [name;commit] -> (name,Oci_Common.Commit.of_string_exn commit)
-        | _ -> invalid_argf "Bad commit spec %s" l ())
-      |> String.Map.of_alist_exn in
     fun conn ->
+      begin
+        Sys.argv.(5)
+        |> String.split ~on:','
+        |> Deferred.List.map
+          ~how:`Parallel
+          ~f:(fun l ->
+              match String.split ~on:':' l with
+              | [name;commit] -> begin
+                  try
+                    return (name,Oci_Common.Commit.of_string_exn commit)
+                  with _ ->
+                    Rpc.Rpc.dispatch_exn
+                      (Oci_Data.rpc Oci_Generic_Masters_Api.GitRemoteBranch.rpc)
+                      conn
+                      {name;refspec=commit}
+                    >>= fun r ->
+                    match Or_error.ok_exn r with
+                    | None ->
+                      invalid_argf "%s correspond to no known ref" name ()
+                    | Some commit -> return (name,commit)
+                end
+              | _ -> invalid_argf "Bad commit spec %s" l ())
+        >>= fun l ->
+        return (String.Map.of_alist_exn l)
+      end
+      >>= fun commits ->
       Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) conn
         (Oci_Rootfs_Api.Rootfs_Id.of_string Sys.argv.(3))
       >>= fun rootfs ->

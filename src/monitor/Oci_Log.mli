@@ -42,6 +42,8 @@ type t
 include Binable.S with type t := t
 
 val create: unit -> t
+val null: t
+(** a log without any line *)
 
 exception Closed_Log
 

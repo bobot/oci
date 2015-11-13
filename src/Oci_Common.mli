@@ -28,6 +28,7 @@ end
 
 module Commit : sig
   type t with sexp, bin_io, compare
+  val invariant: t -> bool
   val to_string: t -> string
   val of_string_exn: string -> t
 end

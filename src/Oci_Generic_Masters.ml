@@ -75,6 +75,7 @@ let filter_deps_for deps used_repos =
   String.Map.filter deps ~f:(fun ~key ~data:_ -> String.Set.mem used_repos key)
 
 let init_compile_git_repo () =
+  (** Oci_Generic_Masters_Api.CompileGitRepo *)
   MasterCompileGitRepoArtefact.create_master_and_runner
     Oci_Generic_Masters_Api.CompileGitRepo.rpc
     ~error:(fun _ -> raise Exit)
@@ -106,4 +107,13 @@ let init_compile_git_repo () =
              cmds=repo.cmds;
              artefacts;
            }
-    )
+    );
+  (** RemoteBranch *)
+  Oci_Artefact.register_master
+    Oci_Generic_Masters_Api.GitRemoteBranch.rpc
+    (fun q ->
+       let repo = String.Table.find_exn repos_db q.name in
+       Monitor.try_with_or_error
+         (fun () ->
+            Oci_Git.get_remote_branch_commit ~url:repo.url ~refspec:q.refspec),
+       Oci_Log.null)

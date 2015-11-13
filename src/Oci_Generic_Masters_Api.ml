@@ -43,7 +43,7 @@ module CompileGitRepoRunner = struct
 
   let rpc =
     Oci_Data.register
-      ~name:"compile_git_repo_runner"
+      ~name:"Oci_Generic_Masters.compile_git_repo_runner"
       ~version:1
       ~bin_query
       ~bin_result:Oci_Common.Artefact.bin_t
@@ -62,8 +62,24 @@ module CompileGitRepo = struct
 
   let rpc =
     Oci_Data.register
-      ~name:"compile_git_repo"
+      ~name:"Oci_Generic_Masters.compile_git_repo"
       ~version:1
       ~bin_query:Query.bin_t
       ~bin_result:Oci_Common.Artefact.bin_t
+end
+
+module GitRemoteBranch = struct
+  module Query = struct
+    type t = {
+      name: string;
+      refspec: String.t;
+    } with sexp, bin_io, compare
+  end
+
+  let rpc =
+    Oci_Data.register
+      ~name:"Oci_Generic_Masters.git_remote_branch"
+      ~version:1
+      ~bin_query:Query.bin_t
+      ~bin_result:(Option.bin_t Oci_Common.Commit.bin_t)
 end

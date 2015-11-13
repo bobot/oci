@@ -49,7 +49,8 @@ module Log_Id : Int_intf.S = Int
 include Log_Id
 
 let permanent_dir = ref ""
-let next_id = ref (of_int_exn (-1))
+let next_id = ref (of_int_exn 0)
+let null : t = (of_int_exn 0)
 
 (** The database of log being currently, the one that already ended
     (in this session or a previous one) are stored on disk
@@ -119,6 +120,11 @@ let init ~dir ~register_saver =
     ~loader:(fun () ->
         Oci_Std.read_if_exists data bin_reader_t
           (fun x -> next_id := x; return ())
+        >>= fun () ->
+        (** create null file *)
+        Writer.open_file (log_file null)
+        >>= fun writer ->
+        Writer.close writer
       )
     ~saver:(fun () ->
         Oci_Std.backup_and_open_file data
@@ -126,6 +132,5 @@ let init ~dir ~register_saver =
         Writer.write_bin_prot writer bin_writer_t !next_id;
         Writer.close writer
       )
-
 
 let t_type_id = Type_equal.Id.create ~name:"Oci_Log.t" sexp_of_t
