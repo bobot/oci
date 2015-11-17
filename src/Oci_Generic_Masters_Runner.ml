@@ -24,7 +24,7 @@ open Core.Std
 open Async.Std
 
 let compile_git_repo_runner
-    t (q:Oci_Generic_Masters_Api.CompileGitRepoRunner.query) =
+    t (q:Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.t) =
   let working_dir = "/checkout" in
   Oci_Runner.cha_log t "Link Rootfs";
   Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
@@ -44,6 +44,7 @@ let compile_git_repo_runner
     ~commit:q.commit
   >>= fun () ->
   Oci_Runner.cha_log t "Compile and install";
+  let failures = Queue.create () in
   Deferred.List.iter
     ~f:(fun cmd ->
         Oci_Runner.get_release_proc t cmd.proc_requested
@@ -54,13 +55,26 @@ let compile_git_repo_runner
                      | `S s -> s
                      | `Proc -> string_of_int got)
              in
-             Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args ()
+             Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args
+               ~env:(cmd.env :> Async.Std.Process.env) ()
+             >>= fun r ->
+             match cmd.kind, r with
+             | _, Core_kernel.Std.Result.Ok () -> return ()
+             | `Required, Core_kernel.Std.Result.Error _ ->
+               raise Oci_Runner.CommandFailed
+             | `Test, _ ->
+               Queue.enqueue failures (Oci_Runner.print_cmd cmd.cmd args);
+               return ()
           )
       ) q.cmds
   >>= fun () ->
   Oci_Runner.create_artefact t
     ~dir:"/"
     ~prune:[working_dir]
+  >>= fun artefact -> return {
+    Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.artefact;
+    failures = Queue.to_list failures;
+  }
 
 
 let () =

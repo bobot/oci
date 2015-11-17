@@ -185,8 +185,12 @@ let process_log t p =
   don't_wait_for (send_to_log t Oci_Log.Standard (Process.stdout p));
   don't_wait_for (send_to_log t Oci_Log.Error (Process.stderr p))
 
+
+let print_cmd prog args =
+  prog ^ " \"" ^ (String.concat ~sep:"\" \"" args) ^ "\""
+
 let process_create t ?working_dir ?env ~prog ~args () =
-  cmd_log t "%s %s" prog (String.concat ~sep:" " args);
+  cmd_log t "%s" (print_cmd prog args);
   let open Deferred.Or_error in
   Process.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
@@ -202,9 +206,16 @@ let run t ?working_dir ?env ~prog ~args () =
   Process.wait p
   >>= fun r ->
   match r with
-  | Core_kernel.Std.Result.Ok () -> return ()
+  | Core_kernel.Std.Result.Ok () -> return r
   | Core_kernel.Std.Result.Error _ as error ->
     err_log t "Command %s failed: %s"
-      prog
+      (print_cmd prog args)
       (Unix.Exit_or_signal.to_string_hum error);
+    return r
+
+let run_exn t ?working_dir ?env ~prog ~args () =
+  run t ?working_dir ?env ~prog ~args ()
+  >>= function
+  | Core_kernel.Std.Result.Ok () -> return ()
+  | Core_kernel.Std.Result.Error _ ->
     raise CommandFailed

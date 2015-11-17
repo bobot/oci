@@ -30,7 +30,7 @@ let binary_name = "Oci_Generic_Masters_Runner"
 module MasterCompileGitRepoArtefact =
   Oci_Master.Make
     (Oci_Generic_Masters_Api.CompileGitRepo.Query)
-    (Oci_Common.Artefact)
+    (Oci_Generic_Masters_Api.CompileGitRepo.Result)
 
 type repo = {
   name : string;
@@ -39,20 +39,25 @@ type repo = {
   cmds: Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd list;
 }
 
-let run cmd args : Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd = {
+let run ?(kind=`Required) ?(env=`Extend []) cmd args
+  : Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd = {
   cmd;
   args = List.map args ~f:(fun s -> `S s);
+  env;
   proc_requested = 1;
+  kind;
 }
 
-let make ?(j=1) ?(vars=[]) targets :
+let make ?(j=1) ?(vars=[]) ?(kind=`Required) ?(env=`Extend []) targets :
   Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd = {
   cmd = "make";
   args =
     `S "-j" :: `Proc ::
     List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
     List.map targets ~f:(fun s -> `S s);
+  env;
   proc_requested = j;
+  kind;
 }
 
 
@@ -97,7 +102,7 @@ let init_compile_git_repo () =
                rootfs=q.rootfs;
                commits=filter_deps_for q.commits repos
              })
-         >>= fun artefacts ->
+         >>= fun results ->
          Oci_Master.dispatch_runner_exn
            Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc conn
            {
@@ -105,7 +110,7 @@ let init_compile_git_repo () =
              commit = String.Map.find_exn q.commits repo.name;
              rootfs = q.rootfs;
              cmds=repo.cmds;
-             artefacts;
+             artefacts = List.map ~f:(fun r -> r.artefact) results;
            }
     );
   (** RemoteBranch *)

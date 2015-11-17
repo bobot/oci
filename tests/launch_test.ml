@@ -164,7 +164,7 @@ let test =
           name = Sys.argv.(4);
           commits}
         Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-        Oci_Common.Artefact.sexp_of_t conn
+        Oci_Generic_Masters_Api.CompileGitRepo.Result.sexp_of_t conn
 
   | _ -> failwith "succ or fibo"
 

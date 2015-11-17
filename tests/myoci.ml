@@ -108,27 +108,82 @@ let () =
       make ["install-findlib"];
     ]
   in
+  let zarith = mk_repo
+    ~name:"ZArith"
+    ~url:"git@git.frama-c.com:bobot/zarith.git"
+    ~deps:[ocaml;ocamlfind]
+    ~cmds:[
+      run "./configure" [];
+      make [];
+      make ~env:(`Extend ["OCAMLFIND_LDCONF","ignore"]) ["install"];
+    ]
+  in
   let framac = mk_repo
       ~name:"frama-c"
       ~url:"git@git.frama-c.com:frama-c/frama-c.git"
-      ~deps:[ocaml;ocamlfind;ocamlgraph]
+      ~deps:[ocaml;ocamlfind;ocamlgraph;zarith]
       ~cmds:[
         run "autoconf" [];
         run "./configure" [];
         make ~j:8 [];
         make ["install"];
+        make ~j:1 ~kind:`Test ~vars:["PTESTS_OPTS","-error-code -j 8"] ["tests"]
       ]
   in
-  let _genassigns = mk_repo
-      ~name:"genassigns"
+  let mk_framac_plugin_repo ~name ~url ~deps ~has_tests =
+    let compilation = [
+      run "autoconf" [];
+      run "./configure" [];
+      make [];
+      make ["install"];
+    ]
+    in
+    let tests =
+      if has_tests
+      then [make ~kind:`Test ~vars:["PTESTS_OPTS","-error-code -j 4"] ["tests"]]
+      else []
+    in
+    mk_repo
+      ~name
+      ~url
+      ~deps:(framac::deps)
+      ~cmds:(compilation@tests)
+  in
+  let _genassigns = mk_framac_plugin_repo
+      ~name:"Genassigns"
       ~url:"git@git.frama-c.com:frama-c/genassigns.git"
-      ~deps:[framac]
-      ~cmds:[
-        run "autoconf" [];
-        run "./configure" [];
-        make [];
-        make ["install"];
-      ]
+      ~deps:[]
+      ~has_tests:true
+  in
+  let eacsl = mk_framac_plugin_repo
+      ~name:"E-ACSL"
+      ~url:"git@git.frama-c.com:frama-c/e-acsl.git"
+      ~deps:[]
+      ~has_tests:true
+  in
+  let _context_from_precondition = mk_framac_plugin_repo
+      ~name:"context-from-precondition"
+      ~url:"git@git.frama-c.com:signoles/context-from-precondition.git"
+      ~deps:[eacsl]
+      ~has_tests:false
+  in
+  let _a3export = mk_framac_plugin_repo
+      ~name:"a3export"
+      ~url:"git@git.frama-c.com:frama-c/a3export.git"
+      ~deps:[]
+      ~has_tests:false
+  in
+  let _mthread = mk_framac_plugin_repo
+      ~name:"Mthread"
+      ~url:"git@git.frama-c.com:frama-c/mthread.git"
+      ~deps:[]
+      ~has_tests:true
+  in
+  let _pathcrawler = mk_framac_plugin_repo
+      ~name:"PathCrawler"
+      ~url:"git@git.frama-c.com:frama-c/mthread.git"
+      ~deps:[]
+      ~has_tests:true
   in
   ()
 

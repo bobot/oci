@@ -85,4 +85,10 @@ val process_create:
   t -> Process.t Or_error.t Deferred.t Process.with_create_args
 (** both Process.create and process_log *)
 
-val run: t -> unit Deferred.t Process.with_create_args
+val print_cmd: string -> string list -> string
+
+val run: t -> Core.Std.Unix.Exit_or_signal.t Deferred.t Process.with_create_args
+
+exception CommandFailed
+val run_exn: t -> unit Deferred.t Process.with_create_args
+(** Same as {!run} but raise CommandFailed in case of error *)

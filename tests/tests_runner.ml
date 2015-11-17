@@ -131,15 +131,15 @@ let test_ocaml t (q:Tests.Ocaml_Query.t) =
     ~dst:"/ocaml"
     ~commit:q.commit
   >>= fun () ->
-  Oci_Runner.run t ~working_dir:"/ocaml"
+  Oci_Runner.run_exn t ~working_dir:"/ocaml"
     ~prog:"git"
     ~args:["show";"--no-patch"] ()
   >>= fun () ->
-  Oci_Runner.run t ~working_dir:"/ocaml"
+  Oci_Runner.run_exn t ~working_dir:"/ocaml"
     ~prog:"./configure"
     ~args:[] ()
   >>= fun () ->
-  Oci_Runner.run t ~working_dir:"/ocaml"
+  Oci_Runner.run_exn t ~working_dir:"/ocaml"
     ~prog:"make"
     ~args:["world.opt"] ()
   >>= fun () ->
@@ -147,7 +147,7 @@ let test_ocaml t (q:Tests.Ocaml_Query.t) =
   (*   ~prog:"make test" *)
   (*   ~args:[] () *)
   (* >>= fun b -> *)
-  Oci_Runner.run t ~working_dir:"/ocaml"
+  Oci_Runner.run_exn t ~working_dir:"/ocaml"
     ~prog:"make"
     ~args:["install"] ()
   >>= fun () ->

@@ -28,25 +28,38 @@ module CompileGitRepoRunner = struct
     cmd: string;
     args: [ `S of string |
             `Proc] list;
+    env : [ `Replace of (string * string) list
+          | `Extend of (string * string) list];
     proc_requested : int;
+    kind: [`Required | `Test]
   } with sexp, bin_io, compare
+  (** `Proc replaced by number of processus *)
 
-  type query = {
-    rootfs: Oci_Rootfs_Api.Rootfs.t;
-    commit: Oci_Common.Commit.t;
-    cmds: cmd list;
-    url: string;
-    artefacts: Oci_Common.Artefact.t list;
-  } with sexp, bin_io, compare
+  module Query = struct
+    type t = {
+      rootfs: Oci_Rootfs_Api.Rootfs.t;
+      commit: Oci_Common.Commit.t;
+      cmds: cmd list;
+      url: string;
+      artefacts: Oci_Common.Artefact.t list;
+    } with sexp, bin_io, compare
 
-  let hash = Hashtbl.hash
+    let hash = Hashtbl.hash
+  end
+
+  module Result = struct
+    type t = {
+      artefact: Oci_Common.Artefact.t;
+      failures: string list;
+    } with sexp, bin_io, compare
+  end
 
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo_runner"
       ~version:1
-      ~bin_query
-      ~bin_result:Oci_Common.Artefact.bin_t
+      ~bin_query:Query.bin_t
+      ~bin_result:Result.bin_t
 end
 
 module CompileGitRepo = struct
@@ -60,12 +73,14 @@ module CompileGitRepo = struct
     let hash = Hashtbl.hash
   end
 
+  module Result = CompileGitRepoRunner.Result
+
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo"
       ~version:1
       ~bin_query:Query.bin_t
-      ~bin_result:Oci_Common.Artefact.bin_t
+      ~bin_result:Result.bin_t
 end
 
 module GitRemoteBranch = struct
