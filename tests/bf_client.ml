@@ -23,6 +23,8 @@
 open Core.Std
 open Async.Std
 
+open Log.Global
+
 let absolutize = Oci_Filename.make_absolute (Caml.Sys.getcwd ())
 
 let pp_kind fmt = function
@@ -32,7 +34,7 @@ let pp_kind fmt = function
   | Oci_Log.Command -> Format.fprintf fmt "C"
 
 let exec_one test input sexp_input sexp_output conn =
-  printf "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
+  debug "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both test) conn input
   >>= fun (p,_) ->
   let open Textutils.Std in
@@ -53,9 +55,9 @@ let exec_one test input sexp_input sexp_output conn =
           line.Oci_Log.line;
         Deferred.unit
       | Oci_Data.Result r ->
-        Format.printf
-          "[Result] For %s: result %s@."
-          (Sexp.to_string_hum (sexp_input input))
+        debug "[Result] For %s@."
+          (Sexp.to_string_hum (sexp_input input));
+        info "result %s"
           (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
         Deferred.unit
     )
@@ -63,10 +65,10 @@ let exec_one test input sexp_input sexp_output conn =
   Writer.flushed (Lazy.force Writer.stdout)
 
 let forget test input sexp_input _sexp_output conn =
-  printf "Forget %s\n%!" (Sexp.to_string_hum (sexp_input input));
+  debug "Forget %s\n%!" (Sexp.to_string_hum (sexp_input input));
   Rpc.Rpc.dispatch_exn (Oci_Data.forget test) conn input
   >>= fun r ->
-  Format.printf "%s@."
+  info "%s@."
     (Sexp.to_string_hum ((Or_error.sexp_of_t Unit.sexp_of_t) r));
   Deferred.unit
 
@@ -238,14 +240,14 @@ let () =
 
 
 (* Options common to all commands *)
-type verb = [`Normal | `Quiet | `Verbose]
-type copts = { debug : bool; verb : verb;  socket: string}
+type copts = { verb : Log.Level.t;  socket: string}
 
 let run _ccopt rootfs refspecs repo socket =
   let open Oci_Generic_Masters_Api.CompileGitRepo in
   Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket
     (Oci_Rootfs_Api.Rootfs_Id.of_int_exn rootfs)
   >>= fun rootfs ->
+  info "Check the refspecs:";
   let query : Query.t = {
     name = repo;
     rootfs = Or_error.ok_exn rootfs;
@@ -265,8 +267,10 @@ let run _ccopt rootfs refspecs repo socket =
           >>= fun r ->
           match Or_error.ok_exn r with
           | None ->
-            invalid_argf "%s correspond to no known ref" name ()
-          | Some commit -> return (Some {repo with commit = commit})
+            error "%s correspond to no known ref" name; exit 1
+          | Some commit ->
+            info "--%s %s" name (Oci_Common.Commit.to_string commit);
+            return (Some {repo with commit = commit})
       )
   >>= fun repos ->
   exec Oci_Generic_Masters_Api.CompileGitRepo.rpc { query with repos}
@@ -308,19 +312,17 @@ let help_secs = [
  `S "BUGS"; `P "Check bug reports at the oci repository.";]
 
 
-let copts debug verb socket = { debug; verb; socket}
+let copts verb socket =
+  set_level verb;
+  { verb; socket}
 let copts_t =
   let docs = copts_sect in
-  let debug =
-    let doc = "Give only debug output." in
-    Arg.(value & flag & info ["debug"] ~docs ~doc)
-  in
   let verb =
     let doc = "Suppress informational output." in
-    let quiet = `Quiet, Arg.info ["q"; "quiet"] ~docs ~doc in
+    let quiet = `Error, Arg.info ["q"; "quiet"] ~docs ~doc in
     let doc = "Give verbose output." in
-    let verbose = `Verbose, Arg.info ["v"; "verbose"] ~docs ~doc in
-    Arg.(last & vflag_all [`Normal] [quiet; verbose])
+    let verbose = `Debug, Arg.info ["v"; "verbose"] ~docs ~doc in
+    Arg.(last & vflag_all [`Info] [quiet; verbose])
   in
   let socket =
     Arg.(required & opt (some file) None & info ["socket"]
@@ -328,7 +330,7 @@ let copts_t =
            ~doc:"specify the pathname of the unix socket of the server"
         )
   in
-  Term.(const copts $ debug $ verb $ socket)
+  Term.(const copts $ verb $ socket)
 
 (* Commands *)
 
