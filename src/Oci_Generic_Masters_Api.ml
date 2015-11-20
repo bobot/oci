@@ -64,11 +64,41 @@ end
 
 module CompileGitRepo = struct
   module Query = struct
+    type repo = {
+      url : string;
+      commit : Oci_Common.Commit.t;
+      deps: String.t list;
+      cmds: CompileGitRepoRunner.cmd list;
+    } with sexp, bin_io, compare
+
     type t = {
       name: string;
       rootfs: Oci_Rootfs_Api.Rootfs.t;
-      commits: Oci_Common.Commit.t String.Map.t;
+      repos: repo String.Map.t;
     } with sexp, bin_io, compare
+
+    exception MissingRepo of string
+    let used_repos t =
+      let rec aux s name =
+        match String.Map.find t.repos name with
+        | None -> raise (MissingRepo name)
+        | Some repo ->
+          List.fold repo.deps
+            ~init:(String.Map.add s ~key:name ~data:repo)
+            ~f:aux
+      in
+      aux String.Map.empty t.name
+
+    (** Keep only the needed functions, raise MissingRepo if needed *)
+    let filter_deps_for t =
+      let used_repos = used_repos t in
+      {t with repos =
+                String.Map.filter t.repos
+                  ~f:(fun ~key ~data:_ -> String.Map.mem used_repos key)}
+
+    let invariant t =
+      try ignore (used_repos t); true
+      with MissingRepo _ -> false
 
     let hash = Hashtbl.hash
   end
@@ -78,7 +108,7 @@ module CompileGitRepo = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo"
-      ~version:1
+      ~version:2
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -86,7 +116,7 @@ end
 module GitRemoteBranch = struct
   module Query = struct
     type t = {
-      name: string;
+      url : string;
       refspec: String.t;
     } with sexp, bin_io, compare
   end
@@ -94,7 +124,7 @@ module GitRemoteBranch = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.git_remote_branch"
-      ~version:1
+      ~version:2
       ~bin_query:Query.bin_t
       ~bin_result:(Option.bin_t Oci_Common.Commit.bin_t)
 end

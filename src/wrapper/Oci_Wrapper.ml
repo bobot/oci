@@ -27,10 +27,11 @@
 open Core.Std
 open ExtUnix.Specific
 
-(** remove the process from the group of the process monitor
-    It allows to manage the shutdown nicely
- *)
-let () = setpgid 0 0
+(** remove the process from the group of the process monitor, and
+    detach it from the controlling terminal. It allows to manage the
+    shutdown nicely *)
+let _sessionid = Core.Std.Caml.Unix.setsid ()
+(* let () = setpgid 0 0 *)
 
 let mkdir ?(perm=0o750) dir =
   if not (Sys.file_exists_exn dir) then Unix.mkdir dir ~perm

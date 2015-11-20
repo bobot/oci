@@ -1,10 +1,10 @@
 
 
-PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax async_shell extunix core core_extended textutils
+PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax async_shell extunix core core_extended textutils cmdliner
 # I don't understand warning 18
 OCAML_WARNING=+a-4-9-18-41-30-42-44-40
 OCAML_WARN_ERROR=+5+10+8+12+20+11
-OPTIONS=-tag annot -no-sanitize -no-links -tag debug -use-ocamlfind	\
+OPTIONS=-no-sanitize -no-links -tag debug -use-ocamlfind	\
 -cflags -w,$(OCAML_WARNING) -cflags				\
 -warn-error,$(OCAML_WARN_ERROR) -cflag -bin-annot -j 8 -tag thread		\
 -syntax camlp4o
@@ -19,8 +19,9 @@ OCAMLBUILD=ocamlbuild \
 
 BINARY= src/wrapper/Oci_Wrapper.native				\
 	src/monitor/Oci_Simple_Exec.native tests/myoci.native	\
-	tests/tests_runner.native tests/launch_test.native  \
-	src/monitor/Oci_Monitor.native src/Oci_Cmd_Runner.native \
+	tests/tests_runner.native tests/launch_test.native	\
+	tests/bf_client.native src/monitor/Oci_Monitor.native	\
+	src/Oci_Cmd_Runner.native				\
 	src/Oci_Generic_Masters_Runner.native
 
 all: .merlin

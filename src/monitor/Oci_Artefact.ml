@@ -310,7 +310,11 @@ let register_master
 
 let savers = Stack.create ()
 
-let register_saver ~loader ~saver =
+let register_saver ~name ~loader ~saver =
+  let loader () =
+    Monitor.protect ~name:("Loader:"^name) loader ~finally:return in
+  let saver  () =
+    Monitor.protect ~name:("Saver:" ^name) saver ~finally:return in
   Stack.push savers (loader,saver)
 
 let save =
@@ -555,9 +559,11 @@ let run () =
                 (Oci_Filename.concat conf.binaries x))
          files)
     >>> fun () ->
-    register_saver ~loader:loader_artifact_data ~saver:saver_artifact_data;
-    Oci_Log.init ~dir:conf.log ~register_saver;
-    Oci_Git.init ~dir:conf.git ~register_saver ~identity_file;
+    register_saver ~name:"artifact"
+      ~loader:loader_artifact_data ~saver:saver_artifact_data;
+    Oci_Log.init ~dir:conf.log ~register_saver:(register_saver ~name:"Log");
+    Oci_Git.init ~dir:conf.git ~register_saver:(register_saver ~name:"Git")
+      ~identity_file;
     load ()
     >>> fun () ->
     let save_at = Time.Span.create ~min:10 () in

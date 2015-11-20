@@ -52,6 +52,7 @@ val register_master:
   unit
 
 val register_saver:
+  name:string ->
   loader:(unit -> unit Deferred.t) ->
   saver:(unit -> unit Deferred.t) ->
   unit

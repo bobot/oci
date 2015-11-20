@@ -48,6 +48,7 @@ let attach_log l f =
 let simple_register_saver ?(init=(fun () -> return ())) ~basename
     ~loader ~saver data bin_t =
   Oci_Artefact.register_saver
+    ~name:(Oci_Data.name data)
     ~loader:(fun () ->
       permanent_directory data
       >>= fun dir ->
@@ -101,6 +102,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
       Deferred.Or_error.return ()
     in
     register_saver
+      ~name:(Oci_Data.name data)
       ~loader:(fun () ->
           permanent_directory data
           >>= fun dir ->
