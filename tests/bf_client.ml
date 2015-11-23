@@ -134,6 +134,10 @@ let () =
       run "./configure" [];
       make ["world.opt"];
       make ["install"];
+      run "mkdir" ["-p";"/usr/local/lib/ocaml/site-lib/stublibs/"];
+      run "touch" ["/usr/local/lib/ocaml/site-lib/stublibs/.placeholder"];
+      run "sh" ["-c";"echo /usr/local/lib/ocaml/site-lib/stublibs/ >> \
+                      /usr/local/lib/ocaml/ld.conf"]
     ]
   in
   let ocamlfind = mk_repo
@@ -147,17 +151,6 @@ let () =
       make ["install"];
     ]
   in
-  let ocamlgraph = mk_repo
-    "ocamlgraph"
-    ~url:"https://github.com/backtracking/ocamlgraph.git"
-    ~deps:[ocaml;ocamlfind]
-    ~cmds:[
-      run "autoconf" [];
-      run "./configure" [];
-      make [];
-      make ["install-findlib"];
-    ]
-  in
   let zarith = mk_repo
     "ZArith"
     ~url:"git@git.frama-c.com:bobot/zarith.git"
@@ -165,13 +158,45 @@ let () =
     ~cmds:[
       run "./configure" [];
       make [];
-      make ~env:(`Extend ["OCAMLFIND_LDCONF","ignore"]) ["install"];
+      make ["install"];
+    ]
+  in
+  let camlp4 = mk_repo
+      "camlp4"
+      ~url:"https://github.com/ocaml/camlp4.git"
+      ~commit:"4.02+6"
+      ~deps:[ocaml;ocamlfind]
+      ~cmds:[
+        run "./configure" [];
+        make ["all"];
+        make ["install";"install-META"]
+      ]
+  in
+  let lablgtk = mk_repo
+      "lablgtk"
+      ~url:"https://forge.ocamlcore.org/anonscm/git/lablgtk/lablgtk.git"
+      ~commit:"28290b0ee79817510bbc908bc733e80258aea7c1"
+      ~deps:[ocaml;ocamlfind;camlp4]
+      ~cmds:[
+        run "./configure" [];
+        make ["world"];
+        make ~env:(`Extend ["OCAMLFIND_LDCONF","ignore"]) ["install"];
+      ] in
+  let ocamlgraph = mk_repo
+    "ocamlgraph"
+    ~url:"https://github.com/backtracking/ocamlgraph.git"
+    ~deps:[ocaml;ocamlfind;lablgtk]
+    ~cmds:[
+      run "autoconf" [];
+      run "./configure" [];
+      make [];
+      make ["install-findlib"];
     ]
   in
   let framac = mk_repo
       "frama-c"
       ~url:"git@git.frama-c.com:frama-c/frama-c.git"
-      ~deps:[ocaml;ocamlfind;ocamlgraph;zarith]
+      ~deps:[ocaml;ocamlfind;ocamlgraph;zarith;lablgtk]
       ~cmds:[
         run "autoconf" [];
         run "./configure" [];

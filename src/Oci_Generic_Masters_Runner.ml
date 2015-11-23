@@ -121,6 +121,9 @@ let xpra_runner t q =
   let xpra_dir = Oci_Filename.make_absolute working_dir "xpra_socket" in
   Unix.mkdir ~p:() ~perm:0o777 xpra_dir
   >>= fun () ->
+  Unix.mkdir ~p:() ~perm:0o777
+    (Oci_Filename.make_absolute working_dir ".xpra")
+  >>= fun () ->
   let xpra =
     Oci_Runner.run_exn t
       ~working_dir
