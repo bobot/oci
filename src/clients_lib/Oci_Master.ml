@@ -67,7 +67,33 @@ let simple_register_saver ?(init=(fun () -> return ())) ~basename
       >>= fun writer ->
       Writer.write_bin_prot writer bin_t.Bin_prot.Type_class.writer r;
       Writer.close writer
-    )
+      )
+
+let simple_runner ~binary_name ~error f =
+  start_runner ~binary_name
+  >>= fun (err,conn) ->
+  choose [
+    choice (err >>= function
+      | Exec_Ok -> never ()
+      | Exec_Error s -> return s) error;
+    choice begin
+      conn >>= fun conn ->
+      Monitor.protect
+        ~finally:(fun () -> stop_runner conn)
+        ~name:"create_master_and_runner"
+        (fun () -> f conn)
+    end (fun x -> x);
+  ]
+
+let simple_master f q =
+  let log = Oci_Log.create () in
+  (Monitor.try_with_or_error
+     ~name:"create_master"
+     (fun () -> attach_log log (fun () -> f q))
+   >>= fun r ->
+   Oci_Log.close log
+   >>= fun () ->
+   return r),log
 
 
 module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
@@ -131,24 +157,8 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
     register ~forget data f
 
   let create_master_and_runner data ?(binary_name=Oci_Data.name data) ~error f =
-    create_master data
-      begin fun q ->
-        start_runner ~binary_name
-        >>= fun (err,conn) ->
-        choose [
-          choice (err >>= function
-            | Exec_Ok -> never ()
-            | Exec_Error s -> return s) error;
-          choice begin
-            conn >>= fun conn ->
-            Monitor.protect
-              ~finally:(fun () -> stop_runner conn)
-              ~name:"create_master_and_runner"
-              (fun () -> f conn q)
-          end (fun x -> x);
-        ]
-      end
-
+    create_master data (fun q -> simple_runner ~binary_name ~error
+                           (fun conn -> f conn q))
 
 end
 

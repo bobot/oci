@@ -62,6 +62,17 @@ module CompileGitRepoRunner = struct
       ~bin_result:Result.bin_t
 end
 
+
+module XpraRunner = struct
+
+  let rpc =
+    Oci_Data.register
+      ~name:"Oci_Generic_Masters.xpra_runner"
+      ~version:1
+      ~bin_query:CompileGitRepoRunner.Query.bin_t
+      ~bin_result:Oci_Filename.bin_t
+end
+
 module CompileGitRepo = struct
   module Query = struct
     type repo = {
@@ -79,13 +90,15 @@ module CompileGitRepo = struct
 
     exception MissingRepo of string
     let used_repos t =
-      let rec aux s name =
-        match String.Map.find t.repos name with
-        | None -> raise (MissingRepo name)
-        | Some repo ->
-          List.fold repo.deps
-            ~init:(String.Map.add s ~key:name ~data:repo)
-            ~f:aux
+      let rec aux m name =
+        if String.Map.mem m name then m
+        else
+          match String.Map.find t.repos name with
+          | None -> raise (MissingRepo name)
+          | Some repo ->
+            List.fold repo.deps
+              ~init:(String.Map.add m ~key:name ~data:repo)
+              ~f:aux
       in
       aux String.Map.empty t.name
 
@@ -111,6 +124,17 @@ module CompileGitRepo = struct
       ~version:2
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
+end
+
+module XpraGitRepo = struct
+
+  let rpc =
+    Oci_Data.register
+      ~name:"XpraGitRepo.compile_git_repo"
+      ~version:1
+      ~bin_query:CompileGitRepo.Query.bin_t
+      ~bin_result:Oci_Filename.bin_t
+
 end
 
 module GitRemoteBranch = struct

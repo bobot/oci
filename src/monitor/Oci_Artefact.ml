@@ -33,8 +33,8 @@ type runners_data = {
 }
 
 type conf = {
-  mutable next_artefact_id: Int.t;
-  mutable next_runner_id: Int.t;
+  mutable last_artefact_id: Int.t;
+  mutable last_runner_id: Int.t;
   conn_monitor : Rpc.Connection.t;
   binaries: Oci_Filename.t;
   storage: Oci_Filename.t;
@@ -42,6 +42,8 @@ type conf = {
   permanent: Oci_Filename.t;
   log: Oci_Filename.t;
   git: Oci_Filename.t;
+  external_access: Oci_Filename.t;
+  mutable last_external_access_id: Int.t;
   (** permanent storage for masters *)
   conf_monitor: Oci_Artefact_Api.artefact_api;
   api_for_runner: runners_data Rpc.Implementations.t;
@@ -65,7 +67,7 @@ let dir_of_artefact id =
   Oci_Filename.make_absolute (get_conf ()).storage dir
 
 let rec copydir
-    ~hardlink ~prune_dir ~prune_user
+    ~hardlink ~prune_file ~prune_user
     ~chown:({User.uid;gid} as chown) src dst =
   (** This function run as superroot (like all masters),
       so it is root in its usernamespace *)
@@ -84,7 +86,7 @@ let rec copydir
   Deferred.List.iter files ~f:(fun file ->
       let src' = Oci_Filename.make_absolute src file in
       let dst' = Oci_Filename.make_absolute dst file in
-      if List.mem ~equal:Oci_Filename.equal prune_dir src'
+      if List.mem ~equal:Oci_Filename.equal prune_file src'
       then return ()
       else begin
         Unix.lstat src'
@@ -92,7 +94,7 @@ let rec copydir
         | { uid = 65534 } (* nobody *) | { gid = 65534 } (* nogroup *) ->
           return ()
         | {kind = `Directory} ->
-          copydir ~hardlink ~prune_dir ~prune_user ~chown src' dst'
+          copydir ~hardlink ~prune_file ~prune_user ~chown src' dst'
         | {kind = (`File | `Link); uid; gid}
           when List.mem ~equal:User.equal prune_user {uid;gid}
           -> return ()
@@ -132,8 +134,8 @@ let rec copydir
 let create ~prune ~rooted_at ~only_new ~src =
   assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:src);
   let conf = get_conf () in
-  conf.next_artefact_id <- conf.next_artefact_id + 1;
-  let id = Artefact.of_int conf.next_artefact_id in
+  conf.last_artefact_id <- conf.last_artefact_id + 1;
+  let id = Artefact.of_int conf.last_artefact_id in
   let dst = dir_of_artefact id in
   Sys.file_exists_exn (Oci_Filename.get dst)
   >>= fun b ->
@@ -141,7 +143,7 @@ let create ~prune ~rooted_at ~only_new ~src =
   let dst = Oci_Filename.reparent ~oldd:rooted_at ~newd:dst src in
   copydir
     ~hardlink:false
-    ~prune_dir:prune
+    ~prune_file:prune
     ~prune_user:(if only_new then [master_user Superroot] else [])
     ~chown:(master_user Superroot)
     src dst
@@ -149,7 +151,7 @@ let create ~prune ~rooted_at ~only_new ~src =
 
 let link_copy_to ~hardlink chown id dst =
   let src = dir_of_artefact id in
-  copydir ~hardlink ~prune_dir:[] ~prune_user:[] ~chown src dst
+  copydir ~hardlink ~prune_file:[] ~prune_user:[] ~chown src dst
 
 let link_to_gen = link_copy_to ~hardlink:true
 let copy_to_gen = link_copy_to ~hardlink:false
@@ -185,7 +187,7 @@ let loader_artifact_data () =
   artifact_data_permanent_file conf
   >>= fun file ->
   Oci_Std.read_if_exists file Int.bin_reader_t
-    (fun r -> conf.next_artefact_id <- r; return ())
+    (fun r -> conf.last_artefact_id <- r; return ())
 
 let saver_artifact_data () =
   let conf = get_conf () in
@@ -193,7 +195,7 @@ let saver_artifact_data () =
   >>= fun file ->
   Oci_Std.backup_and_open_file file
   >>= fun writer ->
-  Writer.write_bin_prot writer Int.bin_writer_t conf.next_artefact_id;
+  Writer.write_bin_prot writer Int.bin_writer_t conf.last_artefact_id;
   Writer.close writer
 
 
@@ -353,6 +355,7 @@ let add_artefact_api init =
              Oci_Filename.make_absolute rootfs "proc"::
              Oci_Filename.make_absolute rootfs "sys"::
              Oci_Filename.make_absolute rootfs "run"::
+             Oci_Filename.make_absolute rootfs "/etc/resolv.conf"::
              (List.map ~f:reparent prune))
            ~rooted_at:(reparent rooted_at)
            ~src:(reparent src)
@@ -393,6 +396,24 @@ let add_artefact_api init =
         let dst = Oci_Filename.make_absolute rootfs dst in
         Oci_Git.clone ~user ~url ~dst ~commit
       );
+    (** give_external_access *)
+    Rpc.Rpc.implement
+      Oci_Artefact_Api.rpc_give_external_access
+      (fun {rootfs} src ->
+        let src = Oci_Filename.make_relative "/" src in
+        let src = Oci_Filename.make_absolute rootfs src in
+        let conf = get_conf () in
+        conf.last_external_access_id <- conf.last_external_access_id + 1;
+        let id = conf.last_external_access_id in
+        let dir = Oci_Filename.make_absolute conf.external_access
+            (Int.to_string id) in
+        let dst = Oci_Filename.make_absolute dir (Oci_Filename.basename src) in
+        Unix.mkdir ~p:() ?perm:None dir
+        >>= fun () ->
+        Unix.symlink ~src ~dst
+        >>= fun () ->
+        return dst
+      );
     (** get_or_release *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_get_or_release_proc
@@ -414,8 +435,8 @@ let add_artefact_api init =
 
 let start_runner ~binary_name =
   let conf = get_conf () in
-  conf.next_runner_id <- conf.next_runner_id + 1;
-  let runner_id = conf.next_runner_id in
+  conf.last_runner_id <- conf.last_runner_id + 1;
+  let runner_id = conf.last_runner_id in
   get_proc 1
   >>= fun proc_got ->
   let rootfs = Oci_Filename.concat (get_conf ()).runners
@@ -501,8 +522,8 @@ let run () =
     Rpc.Rpc.dispatch_exn Oci_Artefact_Api.get_configuration conn_monitor ()
     >>> fun conf_monitor ->
     let conf = {
-      next_artefact_id = -1;
-      next_runner_id = -1;
+      last_artefact_id = -1;
+      last_runner_id = -1;
       conn_monitor;
       runners = Oci_Filename.concat conf_monitor.oci_data "runners";
       binaries = Oci_Filename.concat conf_monitor.oci_data "binaries";
@@ -510,18 +531,22 @@ let run () =
       permanent = Oci_Filename.concat conf_monitor.oci_data "permanent";
       log = Oci_Filename.concat conf_monitor.oci_data "log";
       git = Oci_Filename.concat conf_monitor.oci_data "git";
+      external_access =
+        Oci_Filename.concat conf_monitor.oci_data "external_access";
+      last_external_access_id = -1;
       conf_monitor;
       api_for_runner = add_artefact_api !masters;
       proc = create_proc conf_monitor.proc;
     } in
     gconf := Some conf;
     if conf_monitor.debug_level then Log.Global.set_level `Debug;
-    Async_shell.run "rm" ["-rf";"--";conf.runners;conf.binaries]
+    Async_shell.run "rm" ["-rf";"--";
+                          conf.runners;conf.binaries;conf.external_access;]
     >>> fun () ->
-    Deferred.all_unit (List.map ~f:(Unix.mkdir ~p:() ?perm:None)
-                         [conf.runners; conf.binaries;
-                          conf.storage; conf.permanent;
-                          conf.log; conf.git])
+    Deferred.List.iter ~f:(Unix.mkdir ~p:() ?perm:None)
+      [conf.runners; conf.binaries; conf.external_access;
+       conf.storage; conf.permanent;
+       conf.log; conf.git]
     >>> fun () ->
     (** Copy binaries *)
     Sys.ls_dir conf_monitor.binaries

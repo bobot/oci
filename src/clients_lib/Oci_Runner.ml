@@ -126,15 +126,10 @@ let get_internet t =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_get_internet
     t.connection ()
 
-let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
-  cmd_log t "Git clone %s in %s" url dst;
-  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_git_clone
-    t.connection {url;dst;user;commit}
-  >>= fun () ->
-  Async_shell.run
-    ~setuid:(Oci_Common.runner_user user).uid
-    "git" ["-C";dst;"checkout";"--detach";
-           Oci_Common.Commit.to_string commit]
+let give_external_access t src =
+  cmd_log t "Give access to %s" src;
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_give_external_access
+    t.connection src
 
 let get_proc t requested =
   if not (0 < requested) then
@@ -219,3 +214,15 @@ let run_exn t ?working_dir ?env ~prog ~args () =
   | Core_kernel.Std.Result.Ok () -> return ()
   | Core_kernel.Std.Result.Error _ ->
     raise CommandFailed
+
+
+let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
+  cmd_log t "Git clone %s in %s" url dst;
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_git_clone
+    t.connection {url;dst;user;commit}
+  >>= fun () ->
+  run_exn t
+    (* ~setuid:(Oci_Common.runner_user user).uid *)
+    ~prog:"git"
+    ~args:["-C";dst;"checkout";"--detach";
+           Oci_Common.Commit.to_string commit] ()

@@ -238,14 +238,30 @@ let () =
   in
   ()
 
+(**
+Actuelle:
+ - Tester l'interne et la doc compile
+ - Tester la doc en externe
+ - Tester les entêtes pour frama-c
+ - Faire la distrib OPEN-SOURCE + CLOSE-SOURCE et la compiler,
+   la tester + make doc tous faire avec lui
+ - example du manuel du developper.
+ - example du manuel d'acsl fonctionne et ceux qui ne fonctionne pas
+
+En plus:
+ - etude de cas
+ - apron
+ - qualif
+ - bisecter pour trouver la cause.
+*)
+
 
 (* Options common to all commands *)
 type copts = { verb : Log.Level.t;  socket: string}
 
-let run _ccopt rootfs refspecs repo socket =
+let create_query _ccopt rootfs refspecs repo socket =
   let open Oci_Generic_Masters_Api.CompileGitRepo in
-  Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket
-    (Oci_Rootfs_Api.Rootfs_Id.of_int_exn rootfs)
+  Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket rootfs
   >>= fun rootfs ->
   info "Check the refspecs:";
   let query : Query.t = {
@@ -273,11 +289,39 @@ let run _ccopt rootfs refspecs repo socket =
             return (Some {repo with commit = commit})
       )
   >>= fun repos ->
-  exec Oci_Generic_Masters_Api.CompileGitRepo.rpc { query with repos}
+  return { query with repos}
+
+let run ccopt rootfs refspecs repo socket =
+  create_query ccopt rootfs refspecs repo socket
+  >>= fun query ->
+  exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
     Oci_Generic_Masters_Api.CompileGitRepo.Result.sexp_of_t socket
 
-let list_rootfs _copts _rootfs  = assert false (** TODO *)
+let xpra ccopt rootfs refspecs repo socket =
+  create_query ccopt rootfs refspecs repo socket
+  >>= fun query ->
+  exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
+    Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
+    Oci_Filename.sexp_of_t socket
+
+let list_rootfs _copts rootfs socket =
+  let open Oci_Rootfs_Api in
+  Deferred.List.iter rootfs
+    ~f:(fun rootfs ->
+         exec find_rootfs rootfs
+           Rootfs_Id.sexp_of_t
+           Rootfs.sexp_of_t socket
+      )
+
+let add_packages rootfs packages =
+  let open Oci_Rootfs_Api in
+  exec add_packages
+    { id = rootfs;
+      packages = packages;
+    }
+    sexp_of_add_packages_query
+    Rootfs.sexp_of_t
 
 let connect ccopt cmd =
   Tcp.connect (Tcp.to_file ccopt.socket)
@@ -296,8 +340,14 @@ let connect ccopt cmd =
 let run ccopt rootfs refspecs repo =
   connect ccopt (run ccopt rootfs refspecs repo)
 
+let xpra ccopt rootfs refspecs repo =
+  connect ccopt (xpra ccopt rootfs refspecs repo)
+
 let list_rootfs ccopt rootfs =
   connect ccopt (list_rootfs ccopt rootfs)
+
+let add_packages ccopt rootfs packages =
+  connect ccopt (add_packages rootfs packages)
 
 open Cmdliner;;
 
@@ -334,9 +384,15 @@ let copts_t =
 
 (* Commands *)
 
+let rootfs_converter =
+  (fun s -> try `Ok (Oci_Rootfs_Api.Rootfs_Id.of_string s)
+    with _ -> `Error "Rootfs should be a positive number"),
+  (fun fmt s ->
+     Format.pp_print_string fmt (Oci_Rootfs_Api.Rootfs_Id.to_string s))
+
 let list_rootfs_cmd =
-  let repodir =
-    Arg.(value & pos_all string [] & info []
+  let rootfs =
+    Arg.(value & pos_all rootfs_converter [] & info []
            ~docv:"ID"
            ~doc:"rootfs to get information from.")
   in
@@ -346,12 +402,31 @@ let list_rootfs_cmd =
     `P "Return all informations about all the existing repositories or \
         the one optionally given as argument"] @ help_secs
   in
-  Term.(const list_rootfs $ copts_t $ repodir),
+  Term.(const list_rootfs $ copts_t $ rootfs),
   Term.info "list-rootfs" ~sdocs:copts_sect ~doc ~man
 
-let run_cmd =
+let add_package_cmd =
   let rootfs =
-    Arg.(required & opt (some int) None & info ["rootfs"]
+    Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
+           ~docv:"ID"
+           ~doc:"Specify on which rootfs to start")
+  in
+  let packages =
+    Arg.(non_empty & pos_all string [] & info []
+           ~docv:"PKG"
+           ~doc:"package to add")
+  in
+  let doc = "Create a new rootfs by adding packages in a rootfs" in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Add the specified packages in the given rootfs"] @ help_secs
+  in
+  Term.(const add_packages $ copts_t $ rootfs $ packages),
+  Term.info "add-package" ~sdocs:copts_sect ~doc ~man
+
+let run_cmd,xpra_cmd =
+  let rootfs =
+    Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
            ~docv:"ID"
            ~doc:"Specify on which rootfs to run")
   in
@@ -381,8 +456,10 @@ let run_cmd =
     `P "Run the integration of the given repository with the given rootfs
         using the specified commits."] @ help_secs
   in
-  Term.(const run $ copts_t $ rootfs $ refspecs $ repo),
-  Term.info "run" ~doc ~sdocs:copts_sect ~man
+  (Term.(const run $ copts_t $ rootfs $ refspecs $ repo),
+   Term.info "run" ~doc ~sdocs:copts_sect ~man),
+  (Term.(const xpra $ copts_t $ rootfs $ refspecs $ repo),
+   Term.info "xpra" ~doc ~sdocs:copts_sect ~man)
 
 let default_cmd =
   let doc = "OCI client for Frama-C and Frama-C plugins" in
@@ -390,7 +467,7 @@ let default_cmd =
   Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
   Term.info "bf_client" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
 
-let cmds = [list_rootfs_cmd; run_cmd]
+let cmds = [list_rootfs_cmd; add_package_cmd; run_cmd; xpra_cmd]
 
 let () =
   don't_wait_for begin

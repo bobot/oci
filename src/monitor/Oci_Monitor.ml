@@ -241,7 +241,7 @@ let start_master ~conf ~master ~oci_data ~binaries
     env = ["PATH","/usr/local/bin:/usr/bin:/bin"];
     runuid = 0;
     rungid = 0;
-    bind_system_mount = true;
+    bind_system_mount = false;
     prepare_network = false;
     workdir = None;
   } in

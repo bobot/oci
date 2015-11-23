@@ -162,6 +162,7 @@ let add_packages (d:add_packages_query) =
              Oci_Cmd_Runner_Api.run conn {
              prog = "apt-get";
              args = ["update"];
+             env = `Extend [];
              runas = Root;
            }
            >>= fun () ->
@@ -173,6 +174,7 @@ let add_packages (d:add_packages_query) =
                     "--yes"::
                     "--option"::"Apt::Install-Recommends=false"::
                     d.packages;
+             env = `Extend ["DEBIAN_FRONTEND","noninteractive"];
              runas = Root;
            }
            >>= fun () ->

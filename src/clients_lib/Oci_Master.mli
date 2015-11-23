@@ -92,6 +92,16 @@ val simple_register_saver:
   'data_to_save Bin_prot.Type_class.t ->
    unit
 
+val simple_runner:
+  binary_name:string ->
+  error:(string -> 'a) ->
+  (Rpc.Connection.t -> 'a Deferred.t) ->
+  'a Deferred.t
+
+val simple_master:
+  ('a -> 'b Deferred.t) ->
+  'a -> ('b Core_kernel.Std.Or_error.t Deferred.t * Oci_Log.t)
+
 val register_saver:
   name:string ->
   loader:(unit -> unit Deferred.t) ->

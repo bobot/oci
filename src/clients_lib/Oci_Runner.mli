@@ -62,6 +62,7 @@ val git_clone: t ->
   dst:Oci_Filename.t ->
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
+val give_external_access: t -> Oci_Filename.t -> Oci_Filename.t Deferred.t
 
 val get_proc: t -> int -> int Deferred.t
 val release_proc: t -> int -> unit Deferred.t

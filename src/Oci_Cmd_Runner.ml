@@ -28,7 +28,8 @@ let () =
     Oci_Runner.start
       ~implementations:[
         Oci_Runner.implement run
-          (fun t d -> Oci_Runner.run_exn t ~prog:d.prog ~args:d.args ());
+          (fun t d -> Oci_Runner.run_exn t ~prog:d.prog ~args:d.args
+              ~env:(d.env :> Async.Std.Process.env) ());
         Oci_Runner.implement create_artefact
           (fun t dir -> Oci_Runner.create_artefact t ~dir);
         Oci_Runner.implement link_to

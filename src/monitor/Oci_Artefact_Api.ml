@@ -158,6 +158,14 @@ let rpc_get_or_release_proc =
     ~bin_query:Int.bin_t
     ~bin_response:Int.bin_t
 
+let rpc_give_external_access =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.give_external_access"
+    ~version:1
+    ~bin_query:Oci_Filename.bin_t
+    ~bin_response:Oci_Filename.bin_t
+
+
 let oci_at_shutdown,oci_shutdown,oci_shutting_down =
   let s = Stack.create () in
   let r = ref false in

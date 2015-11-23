@@ -25,6 +25,7 @@ open Core.Std
 type run_query = {
   prog: string;
   args: string list;
+  env: [`Extend of (string * string) list | `Replace of (string * string) list];
   runas: Oci_Common.user_kind;
 } with sexp, bin_io
 

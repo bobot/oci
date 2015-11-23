@@ -48,15 +48,50 @@ let mount_base dir =
   mount_inside ~dir ~src:"proc" ~tgt:"proc" ~fstype:"proc"
     ~flags:[MS_NOSUID; MS_NOEXEC; MS_NODEV] ();
   mount_inside ~dir ~src:"/sys" ~tgt:"sys" ~flags:[MS_BIND; MS_REC] ();
-  mount_inside ~dir ~src:"/dev" ~tgt:"dev" ~flags:[MS_BIND; MS_REC] ();
+
+  mount_inside ~dir ~src:"tmpfs" ~tgt:"dev" ~fstype:"tmpfs"
+    ~flags:[MS_NOSUID; MS_STRICTATIME]
+    ~option:"mode=755,uid=0,gid=0" ();
+
+  mount_inside ~dir ~src:"devpts" ~tgt:"dev/pts" ~fstype:"devpts"
+    ~flags:[MS_NOSUID;MS_NOEXEC]
+    ~option:"newinstance,ptmxmode=0666,mode=0620,gid=5" ();
 
   mount_inside ~dir ~src:"tmpfs" ~tgt:"dev/shm" ~fstype:"tmpfs"
     ~flags:[MS_NOSUID; MS_STRICTATIME; MS_NODEV]
-    ~option:"mode=1777" ();
+    ~option:"mode=1777,uid=0,gid=0" ();
+
+  List.iter ~f:(fun (src,dst) ->
+      Unix.symlink ~src ~dst:(Filename.concat dir dst))
+  [ "/proc/kcore", "/dev/core";
+    "/proc/self/fd", "/dev/fd";
+    "/proc/self/fd/0", "/dev/stdin";
+    "/proc/self/fd/1", "/dev/stdout";
+    "/proc/self/fd/2", "/dev/stderr";
+    "/dev/pts/ptmx", "/dev/ptmx";
+  ];
+
+  List.iter ~f:(fun src ->
+      let dst = Filename.concat dir src in
+      let fd =
+        Unix.openfile ~perm:0o644 ~mode:[O_WRONLY;O_CREAT;O_CLOEXEC]
+          dst
+      in
+      mount ~source:src ~target:dst ~fstype:"" ~data:"" [MS_BIND];
+      Unix.close fd;
+    )
+  [ "/dev/console";
+    "/dev/tty";
+    "/dev/full";
+    "/dev/null";
+    "/dev/zero";
+    "/dev/random";
+    "/dev/urandom";
+  ];
 
   mount_inside ~dir ~src:"tmpfs" ~tgt:"run" ~fstype:"tmpfs"
     ~flags:[MS_NOSUID; MS_STRICTATIME; MS_NODEV]
-    ~option:"mode=755" ();
+    ~option:"mode=755,uid=0,gid=0" ();
 
   (** for aptitude *)
   mkdir (Filename.concat dir "/run/lock")
@@ -260,6 +295,7 @@ let () =
       Printf.eprintf "Error: file %s doesn't exists" param.command;
       exit 1
     end;
+    let _sessionid = Core.Std.Caml.Unix.setsid () in
     never_returns
       (Unix.exec
          ~prog:param.command
