@@ -32,6 +32,8 @@ module MasterCompileGitRepoArtefact =
     (Oci_Generic_Masters_Api.CompileGitRepo.Query)
     (Oci_Generic_Masters_Api.CompileGitRepo.Result)
 
+exception Dependency_error
+
 let compile_deps =
   let open Oci_Generic_Masters_Api.CompileGitRepo in
   fun (q:Query.t) ->
@@ -40,7 +42,20 @@ let compile_deps =
       ~how:`Parallel
       ~f:(fun dep_name ->
           let dep = Query.filter_deps_for {q with name = dep_name} in
-          Oci_Master.dispatch_master_exn ~msg:dep_name rpc dep)
+          Oci_Master.dispatch_master ~msg:dep_name rpc dep
+          >>= function
+          | Core_kernel.Result.Ok r ->
+            Oci_Master.cha_log "Dependency %s done" dep_name;
+            return (Some r)
+          | Core_kernel.Result.Error err ->
+            Oci_Master.err_log
+              "Dependency %s failed (or one of its dependency)" dep_name;
+            return None
+        )
+    >>= fun artefacts ->
+    return (List.map artefacts ~f:(function
+        | None -> raise Dependency_error
+        | Some r -> r))
 
 let compile_git_repo q =
   compile_deps q
@@ -65,7 +80,7 @@ let xpra_git_repo q =
   choose [
     choice (err >>= function
       | Oci_Master.Exec_Ok -> never ()
-      | Exec_Error s -> return s) (fun _ -> raise Exit);
+      | Oci_Master.Exec_Error s -> return s) (fun _ -> raise Exit);
     choice begin
       conn >>= fun conn ->
       Oci_Master.dispatch_runner_exn

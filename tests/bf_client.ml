@@ -77,211 +77,15 @@ let exec test input sexp_input sexp_output conn =
   then exec_one test input sexp_input sexp_output conn
   else forget test input sexp_input sexp_output conn
 
-let run ?(kind=`Required) ?(env=`Extend []) cmd args =
-  Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
-    cmd;
-    args = List.map args ~f:(fun s -> `S s);
-    env;
-    proc_requested = 1;
-    kind;
-    working_dir = Oci_Filename.current_dir;
-  }
-
-let make ?(j=1) ?(vars=[]) ?(kind=`Required) ?(env=`Extend []) targets =
-  Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
-    cmd = "make";
-    args =
-      `S "-j" :: `Proc ::
-      List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
-      List.map targets ~f:(fun s -> `S s);
-    env;
-    proc_requested = j;
-    kind;
-    working_dir = Oci_Filename.current_dir;
-  }
-
-type repo = {
-  giturl: Oci_Generic_Masters_Api.GitRemoteBranch.Query.t option;
+type default_revspec = {
   name: string;
-  repo: Oci_Generic_Masters_Api.CompileGitRepo.Query.repo;
+  revspec: string;
 }
 
-let db_repos = ref String.Map.empty
-
-let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
-
-let mk_repo ?(revspec="master") ~url ~deps ~cmds name =
-  let data =
-    { giturl = Some {revspec;url};
-      name;
-      repo = {
-        deps = List.map ~f:(fun x -> x.name) deps;
-        cmds;
-      };
-    }
-  in
-  db_repos := String.Map.add !db_repos ~key:name ~data;
-  data
-
-let () =
-  let ocaml = mk_repo
-    "ocaml"
-    ~url:"git@git.frama-c.com:bobot/ocaml.git"
-    ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
-    ~deps:[]
-    ~cmds:[
-      run "./configure" [];
-      make ["world.opt"];
-      make ["install"];
-      run "mkdir" ["-p";"/usr/local/lib/ocaml/site-lib/stublibs/"];
-      run "touch" ["/usr/local/lib/ocaml/site-lib/stublibs/.placeholder"];
-      run "sh" ["-c";"echo /usr/local/lib/ocaml/site-lib/stublibs/ >> \
-                      /usr/local/lib/ocaml/ld.conf"]
-    ]
-  in
-  let ocamlfind = mk_repo
-    "ocamlfind"
-    ~url:"git@git.frama-c.com:bobot/ocamlfind.git"
-    ~deps:[ocaml]
-    ~cmds:[
-      run "./configure" [];
-      make ["all"];
-      make ["opt"];
-      make ["install"];
-    ]
-  in
-  let zarith = mk_repo
-    "ZArith"
-    ~url:"git@git.frama-c.com:bobot/zarith.git"
-    ~deps:[ocaml;ocamlfind]
-    ~cmds:[
-      run "./configure" [];
-      make [];
-      make ["install"];
-    ]
-  in
-  let camlp4 = mk_repo
-      "camlp4"
-      ~url:"https://github.com/ocaml/camlp4.git"
-      ~revspec:"4.02+6"
-      ~deps:[ocaml;ocamlfind]
-      ~cmds:[
-        run "./configure" [];
-        make ["all"];
-        make ["install";"install-META"]
-      ]
-  in
-  let lablgtk = mk_repo
-      "lablgtk"
-      ~url:"https://forge.ocamlcore.org/anonscm/git/lablgtk/lablgtk.git"
-      ~revspec:"28290b0ee79817510bbc908bc733e80258aea7c1"
-      ~deps:[ocaml;ocamlfind;camlp4]
-      ~cmds:[
-        run "./configure" [];
-        make ["world"];
-        make ~env:(`Extend ["OCAMLFIND_LDCONF","ignore"]) ["install"];
-      ] in
-  let ocamlgraph = mk_repo
-    "ocamlgraph"
-    ~url:"https://github.com/backtracking/ocamlgraph.git"
-    ~deps:[ocaml;ocamlfind;lablgtk]
-    ~cmds:[
-      run "autoconf" [];
-      run "./configure" [];
-      make [];
-      make ["install-findlib"];
-    ]
-  in
-  let framac = mk_repo
-      "frama-c"
-      ~url:"git@git.frama-c.com:frama-c/frama-c.git"
-      ~deps:[ocaml;ocamlfind;ocamlgraph;zarith;lablgtk]
-      ~cmds:[
-        run "autoconf" [];
-        run "./configure" [];
-        make ~j:8 [];
-        make ["install"];
-        make ~j:1 ~kind:`Test ~vars:["PTESTS_OPTS","-error-code -j 8"] ["tests"]
-      ]
-  in
-  let mk_framac_plugin_repo ?revspec ~url ~deps ~has_tests name=
-    let compilation = [
-      run "autoconf" [];
-      run "./configure" [];
-      make [];
-      make ["install"];
-    ]
-    in
-    let tests =
-      if has_tests
-      then [make ~kind:`Test ~vars:["PTESTS_OPTS","-error-code -j 4"] ["tests"]]
-      else []
-    in
-    mk_repo
-      name
-      ?revspec
-      ~url
-      ~deps:(framac::deps)
-      ~cmds:(compilation@tests)
-  in
-  let _genassigns = mk_framac_plugin_repo
-      "Genassigns"
-      ~url:"git@git.frama-c.com:frama-c/genassigns.git"
-      ~deps:[]
-      ~has_tests:true
-  in
-  let eacsl = mk_framac_plugin_repo
-      "E-ACSL"
-      ~url:"git@git.frama-c.com:frama-c/e-acsl.git"
-      ~deps:[]
-      ~has_tests:true
-  in
-  let _context_from_precondition = mk_framac_plugin_repo
-      "context-from-precondition"
-      ~url:"git@git.frama-c.com:signoles/context-from-precondition.git"
-      ~deps:[eacsl]
-      ~has_tests:false
-  in
-  let _a3export = mk_framac_plugin_repo
-      "a3export"
-      ~url:"git@git.frama-c.com:frama-c/a3export.git"
-      ~deps:[]
-      ~has_tests:false
-  in
-  let _mthread = mk_framac_plugin_repo
-      "Mthread"
-      ~url:"git@git.frama-c.com:frama-c/mthread.git"
-      ~deps:[]
-      ~has_tests:true
-  in
-  let _pathcrawler = mk_framac_plugin_repo
-      "PathCrawler"
-      ~url:"git@git.frama-c.com:frama-c/pathcrawler.git"
-      ~deps:[]
-      ~has_tests:true
-  in
-  ()
-
-(**
-Actuelle:
- - Tester l'interne et la doc compile
- - Tester la doc en externe
- - Tester les entêtes pour frama-c
- - Faire la distrib OPEN-SOURCE + CLOSE-SOURCE et la compiler,
-   la tester + make doc tous faire avec lui
- - example du manuel du developper.
- - example du manuel d'acsl fonctionne et ceux qui ne fonctionne pas
-
-En plus:
- - etude de cas
- - apron
- - qualif
- - bisecter pour trouver la cause.
-*)
-
-
-(* Options common to all commands *)
 type copts = { verb : Log.Level.t;  socket: string}
+
+let db_repos = ref String.Map.empty
+let url_to_default_revspec = String.Table.create ()
 
 let create_query _ccopt rootfs revspecs repo socket =
   let open Oci_Generic_Masters_Api.CompileGitRepo in
@@ -291,35 +95,49 @@ let create_query _ccopt rootfs revspecs repo socket =
   let query : Query.t = {
     name = repo;
     rootfs = Or_error.ok_exn rootfs;
-    repos = String.Map.map ~f:(fun x -> x.repo) !db_repos;
+    repos = !db_repos;
   } in
-  let used_repo = Query.used_repos query in
-  Deferred.Map.mapi used_repo
-    ~how:`Parallel
-    ~f:(fun ~key:name ~data:repo ->
-        match String.Map.find revspecs name with
-        | None -> return repo
-        | Some giturl ->
+  let used_repos = Query.used_repos query in
+  let cache = String.Table.create () in
+  let get_commit url = String.Table.find_or_add cache url
+      ~default:(fun () ->
+          let def = String.Table.find_exn url_to_default_revspec url in
+          let revspec = String.Map.find_exn revspecs def.name in
           Rpc.Rpc.dispatch_exn
             (Oci_Data.rpc Oci_Generic_Masters_Api.GitRemoteBranch.rpc)
-            socket giturl
+            socket {url;revspec}
           >>= fun r ->
           match Or_error.ok_exn r with
           | None ->
-            error "%s correspond to no known ref" name; exit 1
+            error "%s correspond to no known ref" def.name; exit 1
           | Some commit ->
-            info "--%s %s" name (Oci_Common.Commit.to_string commit);
-            let clone = Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone {
-                url = giturl.url;
-                commit;
-                directory = Oci_Filename.current_dir;
-              } in
-            return {repo with cmds = clone::repo.cmds}
+            info "--%s %s" def.name (Oci_Common.Commit.to_string commit);
+            return commit
+        )
+  in
+  (** replace commit in repos *)
+  Deferred.Map.map
+    used_repos
+    ~how:`Parallel
+    ~f:(fun repo ->
+        Deferred.List.map
+          repo.cmds
+          ~f:(function
+              | Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec _ as x ->
+                return x
+              | Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone x ->
+                get_commit x.url
+                >>= fun commit ->
+                return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
+                          {x with commit})
+            )
+        >>= fun cmds ->
+        return {repo with cmds}
       )
   >>= fun repos ->
   return { query with repos}
 
-let run ccopt rootfs revspecs repo socket =
+let run ccopt rootfs revspecs (repo:string) socket =
   create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
   exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query
@@ -329,6 +147,19 @@ let run ccopt rootfs revspecs repo socket =
 let xpra ccopt rootfs revspecs repo socket =
   create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
+  let query = {
+    query with repos =
+                 String.Map.change query.repos repo (function
+                     | None -> assert false (** absurd: the main repo is used *)
+                     | Some data ->
+                     Some {data with cmds = List.filter ~f:(function
+                           | Oci_Generic_Masters_Api.
+                               CompileGitRepoRunner.GitClone _ -> true
+                           | Oci_Generic_Masters_Api.
+                               CompileGitRepoRunner.Exec _ -> false) data.cmds
+                         })
+  }
+  in
   exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
     Oci_Filename.sexp_of_t socket
@@ -379,6 +210,273 @@ let add_packages ccopt rootfs packages =
 
 open Cmdliner;;
 
+(** Configuration *)
+
+module Configuration = struct
+
+  let run ?(kind=`Required) ?(env=`Extend []) cmd args =
+    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
+      cmd;
+      args = List.map args ~f:(fun s -> `S s);
+      env;
+      proc_requested = 1;
+      kind;
+      working_dir = Oci_Filename.current_dir;
+    }
+
+  let make ?(j=1) ?(vars=[]) ?(kind=`Required) ?(env=`Extend []) targets =
+    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
+      cmd = "make";
+      args =
+        `S "-j" :: `Proc ::
+        List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
+        List.map targets ~f:(fun s -> `S s);
+      env;
+      proc_requested = j;
+      kind;
+      working_dir = Oci_Filename.current_dir;
+    }
+
+  let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
+
+  let gitclone ?(dir=Oci_Filename.current_dir) (_,url) =
+    Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
+      {url;commit=dumb_commit;
+       directory=dir}
+
+  let mk_repo ?(revspec="master") ~url ~deps ~cmds name =
+    let id = (name,url) in
+    let data = {
+      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps = List.map ~f:fst deps;
+      cmds = (gitclone id)::cmds
+    }
+    in
+    String.Table.add_exn url_to_default_revspec
+      ~key:url ~data:{name;revspec};
+    db_repos := String.Map.add !db_repos ~key:name ~data;
+    id
+
+  let () =
+    let ocaml = mk_repo
+        "ocaml"
+        ~url:"git@git.frama-c.com:bobot/ocaml.git"
+        ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
+        ~deps:[]
+        ~cmds:[
+          run "./configure" [];
+          make ["world.opt"];
+          make ["install"];
+          run "mkdir" ["-p";"/usr/local/lib/ocaml/site-lib/stublibs/"];
+          run "touch" ["/usr/local/lib/ocaml/site-lib/stublibs/.placeholder"];
+          run "sh" ["-c";"echo /usr/local/lib/ocaml/site-lib/stublibs/ >> \
+                          /usr/local/lib/ocaml/ld.conf"]
+        ]
+    in
+    let ocamlfind = mk_repo
+        "ocamlfind"
+        ~url:"git@git.frama-c.com:bobot/ocamlfind.git"
+        ~deps:[ocaml]
+        ~cmds:[
+          run "./configure" [];
+          make ["all"];
+          make ["opt"];
+          make ["install"];
+        ]
+    in
+    let zarith = mk_repo
+        "ZArith"
+        ~url:"git@git.frama-c.com:bobot/zarith.git"
+        ~deps:[ocaml;ocamlfind]
+        ~cmds:[
+          run "./configure" [];
+          make [];
+          make ["install"];
+        ]
+    in
+    let xmllight = mk_repo
+        "xml-light"
+        ~url:"https://github.com/ncannasse/xml-light.git"
+        ~revspec:"2.4"
+        ~deps:[ocaml;ocamlfind]
+        ~cmds:[
+          make ["install_ocamlfind"]
+        ]
+    in
+    let camlp4 = mk_repo
+        "camlp4"
+        ~url:"https://github.com/ocaml/camlp4.git"
+        ~revspec:"4.02+6"
+        ~deps:[ocaml;ocamlfind]
+        ~cmds:[
+          run "./configure" [];
+          make ["all"];
+          make ["install";"install-META"]
+        ]
+    in
+    let lablgtk = mk_repo
+        "lablgtk"
+        ~url:"https://forge.ocamlcore.org/anonscm/git/lablgtk/lablgtk.git"
+        ~revspec:"28290b0ee79817510bbc908bc733e80258aea7c1"
+        ~deps:[ocaml;ocamlfind;camlp4]
+        ~cmds:[
+          run "./configure" [];
+          make ["world"];
+          make ~env:(`Extend ["OCAMLFIND_LDCONF","ignore"]) ["install"];
+        ] in
+    let ocamlgraph = mk_repo
+        "ocamlgraph"
+        ~url:"https://github.com/backtracking/ocamlgraph.git"
+        ~deps:[ocaml;ocamlfind;lablgtk]
+        ~cmds:[
+          run "autoconf" [];
+          run "./configure" [];
+          make [];
+          make ["install-findlib"];
+        ]
+    in
+    let framac_deps = [ocaml;ocamlfind;ocamlgraph;zarith;lablgtk] in
+    let framac_cmds = [
+          run "autoconf" [];
+          run "./configure" [];
+          make ~j:8 [];
+          make ["install"];
+          make ~j:1 ~kind:`Test
+            ~vars:["PTESTS_OPTS","-error-code -j 8"] ["tests"]
+    ] in
+    let framac = mk_repo
+        "frama-c"
+        ~url:"git@git.frama-c.com:frama-c/frama-c.git"
+        ~deps:framac_deps
+        ~cmds:framac_cmds
+    in
+    let plugins = Queue.create () in
+    let mk_framac_plugin_repo ?revspec ?noconfigure ~url ~deps ~has_tests name=
+      let configure =
+        match noconfigure with
+        | None -> [run "autoconf" []; run "./configure" []]
+        | Some () -> []
+      in
+      let compilation =
+        configure @ [
+          make [];
+          make ["install"];
+        ]
+      in
+      let tests =
+        if has_tests
+        then [make
+                ~kind:`Test
+                ~vars:["PTESTS_OPTS","-error-code -j 4"] ["tests"]]
+        else []
+      in
+      let plugin = mk_repo
+          name
+          ?revspec
+          ~url
+          ~deps:(framac::deps)
+          ~cmds:(compilation@tests) in
+      Queue.enqueue plugins (plugin,deps);
+      plugin
+    in
+    let _genassigns = mk_framac_plugin_repo
+        "Genassigns"
+        ~url:"git@git.frama-c.com:frama-c/genassigns.git"
+        ~deps:[]
+        ~has_tests:true
+    in
+    let eacsl = mk_framac_plugin_repo
+        "E-ACSL"
+        ~url:"git@git.frama-c.com:frama-c/e-acsl.git"
+        ~deps:[]
+        ~has_tests:true
+    in
+    let _context_from_precondition = mk_framac_plugin_repo
+        "context-from-precondition"
+        ~url:"git@git.frama-c.com:signoles/context-from-precondition.git"
+        ~deps:[eacsl]
+        ~has_tests:false
+    in
+    let _a3export = mk_framac_plugin_repo
+        "a3export"
+        ~url:"git@git.frama-c.com:frama-c/a3export.git"
+        ~deps:[]
+        ~has_tests:false
+    in
+    let _mthread = mk_framac_plugin_repo
+        "Mthread"
+        ~url:"git@git.frama-c.com:frama-c/mthread.git"
+        ~deps:[]
+        ~noconfigure:()
+        ~has_tests:true
+    in
+    let _pathcrawler = mk_framac_plugin_repo
+        "PathCrawler"
+        ~url:"git@git.frama-c.com:pathcrawler/pathcrawler.git"
+        ~deps:[xmllight]
+        ~has_tests:true
+    in
+    let _framac_internal =
+      let name = "frama-c-internal" in
+      let plugins_deps =
+        plugins
+        |> Queue.to_list
+        |> List.map ~f:(fun (_,deps) -> deps)
+        |> List.concat
+      in
+      let cloneplugins =
+        plugins
+        |> Queue.to_list
+        |> List.map ~f:(fun ((name,_) as pkg,_) ->
+            gitclone ~dir:(Oci_Filename.concat "src/plugins" name) pkg
+          )
+      in
+      let data = {
+        Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
+          List.dedup (List.map ~f:fst (framac_deps@plugins_deps));
+        cmds =
+          [gitclone framac] @
+          cloneplugins @
+          framac_cmds;
+      }
+      in
+      db_repos := String.Map.add !db_repos ~key:name ~data;
+      (name,"")
+    in
+    let _framac_external =
+      let name = "frama-c-external" in
+      let data = {
+        Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
+          List.map ~f:(fun ((name,_),_) -> name) (Queue.to_list plugins);
+        cmds = [
+          run "frama-c" ["-plugins"]
+        ];
+      }
+      in
+      db_repos := String.Map.add !db_repos ~key:name ~data;
+      (name,"")
+    in
+    ()
+
+end
+
+(**
+Actuelle:
+ - Tester l'interne et la doc compile
+ - Tester la doc en externe
+ - Tester les entêtes pour frama-c
+ - Faire la distrib OPEN-SOURCE + CLOSE-SOURCE et la compiler,
+   la tester + make doc tous faire avec lui
+ - example du manuel du developper.
+ - example du manuel d'acsl fonctionne et ceux qui ne fonctionne pas
+
+En plus:
+ - etude de cas
+ - apron
+ - qualif
+ - bisecter pour trouver la cause.
+*)
+
+(** Commandline handling *)
 (* Help sections common to all commands *)
 
 let copts_sect = "COMMON OPTIONS"
@@ -459,14 +557,11 @@ let run_cmd,xpra_cmd =
            ~doc:"Specify on which rootfs to run")
   in
   let revspecs =
-    String.Map.fold !db_repos ~init:Term.(const String.Map.empty)
+    String.Table.fold url_to_default_revspec ~init:Term.(const String.Map.empty)
       ~f:(fun ~key ~data acc ->
-          match data.giturl with
-          | None -> acc (** no git no options *)
-          | Some giturl ->
             Term.(const (fun revspec acc ->
-                String.Map.add ~key ~data:{giturl with revspec} acc) $
-                Arg.(value & opt string giturl.revspec & info [key]
+                String.Map.add ~key:data.name ~data:revspec acc) $
+                Arg.(value & opt string data.revspec & info [key]
                        ~docv:"REVSPEC"
                        ~doc:(sprintf "indicate which revspec of %s to use." key)
                     ) $

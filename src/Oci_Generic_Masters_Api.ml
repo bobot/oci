@@ -133,7 +133,7 @@ module CompileGitRepo = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo"
-      ~version:2
+      ~version:3
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
 end

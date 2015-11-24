@@ -90,7 +90,8 @@ let rec copydir
       then return ()
       else begin
         Unix.lstat src'
-        >>= function
+        >>= fun stat ->
+        match (stat: Unix.Stats.t) with
         | { uid = 65534 } (* nobody *) | { gid = 65534 } (* nogroup *) ->
           return ()
         | {kind = `Directory} ->
@@ -346,7 +347,7 @@ let add_artefact_api init =
     (** create *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_create
-      (fun {rootfs} {src;prune;rooted_at;only_new} ->
+      (fun {rootfs} {Oci_Artefact_Api.src;prune;rooted_at;only_new} ->
          assert (not (Oci_Filename.is_relative src));
          let reparent = Oci_Filename.reparent ~oldd:"/" ~newd:rootfs in
          create
@@ -391,7 +392,7 @@ let add_artefact_api init =
     (** git_clone *)
     Rpc.Rpc.implement
       Oci_Artefact_Api.rpc_git_clone
-      (fun {rootfs} {url;dst;user;commit} ->
+      (fun {rootfs} {Oci_Artefact_Api.url;dst;user;commit} ->
         let dst = Oci_Filename.make_relative "/" dst in
         let dst = Oci_Filename.make_absolute rootfs dst in
         Oci_Git.clone ~user ~url ~dst ~commit

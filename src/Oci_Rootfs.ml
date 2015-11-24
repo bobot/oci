@@ -138,8 +138,8 @@ let add_packages (d:add_packages_query) =
   >>= fun (err,conn) ->
   choose [
     choice (err >>= function
-      | Exec_Ok -> never ()
-      | Exec_Error s -> return s) Or_error.error_string;
+      | Oci_Master.Exec_Ok -> never ()
+      | Oci_Master.Exec_Error s -> return s) Or_error.error_string;
     choice begin
       conn >>= fun conn ->
       Monitor.protect

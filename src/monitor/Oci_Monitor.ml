@@ -281,12 +281,12 @@ let start_master ~conf ~master ~oci_data ~binaries
   conf.wait_to_artefact <- Some (error >>= fun _ -> return ());
   choose [
     choice error (function
-        | Exec_Ok when Oci_Artefact_Api.oci_shutting_down () ->
+        | Oci_Artefact_Api.Exec_Ok when Oci_Artefact_Api.oci_shutting_down () ->
           info "master stopped for shutdown"
-        | Exec_Ok ->
+        | Oci_Artefact_Api.Exec_Ok ->
           info "master stopped unexpectedly but normally";
           Shutdown.shutdown 1
-        | Exec_Error s ->
+        | Oci_Artefact_Api.Exec_Error s ->
           info "master stopped unexpectedly with error:%s" s;
           Shutdown.shutdown 1
       );

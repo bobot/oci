@@ -111,8 +111,10 @@ let rec chown_not_shared ({Oci_Common.User.uid;gid} as user) src =
   Deferred.List.iter files ~f:(fun file ->
       let src' = Oci_Filename.make_absolute src file in
       Unix.lstat src'
-      >>= function
-      | { uid = 65534 } (* nobody *) | { gid = 65534 } (* nogroup *) ->
+      >>= fun stat ->
+      match (stat : Unix.Stats.t) with
+      | { uid = 65534 } (* nobody *)
+      | { gid = 65534 } (* nogroup *) ->
         return ()
       | {kind = `Directory} -> chown_not_shared user src'
       | {kind = `File; nlink } when nlink >= 2 -> return ()

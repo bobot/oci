@@ -7,7 +7,7 @@ OCAML_WARN_ERROR=+5+10+8+12+20+11
 OPTIONS=-no-sanitize -no-links -tag debug -use-ocamlfind	\
 -cflags -w,$(OCAML_WARNING) -cflags				\
 -warn-error,$(OCAML_WARN_ERROR) -cflag -bin-annot -j 8 -tag thread		\
--syntax camlp4o
+-syntax camlp4o -tag principal
 #OPTIONS += -cflags -warn-error,+a
 DIRECTORIES=src/common src/monitor src/utils src/clients_lib src/conductor tests src/script src src/wrapper
 OCAMLBUILD=ocamlbuild \

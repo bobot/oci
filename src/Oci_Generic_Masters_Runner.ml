@@ -23,8 +23,9 @@
 open Core.Std
 open Async.Std
 
-let create_dir_and_run
-    t (q:Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.t) =
+open Oci_Generic_Masters_Api.CompileGitRepoRunner
+
+let create_dir_and_run t (q:Query.t) =
   let working_dir = "/checkout" in
   Oci_Runner.cha_log t "Link Rootfs";
   Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
@@ -34,6 +35,8 @@ let create_dir_and_run
     ~f:(fun artefact ->
         Oci_Runner.link_artefact t artefact ~dir:"/"
       ) q.artefacts
+  >>= fun () ->
+  Unix.mkdir ~p:() working_dir
   >>= fun () ->
   Oci_Runner.cha_log t "Compile and install";
   let failures = Queue.create () in
