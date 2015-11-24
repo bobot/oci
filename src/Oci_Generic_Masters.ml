@@ -50,8 +50,6 @@ let compile_git_repo q =
     fun conn ->
       Oci_Master.dispatch_runner_exn
         Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc conn {
-        url=repo.url;
-        commit = repo.commit;
         rootfs = q.rootfs;
         cmds=repo.cmds;
         artefacts = List.map ~f:(fun r -> r.artefact) results;
@@ -73,10 +71,8 @@ let xpra_git_repo q =
       Oci_Master.dispatch_runner_exn
         Oci_Generic_Masters_Api.XpraRunner.rpc conn
         {
-          url=repo.url;
-          commit = repo.commit;
           rootfs = q.rootfs;
-          cmds = [];
+          cmds = repo.cmds;
           artefacts = List.map ~f:(fun r -> r.artefact) results;
         }
     end (fun x -> x);
@@ -97,5 +93,5 @@ let init_compile_git_repo () =
     (fun q ->
        Monitor.try_with_or_error
          (fun () ->
-            Oci_Git.get_remote_branch_commit ~url:q.url ~refspec:q.refspec),
+            Oci_Git.get_remote_branch_commit ~url:q.url ~revspec:q.revspec),
        Oci_Log.null)

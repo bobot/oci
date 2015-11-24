@@ -32,7 +32,7 @@ val clone:
 
 val get_remote_branch_commit:
   url:String.t ->
-  refspec:String.t ->
+  revspec:String.t ->
   Oci_Common.Commit.t option Deferred.t
 
 val init:

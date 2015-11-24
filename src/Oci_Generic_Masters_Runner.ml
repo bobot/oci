@@ -35,37 +35,38 @@ let create_dir_and_run
         Oci_Runner.link_artefact t artefact ~dir:"/"
       ) q.artefacts
   >>= fun () ->
-  Oci_Runner.cha_log t "Clone repository at %s"
-    (Oci_Common.Commit.to_string q.commit);
-  Oci_Runner.git_clone t
-    ~user:Root
-    ~url:q.url
-    ~dst:working_dir
-    ~commit:q.commit
-  >>= fun () ->
   Oci_Runner.cha_log t "Compile and install";
   let failures = Queue.create () in
   Deferred.List.iter
-    ~f:(fun cmd ->
-        Oci_Runner.get_release_proc t cmd.proc_requested
-          (fun got ->
-             let args =
-               List.map cmd.args
-                 ~f:(function
-                     | `S s -> s
-                     | `Proc -> string_of_int got)
-             in
-             Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args
-               ~env:(cmd.env :> Async.Std.Process.env) ()
-             >>= fun r ->
-             match cmd.kind, r with
-             | _, Core_kernel.Std.Result.Ok () -> return ()
-             | `Required, Core_kernel.Std.Result.Error _ ->
-               raise Oci_Runner.CommandFailed
-             | `Test, _ ->
-               Queue.enqueue failures (Oci_Runner.print_cmd cmd.cmd args);
-               return ()
-          )
+    ~f:(function
+        | GitClone clone ->
+          Oci_Runner.cha_log t "Clone repository at %s"
+            (Oci_Common.Commit.to_string clone.commit);
+          Oci_Runner.git_clone t
+            ~user:Root
+            ~url:clone.url
+            ~dst:(Oci_Filename.make_absolute working_dir clone.directory)
+            ~commit:clone.commit
+        | Exec cmd ->
+          Oci_Runner.get_release_proc t cmd.proc_requested
+            (fun got ->
+               let args =
+                 List.map cmd.args
+                   ~f:(function
+                       | `S s -> s
+                       | `Proc -> string_of_int got)
+               in
+               Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args
+                 ~env:(cmd.env :> Async.Std.Process.env) ()
+               >>= fun r ->
+               match cmd.kind, r with
+               | _, Core_kernel.Std.Result.Ok () -> return ()
+               | `Required, Core_kernel.Std.Result.Error _ ->
+                 raise Oci_Runner.CommandFailed
+               | `Test, _ ->
+                 Queue.enqueue failures (Oci_Runner.print_cmd cmd.cmd args);
+                 return ()
+            )
       ) q.cmds
   >>= fun () ->
   return (working_dir,Queue.to_list failures)

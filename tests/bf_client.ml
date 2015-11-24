@@ -77,29 +77,31 @@ let exec test input sexp_input sexp_output conn =
   then exec_one test input sexp_input sexp_output conn
   else forget test input sexp_input sexp_output conn
 
-let run ?(kind=`Required) ?(env=`Extend []) cmd args
-  : Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd = {
-  cmd;
-  args = List.map args ~f:(fun s -> `S s);
-  env;
-  proc_requested = 1;
-  kind;
-}
+let run ?(kind=`Required) ?(env=`Extend []) cmd args =
+  Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
+    cmd;
+    args = List.map args ~f:(fun s -> `S s);
+    env;
+    proc_requested = 1;
+    kind;
+    working_dir = Oci_Filename.current_dir;
+  }
 
-let make ?(j=1) ?(vars=[]) ?(kind=`Required) ?(env=`Extend []) targets :
-  Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd = {
-  cmd = "make";
-  args =
-    `S "-j" :: `Proc ::
-    List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
-    List.map targets ~f:(fun s -> `S s);
-  env;
-  proc_requested = j;
-  kind;
-}
+let make ?(j=1) ?(vars=[]) ?(kind=`Required) ?(env=`Extend []) targets =
+  Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
+    cmd = "make";
+    args =
+      `S "-j" :: `Proc ::
+      List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
+      List.map targets ~f:(fun s -> `S s);
+    env;
+    proc_requested = j;
+    kind;
+    working_dir = Oci_Filename.current_dir;
+  }
 
 type repo = {
-  commit: string; (** here branch name are accepted *)
+  giturl: Oci_Generic_Masters_Api.GitRemoteBranch.Query.t option;
   name: string;
   repo: Oci_Generic_Masters_Api.CompileGitRepo.Query.repo;
 }
@@ -108,17 +110,14 @@ let db_repos = ref String.Map.empty
 
 let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
 
-let mk_repo ?(commit="master") ~url ~deps ~cmds name =
-  let open Oci_Generic_Masters_Api.CompileGitRepo in
+let mk_repo ?(revspec="master") ~url ~deps ~cmds name =
   let data =
-    { commit;
+    { giturl = Some {revspec;url};
       name;
       repo = {
-        Query.url;
-        commit = dumb_commit; (** dumb *)
         deps = List.map ~f:(fun x -> x.name) deps;
         cmds;
-      }
+      };
     }
   in
   db_repos := String.Map.add !db_repos ~key:name ~data;
@@ -128,7 +127,7 @@ let () =
   let ocaml = mk_repo
     "ocaml"
     ~url:"git@git.frama-c.com:bobot/ocaml.git"
-    ~commit:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
+    ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
     ~deps:[]
     ~cmds:[
       run "./configure" [];
@@ -164,7 +163,7 @@ let () =
   let camlp4 = mk_repo
       "camlp4"
       ~url:"https://github.com/ocaml/camlp4.git"
-      ~commit:"4.02+6"
+      ~revspec:"4.02+6"
       ~deps:[ocaml;ocamlfind]
       ~cmds:[
         run "./configure" [];
@@ -175,7 +174,7 @@ let () =
   let lablgtk = mk_repo
       "lablgtk"
       ~url:"https://forge.ocamlcore.org/anonscm/git/lablgtk/lablgtk.git"
-      ~commit:"28290b0ee79817510bbc908bc733e80258aea7c1"
+      ~revspec:"28290b0ee79817510bbc908bc733e80258aea7c1"
       ~deps:[ocaml;ocamlfind;camlp4]
       ~cmds:[
         run "./configure" [];
@@ -205,7 +204,7 @@ let () =
         make ~j:1 ~kind:`Test ~vars:["PTESTS_OPTS","-error-code -j 8"] ["tests"]
       ]
   in
-  let mk_framac_plugin_repo ?commit ~url ~deps ~has_tests name=
+  let mk_framac_plugin_repo ?revspec ~url ~deps ~has_tests name=
     let compilation = [
       run "autoconf" [];
       run "./configure" [];
@@ -220,7 +219,7 @@ let () =
     in
     mk_repo
       name
-      ?commit
+      ?revspec
       ~url
       ~deps:(framac::deps)
       ~cmds:(compilation@tests)
@@ -257,7 +256,7 @@ let () =
   in
   let _pathcrawler = mk_framac_plugin_repo
       "PathCrawler"
-      ~url:"git@git.frama-c.com:frama-c/mthread.git"
+      ~url:"git@git.frama-c.com:frama-c/pathcrawler.git"
       ~deps:[]
       ~has_tests:true
   in
@@ -284,47 +283,51 @@ En plus:
 (* Options common to all commands *)
 type copts = { verb : Log.Level.t;  socket: string}
 
-let create_query _ccopt rootfs refspecs repo socket =
+let create_query _ccopt rootfs revspecs repo socket =
   let open Oci_Generic_Masters_Api.CompileGitRepo in
   Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket rootfs
   >>= fun rootfs ->
-  info "Check the refspecs:";
+  info "Check the revspecs:";
   let query : Query.t = {
     name = repo;
     rootfs = Or_error.ok_exn rootfs;
     repos = String.Map.map ~f:(fun x -> x.repo) !db_repos;
   } in
   let used_repo = Query.used_repos query in
-  Deferred.Map.merge
-    used_repo refspecs
+  Deferred.Map.mapi used_repo
     ~how:`Parallel
-    ~f:(fun ~key:name -> function
-        | `Left _ | `Right _ -> return None
-        | `Both (repo,refspec) ->
+    ~f:(fun ~key:name ~data:repo ->
+        match String.Map.find revspecs name with
+        | None -> return repo
+        | Some giturl ->
           Rpc.Rpc.dispatch_exn
             (Oci_Data.rpc Oci_Generic_Masters_Api.GitRemoteBranch.rpc)
-            socket
-            {url = repo.url; refspec}
+            socket giturl
           >>= fun r ->
           match Or_error.ok_exn r with
           | None ->
             error "%s correspond to no known ref" name; exit 1
           | Some commit ->
             info "--%s %s" name (Oci_Common.Commit.to_string commit);
-            return (Some {repo with commit = commit})
+            let clone = Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone {
+                url = giturl.url;
+                commit;
+                directory = Oci_Filename.current_dir;
+              } in
+            return {repo with cmds = clone::repo.cmds}
       )
   >>= fun repos ->
   return { query with repos}
 
-let run ccopt rootfs refspecs repo socket =
-  create_query ccopt rootfs refspecs repo socket
+let run ccopt rootfs revspecs repo socket =
+  create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
   exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
     Oci_Generic_Masters_Api.CompileGitRepo.Result.sexp_of_t socket
 
-let xpra ccopt rootfs refspecs repo socket =
-  create_query ccopt rootfs refspecs repo socket
+let xpra ccopt rootfs revspecs repo socket =
+  create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
   exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
@@ -362,11 +365,11 @@ let connect ccopt cmd =
   >>= fun () ->
   Shutdown.exit 0
 
-let run ccopt rootfs refspecs repo =
-  connect ccopt (run ccopt rootfs refspecs repo)
+let run ccopt rootfs revspecs repo =
+  connect ccopt (run ccopt rootfs revspecs repo)
 
-let xpra ccopt rootfs refspecs repo =
-  connect ccopt (xpra ccopt rootfs refspecs repo)
+let xpra ccopt rootfs revspecs repo =
+  connect ccopt (xpra ccopt rootfs revspecs repo)
 
 let list_rootfs ccopt rootfs =
   connect ccopt (list_rootfs ccopt rootfs)
@@ -455,14 +458,17 @@ let run_cmd,xpra_cmd =
            ~docv:"ID"
            ~doc:"Specify on which rootfs to run")
   in
-  let refspecs =
+  let revspecs =
     String.Map.fold !db_repos ~init:Term.(const String.Map.empty)
       ~f:(fun ~key ~data acc ->
-          Term.(const (fun c acc -> String.Map.add ~key ~data:c acc) $
-                Arg.(value & opt string data.commit & info [key]
+          match data.giturl with
+          | None -> acc (** no git no options *)
+          | Some giturl ->
+            Term.(const (fun revspec acc ->
+                String.Map.add ~key ~data:{giturl with revspec} acc) $
+                Arg.(value & opt string giturl.revspec & info [key]
                        ~docv:"REVSPEC"
-                       ~doc:(sprintf "indicate which commit of %s to use. \
-                                      Git revspec can be used." key)
+                       ~doc:(sprintf "indicate which revspec of %s to use." key)
                     ) $
                 acc)
         )
@@ -481,9 +487,9 @@ let run_cmd,xpra_cmd =
     `P "Run the integration of the given repository with the given rootfs
         using the specified commits."] @ help_secs
   in
-  (Term.(const run $ copts_t $ rootfs $ refspecs $ repo),
+  (Term.(const run $ copts_t $ rootfs $ revspecs $ repo),
    Term.info "run" ~doc ~sdocs:copts_sect ~man),
-  (Term.(const xpra $ copts_t $ rootfs $ refspecs $ repo),
+  (Term.(const xpra $ copts_t $ rootfs $ revspecs $ repo),
    Term.info "xpra" ~doc ~sdocs:copts_sect ~man)
 
 let default_cmd =

@@ -155,7 +155,7 @@ let clone ~user ~url ~dst ~commit =
   >>= fun () ->
   return ()
 
-let get_remote_branch_commit ~url ~refspec =
+let get_remote_branch_commit ~url ~revspec =
   lookup_path url
     (fun src ->
        let fetch_head = Oci_Filename.make_absolute src "FETCH_HEAD" in
@@ -183,7 +183,7 @@ let get_remote_branch_commit ~url ~refspec =
        >>= fun () ->
        Async_shell.run_one
          ~expect:[0;1]
-         "git" ["-C";src;"rev-parse";"--verify";"-q";refspec^"^{commit}"]
+         "git" ["-C";src;"rev-parse";"--verify";"-q";revspec^"^{commit}"]
        >>= fun s -> return (Option.map ~f:Oci_Common.Commit.of_string_exn s)
     )
 

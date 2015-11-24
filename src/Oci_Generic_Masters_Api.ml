@@ -24,23 +24,37 @@ open Core.Std
 
 module CompileGitRepoRunner = struct
 
-  type cmd = {
+  type exec = {
     cmd: string;
     args: [ `S of string |
-            `Proc] list;
+            `Proc
+          ] list;
     env : [ `Replace of (string * string) list
           | `Extend of (string * string) list];
     proc_requested : int;
-    kind: [`Required | `Test]
+    kind: [`Required | `Test];
+    working_dir: Oci_Filename.t (** Relative path *)
   } with sexp, bin_io, compare
   (** `Proc replaced by number of processus *)
+
+  type gitclone = {
+    directory: Oci_Filename.t; (** Relative path *)
+    url: string;
+    commit: Oci_Common.Commit.t;
+  } with sexp, bin_io, compare
+
+  type cmd =
+    | Exec of exec
+    | GitClone of gitclone
+  with sexp, bin_io, compare
+
+  type cmds = cmd list
+  with sexp, bin_io, compare
 
   module Query = struct
     type t = {
       rootfs: Oci_Rootfs_Api.Rootfs.t;
-      commit: Oci_Common.Commit.t;
-      cmds: cmd list;
-      url: string;
+      cmds: cmds;
       artefacts: Oci_Common.Artefact.t list;
     } with sexp, bin_io, compare
 
@@ -76,10 +90,8 @@ end
 module CompileGitRepo = struct
   module Query = struct
     type repo = {
-      url : string;
-      commit : Oci_Common.Commit.t;
       deps: String.t list;
-      cmds: CompileGitRepoRunner.cmd list;
+      cmds: CompileGitRepoRunner.cmds;
     } with sexp, bin_io, compare
 
     type t = {
@@ -141,7 +153,7 @@ module GitRemoteBranch = struct
   module Query = struct
     type t = {
       url : string;
-      refspec: String.t;
+      revspec: String.t;
     } with sexp, bin_io, compare
   end
 
