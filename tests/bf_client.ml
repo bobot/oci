@@ -417,15 +417,23 @@ module Configuration = struct
     in
     let _framac_internal =
       let name = "frama-c-internal" in
-      let plugins_deps =
+      let plugins =
         plugins
         |> Queue.to_list
-        |> List.map ~f:(fun (_,deps) -> deps)
+      in
+      let plugins_name = String.Set.of_list
+          (List.map ~f:(fun ((name,_),_) -> name)
+             plugins)
+      in
+      let plugins_deps =
+        plugins
+        |> List.map ~f:(fun (_,deps) ->
+            List.filter deps
+              ~f:(fun (dep,_) -> not (String.Set.mem plugins_name dep)))
         |> List.concat
       in
       let cloneplugins =
         plugins
-        |> Queue.to_list
         |> List.map ~f:(fun ((name,_) as pkg,_) ->
             gitclone ~dir:(Oci_Filename.concat "src/plugins" name) pkg
           )
