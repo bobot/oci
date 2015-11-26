@@ -436,7 +436,8 @@ module Configuration = struct
         cmds =
           [gitclone framac] @
           cloneplugins @
-          framac_cmds;
+          framac_cmds @
+          [run "frama-c" ["-plugins"]];
       }
       in
       db_repos := String.Map.add !db_repos ~key:name ~data;
@@ -448,7 +449,7 @@ module Configuration = struct
         Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
           List.map ~f:(fun ((name,_),_) -> name) (Queue.to_list plugins);
         cmds = [
-          run "frama-c" ["-plugins"]
+          run "frama-c" ["-plugins"];
         ];
       }
       in
@@ -558,12 +559,13 @@ let run_cmd,xpra_cmd =
   in
   let revspecs =
     String.Table.fold url_to_default_revspec ~init:Term.(const String.Map.empty)
-      ~f:(fun ~key ~data acc ->
+      ~f:(fun ~key:_ ~data acc ->
             Term.(const (fun revspec acc ->
                 String.Map.add ~key:data.name ~data:revspec acc) $
-                Arg.(value & opt string data.revspec & info [key]
+                Arg.(value & opt string data.revspec & info [data.name]
                        ~docv:"REVSPEC"
-                       ~doc:(sprintf "indicate which revspec of %s to use." key)
+                       ~doc:(sprintf "indicate which revspec of %s to use."
+                               data.name)
                     ) $
                 acc)
         )

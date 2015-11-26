@@ -43,6 +43,8 @@ module Commit = struct
   let to_string = Fn.id
   let of_string_exn x =
     if invariant x then x else raise (BadGitCommitFormat x)
+  let of_string x =
+    if invariant x then Some x else None
 end
 
 module User = struct

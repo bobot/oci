@@ -47,7 +47,7 @@ let compile_deps =
           | Core_kernel.Result.Ok r ->
             Oci_Master.cha_log "Dependency %s done" dep_name;
             return (Some r)
-          | Core_kernel.Result.Error err ->
+          | Core_kernel.Result.Error _ ->
             Oci_Master.err_log
               "Dependency %s failed (or one of its dependency)" dep_name;
             return None

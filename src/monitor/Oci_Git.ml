@@ -158,35 +158,46 @@ let clone ~user ~url ~dst ~commit =
   return ()
 
 let get_remote_branch_commit ~url ~revspec =
+  let slow_path src =
+    let fetch_head = Oci_Filename.make_absolute src "FETCH_HEAD" in
+    Sys.file_exists_exn fetch_head
+    >>= fun b -> begin
+      if not b
+      then return true (** must fetch *)
+      else begin
+        Unix.lstat fetch_head
+        >>= fun stat ->
+        return (Time.is_earlier stat.Unix.Stats.mtime
+                  ~than:(Time.add
+                           (Time.now ())
+                           (Time.Span.create ~sec:2 ())))
+      end
+    end
+    >>= fun b -> begin
+      if b
+      then
+        Async_shell.run
+          ~env:(get_env ())
+          "git" ["-C";src;"fetch";"origin"]
+      else return ()
+    end
+    >>= fun () ->
+    Async_shell.run_one
+      ~expect:[0;1]
+      "git" ["-C";src;"rev-parse";"--verify";"-q";revspec^"^{commit}"]
+    >>= fun s -> return (Option.map ~f:Oci_Common.Commit.of_string_exn s)
+  in
   lookup_path url
     (fun src ->
-       let fetch_head = Oci_Filename.make_absolute src "FETCH_HEAD" in
-       Sys.file_exists_exn fetch_head
-       >>= fun b -> begin
-         if not b
-         then return true (** must fetch *)
-         else begin
-           Unix.lstat fetch_head
-           >>= fun stat ->
-           return (Time.is_earlier stat.Unix.Stats.mtime
-                     ~than:(Time.add
-                              (Time.now ())
-                              (Time.Span.create ~sec:2 ())))
-         end
-       end
-       >>= fun b -> begin
-       if b
-       then
-         Async_shell.run
-           ~env:(get_env ())
-           "git" ["-C";src;"fetch";"origin"]
-       else return ()
-       end
-       >>= fun () ->
-       Async_shell.run_one
-         ~expect:[0;1]
-         "git" ["-C";src;"rev-parse";"--verify";"-q";revspec^"^{commit}"]
-       >>= fun s -> return (Option.map ~f:Oci_Common.Commit.of_string_exn s)
+       match Oci_Common.Commit.of_string revspec with
+       | None -> slow_path src
+       | Some  _ as commit ->
+         Async_shell.run_one
+           ~expect:[0;1]
+           "git" ["-C";src;"rev-parse";"--verify";"-q";revspec^"^{commit}"]
+         >>= function
+         | Some c when c = revspec -> return commit
+         | _ -> slow_path src
     )
 
 let init ~dir ~register_saver ~identity_file:i =

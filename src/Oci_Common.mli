@@ -31,6 +31,7 @@ module Commit : sig
   val invariant: t -> bool
   val to_string: t -> string
   val of_string_exn: string -> t
+  val of_string: string -> t option
 end
 
 module User: sig
