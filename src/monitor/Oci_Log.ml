@@ -82,14 +82,18 @@ let create () =
   Table.add_exn db_log ~key:id ~data:q;
   (** write to disk *)
   don't_wait_for begin
-    Writer.open_file (log_file id)
+    let log_file = log_file id in
+    let log_file_part = Oci_Filename.add_extension log_file ".part" in
+    Writer.open_file log_file_part
     >>= fun writer ->
-    (** When the log end, new reader will read from the file *)
+    (** When the log end, new readers will read from the file *)
     Writer.transfer writer
       (Oci_Queue.read q)
       (Writer.write_bin_prot writer bin_writer_line)
     >>= fun () ->
     Writer.close writer
+    >>= fun () ->
+    Unix.rename ~src:log_file_part ~dst:log_file
     >>= fun () ->
     Table.remove db_log id;
     return ()

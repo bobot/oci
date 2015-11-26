@@ -88,7 +88,7 @@ let simple_runner ~binary_name ~error f =
 let simple_master f q =
   let log = Oci_Log.create () in
   (Monitor.try_with_or_error
-     ~name:"create_master"
+     ~name:"Oci_Master.simple_master"
      (fun () -> attach_log log (fun () -> f q))
    >>= fun r ->
    Oci_Log.close log
@@ -114,7 +114,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
         H.add_exn db ~key:q ~data:(ivar_d,log);
         begin
           Monitor.try_with_or_error
-            ~name:"create_master"
+            ~name:"Oci_Master.Make.create_master"
             (fun () -> attach_log log (fun () -> f q))
           >>> fun r ->
           Oci_Log.close log
