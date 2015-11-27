@@ -146,13 +146,26 @@ let xpra_runner t q =
   Unix.chmod ~perm:0o666 xpra_socket
   >>= fun () ->
   Oci_Runner.give_external_access t xpra_dir
-  >>= fun external_socket ->
+  >>= fun external_dir ->
+  let xpra_script = "remote-xpra.sh" in
+  let remote_xpra = Oci_Filename.make_absolute xpra_dir xpra_script in
+  Writer.open_file remote_xpra
+  >>= fun writer ->
+  Writer.writef writer "#!/bin/sh -ue\n";
+  Writer.writef writer "export XPRA_SOCKET_HOSTNAME=oci\n";
+  Writer.writef writer "export XPRA_SOCKET_DIR=%s" external_dir;
+  Writer.writef writer "exec xpra  \"$@\"";
+  Writer.close writer
+  >>= fun () ->
   Oci_Runner.cha_log t
-    "Run: XPRA_SOCKET_HOSTNAME=oci xpra attach :100 --socket-dir %s"
-    external_socket;
+    "Run locally: XPRA_SOCKET_HOSTNAME=oci xpra attach :100 --socket-dir %S"
+    external_dir;
+  Oci_Runner.cha_log t
+    "Run remotely: xpra attach --remote-xpra %S ssh:HOST:100"
+    (Oci_Filename.make_absolute external_dir xpra_script);
   xpra
   >>= fun () ->
-  return external_socket
+  return external_dir
 
 
 let () =

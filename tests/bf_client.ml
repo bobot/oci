@@ -33,6 +33,10 @@ let pp_kind fmt = function
   | Oci_Log.Error -> Format.fprintf fmt "E"
   | Oci_Log.Command -> Format.fprintf fmt "C"
 
+let print_time fmt t =
+  if Log.Global.level () = `Debug then Time.pp fmt t
+  else Format.pp_print_string fmt (Time.format t "%H:%M:%S.%N")
+
 let exec_one test input sexp_input sexp_output conn =
   debug "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both test) conn input
@@ -42,7 +46,7 @@ let exec_one test input sexp_input sexp_output conn =
       | Oci_Data.Line line when Console.is_color_tty () ->
         Format.printf
           "[%a] %s\n%!"
-          Time.pp line.Oci_Log.time
+          print_time line.Oci_Log.time
           (Console.Ansi.string_with_attr
              [Oci_Log.color_of_kind line.Oci_Log.kind]
              line.Oci_Log.line);
@@ -51,7 +55,7 @@ let exec_one test input sexp_input sexp_output conn =
         Format.printf
           "[%a: %a] %s@."
           pp_kind line.Oci_Log.kind
-          Time.pp line.Oci_Log.time
+          print_time line.Oci_Log.time
           line.Oci_Log.line;
         Deferred.unit
       | Oci_Data.Result r ->
@@ -239,7 +243,7 @@ module Configuration = struct
 
   let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
 
-  let gitclone ?(dir=Oci_Filename.current_dir) (_,url) =
+  let gitclone ?(dir=Oci_Filename.current_dir) url =
     Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
       {url;commit=dumb_commit;
        directory=dir}
@@ -248,7 +252,7 @@ module Configuration = struct
     let id = (name,url) in
     let data = {
       Oci_Generic_Masters_Api.CompileGitRepo.Query.deps = List.map ~f:fst deps;
-      cmds = (gitclone id)::cmds
+      cmds = (gitclone (snd id))::cmds
     }
     in
     String.Table.add_exn url_to_default_revspec
@@ -358,7 +362,7 @@ module Configuration = struct
       in
       let compilation =
         configure @ [
-          make [];
+          make ~j:8 [];
           make ["install"];
         ]
       in
@@ -435,14 +439,14 @@ module Configuration = struct
       let cloneplugins =
         plugins
         |> List.map ~f:(fun ((name,_) as pkg,_) ->
-            gitclone ~dir:(Oci_Filename.concat "src/plugins" name) pkg
+            gitclone ~dir:(Oci_Filename.concat "src/plugins" name) (snd pkg)
           )
       in
       let data = {
         Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
           List.dedup (List.map ~f:fst (framac_deps@plugins_deps));
         cmds =
-          [gitclone framac] @
+          [gitclone (snd framac)] @
           cloneplugins @
           framac_cmds @
           [run "frama-c" ["-plugins"]];
