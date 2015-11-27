@@ -224,5 +224,5 @@ let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
   run_exn t
     (* ~setuid:(Oci_Common.runner_user user).uid *)
     ~prog:"git"
-    ~args:["-C";dst;"checkout";"--detach";
+    ~args:["-C";dst;"-c";"advice.detachedHead=false";"checkout";"--detach";
            Oci_Common.Commit.to_string commit] ()

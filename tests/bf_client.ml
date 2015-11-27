@@ -35,7 +35,7 @@ let pp_kind fmt = function
 
 let print_time fmt t =
   if Log.Global.level () = `Debug then Time.pp fmt t
-  else Format.pp_print_string fmt (Time.format t "%H:%M:%S.%N")
+  else Format.pp_print_string fmt (Time.format t "%H:%M:%S")
 
 let exec_one test input sexp_input sexp_output conn =
   debug "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
@@ -103,6 +103,7 @@ let create_query _ccopt rootfs revspecs repo socket =
   } in
   let used_repos = Query.used_repos query in
   let cache = String.Table.create () in
+  let commits_cmdline = Buffer.create 100 in
   let get_commit url = String.Table.find_or_add cache url
       ~default:(fun () ->
           let def = String.Table.find_exn url_to_default_revspec url in
@@ -115,7 +116,11 @@ let create_query _ccopt rootfs revspecs repo socket =
           | None ->
             error "%s correspond to no known ref" def.name; exit 1
           | Some commit ->
-            info "--%s %s" def.name (Oci_Common.Commit.to_string commit);
+            let msg =sprintf " --%s %s"
+                def.name (Oci_Common.Commit.to_string commit)
+            in
+            info "%s: %s" def.name (Oci_Common.Commit.to_string commit);
+            Buffer.add_string commits_cmdline msg;
             return commit
         )
   in
@@ -139,6 +144,7 @@ let create_query _ccopt rootfs revspecs repo socket =
         return {repo with cmds}
       )
   >>= fun repos ->
+  info "commits:%s" (Buffer.contents commits_cmdline);
   return { query with repos}
 
 let run ccopt rootfs revspecs (repo:string) socket =
