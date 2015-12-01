@@ -25,30 +25,21 @@ open Async.Std
 open Rpc
 
 
-type 'a both =
-  | Line of Oci_Log.line
-  | Result of 'a Or_error.t with sexp, bin_io
-
 type ('query,'result) t = {
   rpc: ('query,'result Or_error.t) Rpc.t;
-  log: ('query, Oci_Log.line, Error.t) Pipe_rpc.t;
-  both: ('query, 'result both, Error.t)
-      Pipe_rpc.t;
+  log: ('query, 'result Oci_Log.line, Error.t) Pipe_rpc.t;
   forget: ('query,unit Or_error.t) Rpc.t;
   id : ('query * 'result) Type_equal.Id.t;
 } with fields
+
+exception NoResult
 
 let register ~name ~version ~bin_query ~bin_result = {
   rpc = Rpc.create ~name ~version
       ~bin_query ~bin_response:(Or_error.bin_t bin_result);
   log = Pipe_rpc.create ~name:(name^" Oci.log") ~version
       ~bin_query
-      ~bin_response:Oci_Log.bin_line
-      ~bin_error:Error.bin_t
-      ();
-  both = Pipe_rpc.create ~name:(name^" Oci.both") ~version
-      ~bin_query
-      ~bin_response:(bin_both bin_result)
+      ~bin_response:(Oci_Log.bin_line bin_result)
       ~bin_error:Error.bin_t
       ();
   forget = Rpc.create ~name:(name ^ " Oci.forget")

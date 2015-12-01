@@ -23,7 +23,7 @@
 open Core.Std
 open Async.Std
 
-type t
+type 'r t
 
 val start:
   implementations:
@@ -33,7 +33,12 @@ val start:
 
 val implement:
   ('query,'result) Oci_Data.t ->
-  (t -> 'query -> 'result Deferred.t) ->
+  ('result t -> 'query -> 'result Deferred.t) ->
+  Async.Std.Rpc.Connection.t Rpc.Implementation.t
+
+val implement_unit:
+  ('query,'result) Oci_Data.t ->
+  ('result t -> 'query -> unit Deferred.t) ->
   Async.Std.Rpc.Connection.t Rpc.Implementation.t
 
 type artefact = Oci_Common.Artefact.t with sexp, bin_io
@@ -44,52 +49,55 @@ val create_artefact:
   ?prune:Oci_Filename.t list ->
   ?only_new:bool ->
   (** specifies if linked files should be forgotten (default: true) *)
-  t ->
+  'r t ->
   dir:string -> artefact Deferred.t
 val link_artefact:
-  t -> ?user:Oci_Common.user_kind
+  'r t -> ?user:Oci_Common.user_kind
   -> artefact -> dir:string -> unit Deferred.t
 (** ro *)
 val copy_artefact:
-  t -> ?user:Oci_Common.user_kind
+  'r t -> ?user:Oci_Common.user_kind
   -> artefact -> dir:string -> unit Deferred.t
 (** rw *)
 
-val get_internet: t -> unit Deferred.t
-val git_clone: t ->
+val get_internet: 'r t -> unit Deferred.t
+val git_clone: 'r t ->
   ?user:Oci_Common.user_kind ->
   url:string ->
   dst:Oci_Filename.t ->
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
-val give_external_access: t -> Oci_Filename.t -> Oci_Filename.t Deferred.t
+val give_external_access: 'r t -> Oci_Filename.t -> Oci_Filename.t Deferred.t
 
-val get_proc: t -> int -> int Deferred.t
-val release_proc: t -> int -> unit Deferred.t
-val get_release_proc: t -> int -> (int -> 'a Deferred.t) -> 'a Deferred.t
+val get_proc: 'r t -> int -> int Deferred.t
+val release_proc: 'r t -> int -> unit Deferred.t
+val get_release_proc: 'r t -> int -> (int -> 'a Deferred.t) -> 'a Deferred.t
 
 
 val dispatch:
-  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t
+  'r t -> ('query,'result) Oci_Data.t -> 'query -> 'result Or_error.t Deferred.t
 val dispatch_exn:
-  t -> ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
+  'r t -> ('query,'result) Oci_Data.t -> 'query -> 'result Deferred.t
 
 
-val std_log: t -> ('a, unit, string, unit) format4 -> 'a
-val err_log: t -> ('a, unit, string, unit) format4 -> 'a
-val cha_log: t -> ('a, unit, string, unit) format4 -> 'a
-val cmd_log: t -> ('a, unit, string, unit) format4 -> 'a
+val std_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
+val err_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
+val cha_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
+val cmd_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
+val data_log: 'result t -> 'result -> unit
+val error_log: 'result t -> 'result Or_error.t -> unit
 
-val process_log: t -> Process.t -> unit
+val process_log: 'r t -> Process.t -> unit
 
 val process_create:
-  t -> Process.t Or_error.t Deferred.t Process.with_create_args
+  'r t -> Process.t Or_error.t Deferred.t Process.with_create_args
 (** both Process.create and process_log *)
 
 val print_cmd: string -> string list -> string
 
-val run: t -> Core.Std.Unix.Exit_or_signal.t Deferred.t Process.with_create_args
+val run: 'r t ->
+  Core.Std.Unix.Exit_or_signal.t Deferred.t Process.with_create_args
 
 exception CommandFailed
-val run_exn: t -> unit Deferred.t Process.with_create_args
+val run_exn: 'r t -> unit Deferred.t Process.with_create_args
 (** Same as {!run} but raise CommandFailed in case of error *)

@@ -29,35 +29,58 @@ type kind =
 
 val color_of_kind: kind -> [> `Black | `Underscore | `Red | `Blue]
 
-type line = {
-  kind : kind;
-  line : string;
+type 'a data =
+  | Std of kind * string
+  | Extra of 'a Or_error.t
+with sexp, bin_io
+
+type 'a line = {
+  data : 'a data;
   time : Time.t;
 } with sexp, bin_io
 
-val line: kind -> string -> line
+val line: kind -> string -> 'a line
+val data: 'a Or_error.t -> 'a line
 
-type t
+type 'result writer
+(** alive log *)
+val create: unit -> 'result writer
+val transfer: 'result writer -> 'result line Pipe.Reader.t -> unit Deferred.t
+val add_without_pushback: 'result writer -> 'result line -> unit
+val add: 'result writer -> 'result line -> unit Deferred.t
+val close: 'result writer -> unit Deferred.t
+val read_writer: 'result writer -> 'result line Pipe.Reader.t
 
-include Binable.S with type t := t
-
-val create: unit -> t
-val null: t
-(** a log without any line *)
+type 'result reader
+val read: 'result reader -> 'result line Pipe.Reader.t
+val init: ('result writer -> unit Deferred.t) -> 'result reader
 
 exception Closed_Log
 
-val transfer: t -> line Pipe.Reader.t -> unit Deferred.t
-val write_without_pushback: t -> line -> unit
-val close: t -> unit Deferred.t
+module Make(S: sig
+    val dir: Oci_Filename.t Deferred.t
+    val register_saver:
+      loader:(unit -> unit Deferred.t) ->
+      saver:(unit -> unit Deferred.t) ->
+      unit
+    type t with bin_io
+  end): sig
 
-val read: t -> line Pipe.Reader.t Deferred.t
+  type t
+  (** saved log *)
 
-val init:
-  dir:string ->
-  register_saver:(loader:(unit -> unit Deferred.t) ->
-                  saver:(unit -> unit Deferred.t) ->
-                  unit)
-  -> unit
+  include Binable.S with type t := t
 
-val t_type_id: t Univ_map.Key.t
+  val create: unit -> t
+  val null: t
+  (** a log without any line *)
+
+  val transfer: t -> S.t line Pipe.Reader.t -> unit Deferred.t
+  val add_without_pushback: t -> S.t line -> unit
+  val close: t -> unit Deferred.t
+
+  val read: t -> S.t line Pipe.Reader.t
+  val reader: t -> S.t reader
+  val writer: t -> S.t writer
+  val is_closed: t -> bool
+end

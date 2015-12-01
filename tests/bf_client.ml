@@ -39,29 +39,29 @@ let print_time fmt t =
 
 let exec_one test input sexp_input sexp_output conn =
   debug "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
-  Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both test) conn input
+  Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log test) conn input
   >>= fun (p,_) ->
   let open Textutils.Std in
   Pipe.iter p ~f:(function
-      | Oci_Data.Line line when Console.is_color_tty () ->
+      | {Oci_Log.data=Oci_Log.Std (kind,line);time}
+        when Console.is_color_tty () ->
         Format.printf
           "[%a] %s\n%!"
-          print_time line.Oci_Log.time
+          print_time time
           (Console.Ansi.string_with_attr
-             [Oci_Log.color_of_kind line.Oci_Log.kind]
-             line.Oci_Log.line);
+             [Oci_Log.color_of_kind kind]
+             line);
         Deferred.unit
-      | Oci_Data.Line line ->
+      | {Oci_Log.data=Oci_Log.Std (kind,line);time} ->
         Format.printf
           "[%a: %a] %s@."
-          pp_kind line.Oci_Log.kind
-          print_time line.Oci_Log.time
-          line.Oci_Log.line;
+          pp_kind kind
+          print_time time
+          line;
         Deferred.unit
-      | Oci_Data.Result r ->
-        debug "[Result] For %s@."
-          (Sexp.to_string_hum (sexp_input input));
-        info "result %s"
+      | {Oci_Log.data=Oci_Log.Extra r} ->
+        Format.printf
+          "[Result] %s@."
           (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
         Deferred.unit
     )

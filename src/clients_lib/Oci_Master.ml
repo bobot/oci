@@ -38,12 +38,18 @@ let stop_runner conn =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_stop_runner conn ()
 let permanent_directory = Oci_Artefact.permanent_directory
 
+type exists_log =
+  | Log: 'a Oci_Log.writer -> exists_log
+
+let log_id: exists_log Type_equal.Id.t =
+  Type_equal.Id.create ~name:"Oci_Master.log.t" sexp_of_opaque
+
 let get_log () =
   Option.value_exn ~message:"No log currently attached"
-    (Scheduler.find_local Oci_Log.t_type_id)
+    (Scheduler.find_local log_id)
 
 let attach_log l f =
-  Scheduler.with_local Oci_Log.t_type_id (Some l) ~f
+  Scheduler.with_local log_id (Some (Log l)) ~f
 
 let simple_register_saver ?(init=(fun () -> return ())) ~basename
     ~loader ~saver data bin_t =
@@ -86,75 +92,94 @@ let simple_runner ~binary_name ~error f =
   ]
 
 let simple_master f q =
-  let log = Oci_Log.create () in
-  (Monitor.try_with_or_error
-     ~name:"Oci_Master.simple_master"
-     (fun () -> attach_log log (fun () -> f q))
-   >>= fun r ->
-   Oci_Log.close log
-   >>= fun () ->
-   return r),log
+  Oci_Log.init (fun log ->
+      Monitor.try_with_or_error
+        ~name:"Oci_Master.simple_master"
+        (fun () -> attach_log log (fun () -> f q))
+      >>= fun res ->
+      Oci_Log.add log (Oci_Log.data res)
+    )
 
 
 module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
   module H = Hashtbl.Make(Query)
 
-  type save_data = (Query.t * (Result.t Or_error.t * Oci_Log.t)) list
-  with bin_io
 
-  let create_master (data:(Query.t,Result.t) Oci_Data.t) f =
-    let db : ((Result.t Or_error.t Deferred.t * Oci_Log.t)) H.t = H.create () in
-    let f q =
-      match H.find db q with
-      | Some r -> r
-      | None ->
-        let ivar = Ivar.create () in
-        let log = Oci_Log.create () in
-        let ivar_d = Ivar.read ivar in
-        H.add_exn db ~key:q ~data:(ivar_d,log);
-        begin
-          Monitor.try_with_or_error
-            ~name:"Oci_Master.Make.create_master"
-            (fun () -> attach_log log (fun () -> f q))
-          >>> fun r ->
-          Oci_Log.close log
-          >>> fun () ->
-          Ivar.fill ivar r
-        end;
-        (ivar_d,log)
-    in
-    let forget q =
-      if H.mem db q then H.remove db q;
-      Deferred.Or_error.return ()
-    in
-    register_saver
-      ~name:(Oci_Data.name data)
-      ~loader:(fun () ->
-          permanent_directory data
-          >>= fun dir ->
-          let file = Oci_Filename.make_absolute dir "data" in
-          Oci_Std.read_if_exists file bin_reader_save_data
-            (fun r ->
-               List.iter
-                 ~f:(fun (q,(r,l)) -> H.add_exn db ~key:q ~data:(return r,l))
-                 r;
-               return ())
-        )
-      ~saver:(fun () ->
-          let l = H.fold ~init:[]
-              ~f:(fun ~key ~data:(data,log) acc ->
-                  Option.fold ~init:acc (Deferred.peek data)
-                    ~f:(fun acc data -> (key,(data,log))::acc)
-                ) db in
-          permanent_directory data
-          >>= fun dir ->
-          let file = Oci_Filename.make_absolute dir "data" in
-          Oci_Std.backup_and_open_file file
-          >>= fun writer ->
-          Writer.write_bin_prot writer bin_writer_save_data l;
-          Writer.close writer
-        );
-    register ~forget data f
+  module CreateMaster(S:sig
+      val data: (Query.t,Result.t) Oci_Data.t
+    end) = struct
+
+    module Log = Oci_Log.Make(struct
+        let dir =
+          permanent_directory S.data
+          >>= fun d ->
+          return (Oci_Filename.make_absolute d "log")
+        let register_saver =
+          register_saver ~name:((Oci_Data.name S.data)^"@log")
+        include Result
+      end)
+
+    type save_data = (Query.t * Log.t) list
+    with bin_io
+
+    let create_master f =
+      let db : Log.t H.t =
+        H.create () in
+      let f q =
+        match H.find db q with
+        | Some r -> Log.reader r
+        | None ->
+          let log = Log.create () in
+          H.add_exn db ~key:q ~data:log;
+          don't_wait_for begin
+            Monitor.try_with_or_error
+              ~name:"Oci_Master.Make.create_master"
+              (fun () -> attach_log (Log.writer log) (fun () -> f q))
+            >>= fun r ->
+            Log.add_without_pushback log (Oci_Log.data r);
+            Log.close log
+          end;
+          Log.reader log
+      in
+      let forget q =
+        if H.mem db q then H.remove db q;
+        Deferred.Or_error.return ()
+      in
+      register_saver
+        ~name:(Oci_Data.name S.data)
+        ~loader:(fun () ->
+            permanent_directory S.data
+            >>= fun dir ->
+            let file = Oci_Filename.make_absolute dir "data" in
+            Oci_Std.read_if_exists file bin_reader_save_data
+              (fun r ->
+                 List.iter
+                   ~f:(fun (q,l) -> H.add_exn db ~key:q ~data:l)
+                   r;
+                 return ())
+          )
+        ~saver:(fun () ->
+            let l = H.fold ~init:[]
+                ~f:(fun ~key ~data:log acc ->
+                    if Log.is_closed log
+                    then (key,log)::acc
+                    else acc
+                  ) db in
+            permanent_directory S.data
+            >>= fun dir ->
+            let file = Oci_Filename.make_absolute dir "data" in
+            Oci_Std.backup_and_open_file file
+            >>= fun writer ->
+            Writer.write_bin_prot writer bin_writer_save_data l;
+            Writer.close writer
+          );
+      register ~forget S.data f
+
+  end
+
+  let create_master data f =
+    let module M = CreateMaster(struct let data = data end) in
+    M.create_master f
 
   let create_master_and_runner data ?(binary_name=Oci_Data.name data) ~error f =
     create_master data (fun q -> simple_runner ~binary_name ~error
@@ -164,11 +189,13 @@ end
 
 let write_log kind fmt =
   Printf.ksprintf (fun s ->
-      let log = get_log () in
-      s
-      |> String.split_lines
-      |> List.iter ~f:(fun line ->
-          Oci_Log.write_without_pushback log (Oci_Log.line kind line))
+      match get_log () with
+      | Log log ->
+        s
+        |> String.split_lines
+        |> List.iter ~f:(fun line ->
+            Oci_Log.add_without_pushback log (Oci_Log.line kind line)
+          )
     ) fmt
 
 let std_log fmt = write_log Oci_Log.Standard fmt
@@ -178,61 +205,72 @@ let cha_log fmt = write_log Oci_Log.Chapter fmt
 
 exception Internal_error with sexp
 
-let dispatch_runner ?msg d t q =
-  let log = get_log () in
-  cmd_log "dispatch runner %s%s"
-    (Oci_Data.name d) (Option.value ~default:"" msg);
-  let r : 'a Or_error.t Ivar.t = Ivar.create () in
-  begin
-    (Rpc.Pipe_rpc.dispatch (Oci_Data.both d) t q)
-    >>= fun res -> match Or_error.join res with
-    | Error _ as err -> Ivar.fill r err; Deferred.unit
-    | Ok (p, _) ->
-      let p = Pipe.map ~f:(function
-          | Oci_Data.Line l -> l
-          | Oci_Data.Result err ->
-            Ivar.fill r err;
-            match err with
-            | Core_kernel.Result.Ok _ ->
-              Oci_Log.line Oci_Log.Standard "result received"
-            | Core_kernel.Result.Error _ ->
-              Oci_Log.line Oci_Log.Error "error received"
-        )
-          p in
-      upon (Pipe.closed p)
-        (fun () -> Ivar.fill_if_empty r (Or_error.of_exn Internal_error));
-      Oci_Log.transfer log p
-  end
-  >>= fun () ->
-  Ivar.read r
+
+exception NoResult
 
 let print_msg msg =
   msg
   |> Option.map ~f:(fun s -> " "^s)
   |> Option.value ~default:""
 
+let dispatch_runner ?msg d t q =
+  match get_log () with
+  | Log log ->
+    cmd_log "dispatch runner %s%s" (Oci_Data.name d) (print_msg msg);
+    let r = Ivar.create () in
+    begin
+      Rpc.Pipe_rpc.dispatch (Oci_Data.log d) t q
+      >>= fun res -> match Or_error.join res with
+      | Error _ as err -> Ivar.fill r err; Deferred.unit
+      | Ok (p,_) ->
+        let p = Pipe.map p ~f:(function
+            | {Oci_Log.data=Oci_Log.Std _;_} as l -> l
+            | {Oci_Log.data=Oci_Log.Extra res} ->
+              Ivar.fill r res;
+              match res with
+              | Core_kernel.Result.Ok _ ->
+                Oci_Log.line Oci_Log.Standard "result received"
+              | Core_kernel.Result.Error _ ->
+                Oci_Log.line Oci_Log.Error "error received"
+          )
+        in
+        upon (Pipe.closed p)
+          (fun () -> Ivar.fill_if_empty r (Or_error.of_exn NoResult));
+        Oci_Log.transfer log p
+    end
+    >>= fun () ->
+    Ivar.read r
+
 let dispatch_runner_exn ?msg d t q =
-  let log = get_log () in
+  match get_log () with
+  | Log log ->
+    cmd_log "dispatch runner %s%s" (Oci_Data.name d) (print_msg msg);
+    let r = Ivar.create () in
+    Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log d) t q
+    >>= fun (p,_) ->
+    let p = Pipe.map p ~f:(function
+        | {Oci_Log.data=Oci_Log.Std _;_} as l -> l
+        | {Oci_Log.data=Oci_Log.Extra (Core_kernel.Result.Ok res)} ->
+          Ivar.fill r res;
+          Oci_Log.line Oci_Log.Standard "result received"
+        | {Oci_Log.data=Oci_Log.Extra (Core_kernel.Result.Error err)} ->
+          Oci_Log.add_without_pushback log
+            (Oci_Log.line Oci_Log.Error "error received");
+          Error.raise err
+      )
+    in
+    upon (Pipe.closed p)
+      (fun () -> if Ivar.is_empty r then raise NoResult);
+    Oci_Log.transfer log p
+    >>= fun () ->
+    Ivar.read r
+
+let dispatch_runner_log ?msg log d t q =
   cmd_log "dispatch runner %s%s" (Oci_Data.name d) (print_msg msg);
-  let r = Ivar.create () in
-  Rpc.Pipe_rpc.dispatch_exn (Oci_Data.both d) t q
+  Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log d) t q
   >>= fun (p,_) ->
-  let p = Pipe.map ~f:(function
-      | Oci_Data.Line l -> l
-      | Oci_Data.Result (Core_kernel.Result.Ok res) ->
-        Ivar.fill r res;
-        Oci_Log.line Oci_Log.Standard "result received"
-      | Oci_Data.Result (Core_kernel.Result.Error err) ->
-        Oci_Log.write_without_pushback log
-          (Oci_Log.line Oci_Log.Error "error received");
-        Error.raise err
-    )
-      p in
-  upon (Pipe.closed p)
-    (fun () -> if Ivar.is_empty r then raise Internal_error);
   Oci_Log.transfer log p
-  >>= fun () ->
-  Ivar.read r
+
 
 let dispatch_master ?msg d q =
   cmd_log "dispatch master %s%s" (Oci_Data.name d) (print_msg msg);

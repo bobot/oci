@@ -22,10 +22,6 @@
 
 open Core.Std
 
-type 'a both =
-  | Line of Oci_Log.line
-  | Result of 'a Or_error.t with sexp, bin_io
-
 type ('query,'result) t
 
 val register:
@@ -37,16 +33,15 @@ val register:
 
 open Async.Std
 
+exception NoResult
+
+
 val name: ('query,'result) t -> string
 val version: ('query,'result) t -> int
 val rpc: ('query,'result) t -> ('query,'result Or_error.t) Rpc.Rpc.t
-val log: ('query,'result) t -> ('query, Oci_Log.line, Error.t) Rpc.Pipe_rpc.t
-val both:
-  ('query,'result) t ->
-  ('query, 'result both, Error.t) Rpc.Pipe_rpc.t
-(**
-   the invariant is that [Result r] appear only once at the end of the stream
-*)
+(** return the first data of the log, or {!NoResult} if none *)
+val log: ('query,'result) t ->
+  ('query, 'result Oci_Log.line, Error.t) Rpc.Pipe_rpc.t
 val forget: ('query,'result) t -> ('query, unit Or_error.t) Rpc.Rpc.t
 (** If the 'query are memoized forget the previous computation.
     does nothing if there is nothing to forget *)

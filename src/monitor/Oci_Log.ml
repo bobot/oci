@@ -25,18 +25,24 @@ open Async.Std
 
 type kind =
   | Standard | Error | Chapter | Command
-    with sexp, bin_io
+with sexp, bin_io
 
-type line = {
-  kind : kind;
-  line : string;
+type 'a data =
+  | Std of kind * string
+  | Extra of 'a Or_error.t
+with sexp, bin_io
+
+type 'a line = {
+  data : 'a data;
   time : Time.t;
 } with sexp, bin_io
 
 (* let line_invariant line = not (String.contains line.line '\n') *)
 
 let line kind line =
-  {kind;line;time=Time.now ()}
+  {data=Std(kind,line);time=Time.now ()}
+let data data =
+  {data=Extra data;time=Time.now ()}
 
 let color_of_kind = function
   | Standard -> `Black
@@ -44,97 +50,155 @@ let color_of_kind = function
   | Chapter -> `Underscore
   | Command -> `Blue
 
-module Log_Id : Int_intf.S = Int
+type 'result reader = {mutable state: (unit -> 'result line Pipe.Reader.t)}
 
-include Log_Id
+type 'result writer = 'result line Oci_Queue.t
 
-let permanent_dir = ref ""
-let next_id = ref (of_int_exn 0)
-let null : t = (of_int_exn 0)
-
-(** The database of log being currently, the one that already ended
-    (in this session or a previous one) are stored on disk
-*)
-let db_log: line Oci_Queue.t Table.t = Table.create ()
-
-let log_file id =
-  Oci_Filename.make_absolute !permanent_dir (to_string id)
-
-
-let read_from_file id =
-  Reader.open_file (log_file id)
-  >>= fun reader ->
-  let pipe,_ = Unpack_sequence.unpack_into_pipe
-      ~from:(Unpack_sequence.Unpack_from.Reader reader)
-      ~using:(Unpack_buffer.create_bin_prot bin_reader_line) in
-  return pipe
-
-let read id =
-  match Table.find db_log id with
-  | None -> read_from_file id
-  | Some q -> return (Oci_Queue.read q)
-
-let create () =
-  incr next_id;
-  let id = !next_id in
-  (** create the queue storage *)
-  let q = Oci_Queue.create () in
-  Table.add_exn db_log ~key:id ~data:q;
-  (** write to disk *)
-  don't_wait_for begin
-    let log_file = log_file id in
-    let log_file_part = Oci_Filename.add_extension log_file ".part" in
-    Writer.open_file log_file_part
-    >>= fun writer ->
-    (** When the log end, new readers will read from the file *)
-    Writer.transfer writer
-      (Oci_Queue.read q)
-      (Writer.write_bin_prot writer bin_writer_line)
-    >>= fun () ->
-    Writer.close writer
-    >>= fun () ->
-    Unix.rename ~src:log_file_part ~dst:log_file
-    >>= fun () ->
-    Table.remove db_log id;
-    return ()
-  end;
-  id
+let reader t = {state = fun () -> Oci_Queue.read t}
+let read t = t.state ()
+let create () = Oci_Queue.create ()
+let close = Oci_Queue.close
+let init f =
+  let log = create () in
+  don't_wait_for (f log >>= fun () -> close log);
+  reader log
+let read_writer = Oci_Queue.read
+let add_without_pushback = Oci_Queue.add_without_pushback
+let add = Oci_Queue.add
+let transfer = Oci_Queue.transfer_id
 
 exception Closed_Log
 
-let transfer id p =
-  match Table.find db_log id with
-  | None -> raise Closed_Log
-  | Some q -> Oci_Queue.transfer_id q p
+module Make(S: sig
+    val dir: Oci_Filename.t Deferred.t
+    val register_saver:
+      loader:(unit -> unit Deferred.t) ->
+      saver:(unit -> unit Deferred.t) ->
+      unit
+    type t with bin_io
+  end) = struct
+  module Log_Id : Int_intf.S = Int
 
-let write_without_pushback id line =
-  match Table.find db_log id with
-  | None -> raise Closed_Log
-  | Some q -> Oci_Queue.add_without_pushback q line
+  include Log_Id
 
-let close id =
-  match Table.find db_log id with
-  | None -> return ()
-  | Some q -> Oci_Queue.close q
+  let next_id = ref (of_int_exn 0)
+  let null : t = (of_int_exn 0)
 
-let init ~dir ~register_saver =
-  permanent_dir := dir;
-  let data = Oci_Filename.make_absolute dir "data" in
-  register_saver
-    ~loader:(fun () ->
-        Oci_Std.read_if_exists data bin_reader_t
-          (fun x -> next_id := x; return ())
-        >>= fun () ->
-        (** create null file *)
-        Writer.open_file (log_file null)
-        >>= fun writer ->
-        Writer.close writer
-      )
-    ~saver:(fun () ->
-        Oci_Std.backup_and_open_file data
-        >>= fun writer ->
-        Writer.write_bin_prot writer bin_writer_t !next_id;
-        Writer.close writer
-      )
+  (** The database of log being currently, the one that already ended
+      (in this session or a previous one) are stored on disk
+  *)
+  let db_log: (S.t line Oci_Queue.t * S.t reader) Table.t = Table.create ()
 
-let t_type_id = Type_equal.Id.create ~name:"Oci_Log.t" sexp_of_t
+  let dir = S.dir
+    >>= fun dir -> Unix.mkdir ~p:() dir
+    >>= fun () -> return dir
+
+  let log_file id =
+    dir
+    >>= fun d ->
+    return (Oci_Filename.make_absolute d (to_string id))
+
+  let read_from_file id =
+    let r,w = Pipe.create () in
+    don't_wait_for begin
+      log_file id
+      >>= fun file ->
+      Reader.open_file file
+      >>= fun reader ->
+      let pipe,_ = Unpack_sequence.unpack_into_pipe
+          ~from:(Unpack_sequence.Unpack_from.Reader reader)
+          ~using:(Unpack_buffer.create_bin_prot
+                    (bin_reader_line S.bin_reader_t)) in
+      Pipe.transfer_id pipe w
+    end;
+    r
+
+  let read id =
+     match Table.find db_log id with
+    | None -> read_from_file id
+    | Some (q,_) -> Oci_Queue.read q
+
+  let reader id =
+    match Table.find db_log id with
+    | None -> { state = fun () -> read_from_file id }
+    | Some (_,r) -> r
+
+  let writer id =
+    match Table.find db_log id with
+    | None -> raise Closed_Log
+    | Some (q,_) -> q
+
+  let create () =
+    incr next_id;
+    let id = !next_id in
+    (** create the queue storage *)
+    let q = Oci_Queue.create () in
+    let r = { state = fun () -> Oci_Queue.read q } in
+    Table.add_exn db_log ~key:id ~data:(q,r);
+    (** write to disk *)
+    don't_wait_for begin
+      log_file id
+      >>= fun log_file ->
+      let log_file_part = Oci_Filename.add_extension log_file ".part" in
+      Writer.open_file log_file_part
+      >>= fun writer ->
+      (** When the log end, new readers will read from the file *)
+      Writer.transfer writer
+        (Oci_Queue.read q)
+        (Writer.write_bin_prot writer
+           (bin_writer_line S.bin_writer_t))
+      >>= fun () ->
+      Writer.close writer
+      >>= fun () ->
+      Unix.rename ~src:log_file_part ~dst:log_file
+      >>= fun () ->
+      r.state <- (fun () -> read_from_file id);
+      Table.remove db_log id;
+      return ()
+    end;
+    id
+
+  let transfer id p =
+    match Table.find db_log id with
+    | None -> raise Closed_Log
+    | Some (q,_) -> Oci_Queue.transfer_id q p
+
+  let add_without_pushback id line =
+    match Table.find db_log id with
+    | None -> raise Closed_Log
+    | Some (q,_) -> Oci_Queue.add_without_pushback q line
+
+  let close id =
+    match Table.find db_log id with
+    | None -> return ()
+    | Some (q,_) -> Oci_Queue.close q
+
+  let is_closed id = not (Table.mem db_log id)
+
+  let () =
+    let data =
+      dir
+      >>= fun dir ->
+      return (Oci_Filename.make_absolute dir "data") in
+    S.register_saver
+      ~loader:(fun () ->
+          data >>= fun data ->
+          Oci_Std.read_if_exists data bin_reader_t
+            (fun x -> next_id := x; return ())
+          >>= fun () ->
+          (** create null file *)
+          log_file null
+            >>= fun log_file ->
+          Writer.open_file log_file
+          >>= fun writer ->
+          Writer.close writer
+        )
+      ~saver:(fun () ->
+          data >>= fun data ->
+          Oci_Std.backup_and_open_file data
+          >>= fun writer ->
+          Writer.write_bin_prot writer bin_writer_t !next_id;
+          Writer.close writer
+        )
+
+end

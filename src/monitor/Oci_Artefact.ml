@@ -50,7 +50,8 @@ type conf = {
   proc: unit Pipe.Reader.t * unit Pipe.Writer.t;
 }
 
-let gconf = ref None
+let gconf_ivar = Ivar.create ()
+let gconf = Ivar.read gconf_ivar
 
 type t = Oci_Common.Artefact.t
 
@@ -60,7 +61,9 @@ exception Can't_copy_this_file of Oci_Filename.t with sexp
 let get_conf () =
   Option.value_exn
     ~message:"Configuration can't be used before starting the `run` function"
-    !gconf
+    (Deferred.peek gconf)
+
+
 
 let dir_of_artefact id =
   let dir = Oci_Filename.mk (Artefact.to_string id) in
@@ -168,7 +171,8 @@ let remove_dir dir =
   Async_shell.run "rm" ["-rf";"--"; Oci_Filename.get dir]
 
 let permanent_directory data =
-  let conf = get_conf () in
+  gconf
+  >>= fun conf ->
   let dir =
     Oci_Filename.make_absolute conf.permanent
       (Oci_Filename.concat (Oci_Data.name data)
@@ -257,19 +261,29 @@ let dispatch_master_exn d q =
   Deferred.Or_error.ok_exn
     ((Direct_Master.find_exn d) q)
 
+
+
 let register_master
     ?(forget=fun _ -> Deferred.Or_error.return ())
-    data f : unit =
+    data (f: 'query -> 'result Oci_Log.reader) : unit =
   let name = (Printf.sprintf "Master %s" (Oci_Data.name data)) in
-  let f' q =
-    let res, log = f q in
-    upon res (fun _ -> don't_wait_for (Oci_Log.close log));
-    res,log
-  in
   let simple_rpc {rootfs} q =
     debug "%s called from %s" name rootfs;
     Monitor.try_with_join_or_error
-      ~name (fun () -> fst (f' q)) in
+      ~name (fun () ->
+          let r = f q in
+          let r = Oci_Log.read r in
+          let r = Pipe.filter_map r ~f:(function
+              | {Oci_Log.data = Oci_Log.Extra x} -> Some x
+              | _ -> None )
+          in
+          Pipe.read r
+          >>= function
+          | `Eof -> raise Oci_Data.NoResult
+          | `Ok x ->
+            Pipe.close_read r;
+            return x)
+  in
   Direct_Master.add_exn
     ~key:data
     ~data:(simple_rpc {rootfs="a master";proc_got=0});
@@ -279,32 +293,9 @@ let register_master
       (Rpc.Pipe_rpc.implement (Oci_Data.log data)
          (fun {rootfs} q ~aborted:_ ->
             debug "%s log called from %s" name rootfs;
-              Monitor.try_with_or_error ~name
-                (fun () -> Oci_Log.read (snd (f' q)))
-         ));
-  masters := Rpc.Implementations.add_exn !masters
-      (Rpc.Pipe_rpc.implement (Oci_Data.both data)
-         (fun {rootfs} q ~aborted:_ ->
-            debug "%s both called from %s" name rootfs;
             Monitor.try_with_or_error ~name
-              (fun () ->
-                 return begin
-                   Pipe.init (fun (writer:
-                                     'result Oci_Data.both Pipe.Writer.t) ->
-                       let res,log = (f' q) in
-                       Oci_Log.read log
-                       >>= fun log ->
-                       Pipe.transfer log writer
-                         ~f:(fun l -> Oci_Data.Line l)
-                       >>= fun () ->
-                       res
-                       >>= fun res ->
-                       Pipe.write writer (Oci_Data.Result res)
-                     )
-                 end
-              )
-         )
-      );
+              (fun () -> return (Oci_Log.read (f q)))
+         ));
   let forget _ q = Monitor.try_with_join_or_error (fun () -> forget q) in
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Rpc.implement (Oci_Data.forget data) forget);
@@ -539,7 +530,7 @@ let run () =
       api_for_runner = add_artefact_api !masters;
       proc = create_proc conf_monitor.proc;
     } in
-    gconf := Some conf;
+    Ivar.fill gconf_ivar conf;
     if conf_monitor.debug_level then Log.Global.set_level `Debug;
     Async_shell.run "rm" ["-rf";"--";
                           conf.runners;conf.binaries;conf.external_access;]
@@ -587,7 +578,6 @@ let run () =
     >>> fun () ->
     register_saver ~name:"artifact"
       ~loader:loader_artifact_data ~saver:saver_artifact_data;
-    Oci_Log.init ~dir:conf.log ~register_saver:(register_saver ~name:"Log");
     Oci_Git.init ~dir:conf.git ~register_saver:(register_saver ~name:"Git")
       ~identity_file;
     load ()

@@ -23,9 +23,9 @@
 open Core.Std
 open Async.Std
 
-type t = {
+type 'r t = {
   connection : Rpc.Connection.t;
-  log : Oci_Log.line Pipe.Writer.t;
+  log : 'r Oci_Log.line Pipe.Writer.t;
 }
 
 (** Enter inside the namespace *)
@@ -66,22 +66,14 @@ let start ~implementations =
 
 let implement data f =
   Rpc.Pipe_rpc.implement
-    (Oci_Data.both data)
+    (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
        let reader,writer = Pipe.create () in
-       let res = Ivar.create () in
        begin
-         Pipe.init
-           (fun log ->
-              Monitor.try_with_or_error
-                (fun () -> f {connection;log} q)
-              >>= fun r -> Ivar.fill res r; Deferred.unit)
-         |> fun log -> Pipe.transfer log writer
-           ~f:(fun l -> Oci_Data.Line l)
-         >>> fun () ->
-         Ivar.read res
+         Monitor.try_with_or_error
+           (fun () -> f {connection;log=writer} q)
          >>> fun res ->
-         Pipe.write writer (Oci_Data.Result res)
+         Pipe.write writer (Oci_Log.data res)
          >>> fun () ->
          Pipe.downstream_flushed writer
          >>> fun _ ->
@@ -90,6 +82,28 @@ let implement data f =
        Deferred.Or_error.return reader
     )
 
+
+let implement_unit data f =
+  Rpc.Pipe_rpc.implement
+    (Oci_Data.log data)
+    (fun connection q ~aborted:_ ->
+       let reader,writer = Pipe.create () in
+       begin
+         Monitor.try_with_or_error
+           (fun () -> f {connection;log=writer} q)
+         >>> fun res ->
+         begin match res with
+           | Ok () -> return ()
+           | Error err ->
+             Pipe.write writer (Oci_Log.data (Error err))
+         end
+         >>> fun () ->
+         Pipe.downstream_flushed writer
+         >>> fun _ ->
+         Pipe.close writer
+       end;
+       Deferred.Or_error.return reader
+    )
 
 let write_log kind t fmt =
   Printf.ksprintf (fun s ->
@@ -104,6 +118,12 @@ let std_log t fmt = write_log Oci_Log.Standard t fmt
 let err_log t fmt = write_log Oci_Log.Error t fmt
 let cmd_log t fmt = write_log Oci_Log.Command t fmt
 let cha_log t fmt = write_log Oci_Log.Chapter t fmt
+let data_log t d =
+  Pipe.write_without_pushback t.log
+    (Oci_Log.data (Or_error.return d))
+let error_log t d =
+  Pipe.write_without_pushback t.log
+    (Oci_Log.data d)
 
 type artefact = Oci_Common.Artefact.t with sexp, bin_io
 

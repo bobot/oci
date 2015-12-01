@@ -106,7 +106,9 @@ let init_compile_git_repo () =
   Oci_Master.register
     Oci_Generic_Masters_Api.GitRemoteBranch.rpc
     (fun q ->
-       Monitor.try_with_or_error
-         (fun () ->
-            Oci_Git.get_remote_branch_commit ~url:q.url ~revspec:q.revspec),
-       Oci_Log.null)
+       Oci_Log.init (fun log ->
+           Monitor.try_with_or_error (fun () ->
+               Oci_Git.get_remote_branch_commit ~url:q.url ~revspec:q.revspec)
+           >>= fun res ->
+           Oci_Log.add log (Oci_Log.data res)
+         ))

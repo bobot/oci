@@ -55,6 +55,13 @@ val dispatch_runner_exn:
   Rpc.Connection.t ->
   'query -> 'result Deferred.t
 
+val dispatch_runner_log:
+  ?msg:string ->
+  'result Oci_Log.writer ->
+  ('query,'result) Oci_Data.t ->
+  Rpc.Connection.t ->
+  'query -> unit Deferred.t
+
 val dispatch_master:
   ?msg:string ->
   ('query,'result) Oci_Data.t ->
@@ -64,6 +71,8 @@ val dispatch_master_exn:
   ('query,'result) Oci_Data.t ->
   'query -> 'result Deferred.t
 
+
+val attach_log: 'a Oci_Log.writer -> (unit -> 'b) -> 'b
 val std_log: ('a, unit, string, unit) format4 -> 'a
 val err_log: ('a, unit, string, unit) format4 -> 'a
 val cha_log: ('a, unit, string, unit) format4 -> 'a
@@ -77,7 +86,7 @@ val oci_at_shutdown: (unit -> unit Deferred.t) -> unit
 val register:
   ?forget: ('query -> unit Or_error.t Deferred.t) ->
   ('query,'result) Oci_Data.t ->
-  ('query -> 'result Or_error.t Deferred.t * Oci_Log.t) ->
+  ('query -> 'result Oci_Log.reader) ->
   unit
 (** There is only one master of a given sort by session. It must keep
       track of which tasks are running, and which tasks have been
@@ -100,7 +109,7 @@ val simple_runner:
 
 val simple_master:
   ('a -> 'b Deferred.t) ->
-  'a -> ('b Core_kernel.Std.Or_error.t Deferred.t * Oci_Log.t)
+  'a -> 'b Oci_Log.reader
 
 val register_saver:
   name:string ->
@@ -124,9 +133,6 @@ val start_runner:
     error of the process, the second one is determined when the
     connection is established.
 *)
-
-val get_log: unit -> Oci_Log.t
-val attach_log: Oci_Log.t -> (unit -> 'a) -> 'a
 
 val stop_runner: Rpc.Connection.t -> unit Deferred.t
 (** Ask the runner to stop *)
