@@ -35,6 +35,11 @@ module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
     (Query.t -> Result.t Deferred.t) ->
     unit
 
+  val create_master_unit:
+    (Query.t,Result.t) Oci_Data.t ->
+    (Query.t -> Result.t Oci_Log.writer -> unit Deferred.t) ->
+    unit
+
   val create_master_and_runner:
     (Query.t,Result.t) Oci_Data.t ->
     ?binary_name:string ->
@@ -70,6 +75,10 @@ val dispatch_master_exn:
   ?msg:string ->
   ('query,'result) Oci_Data.t ->
   'query -> 'result Deferred.t
+val dispatch_master_log:
+  ?msg:string ->
+  ('query,'result) Oci_Data.t ->
+  'query -> 'result Oci_Log.reader
 
 
 val attach_log: 'a Oci_Log.writer -> (unit -> 'b) -> 'b
@@ -110,6 +119,10 @@ val simple_runner:
 val simple_master:
   ('a -> 'b Deferred.t) ->
   'a -> 'b Oci_Log.reader
+
+val simple_master_unit:
+  ('a -> 'result Oci_Log.writer -> unit Deferred.t) ->
+  'a -> 'result Oci_Log.reader
 
 val register_saver:
   name:string ->

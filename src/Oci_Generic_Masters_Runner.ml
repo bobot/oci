@@ -25,7 +25,7 @@ open Async.Std
 
 open Oci_Generic_Masters_Api.CompileGitRepoRunner
 
-let create_dir_and_run t (q:Query.t) =
+let create_dir t (q:Query.t) =
   let working_dir = "/checkout" in
   Oci_Runner.cha_log t "Link Rootfs";
   Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
@@ -38,53 +38,57 @@ let create_dir_and_run t (q:Query.t) =
   >>= fun () ->
   Unix.mkdir ~p:() working_dir
   >>= fun () ->
-  Oci_Runner.cha_log t "Compile and install";
-  let failures = Queue.create () in
-  Deferred.List.iter
-    ~f:(function
-        | GitClone clone ->
-          Oci_Runner.cha_log t "Clone repository at %s"
-            (Oci_Common.Commit.to_string clone.commit);
-          Oci_Runner.git_clone t
-            ~user:Root
-            ~url:clone.url
-            ~dst:(Oci_Filename.make_absolute working_dir clone.directory)
-            ~commit:clone.commit
-        | Exec cmd ->
-          Oci_Runner.get_release_proc t cmd.proc_requested
-            (fun got ->
-               let args =
-                 List.map cmd.args
-                   ~f:(function
-                       | `S s -> s
-                       | `Proc -> string_of_int got)
-               in
-               Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args
-                 ~env:(cmd.env :> Async.Std.Process.env) ()
-               >>= fun r ->
-               match cmd.kind, r with
-               | _, Core_kernel.Std.Result.Ok () -> return ()
-               | `Required, Core_kernel.Std.Result.Error _ ->
-                 raise Oci_Runner.CommandFailed
-               | `Test, _ ->
-                 Queue.enqueue failures (Oci_Runner.print_cmd cmd.cmd args);
-                 return ()
-            )
-      ) q.cmds
-  >>= fun () ->
-  return (working_dir,Queue.to_list failures)
+  return working_dir
+
+let run_cmds t kind working_dir = function
+    | GitClone clone ->
+      Oci_Runner.cha_log t "Clone repository at %s"
+        (Oci_Common.Commit.to_string clone.commit);
+      Oci_Runner.git_clone t
+        ~user:Root
+        ~url:clone.url
+        ~dst:(Oci_Filename.make_absolute working_dir clone.directory)
+        ~commit:clone.commit
+    | Exec cmd ->
+      Oci_Runner.get_release_proc t cmd.proc_requested
+        (fun got ->
+           let args =
+             List.map cmd.args
+               ~f:(function
+                   | `S s -> s
+                   | `Proc -> string_of_int got)
+           in
+           Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args
+             ~env:(cmd.env :> Async.Std.Process.env) ()
+           >>= fun r ->
+           match kind, r with
+           | `Required, Core_kernel.Std.Result.Ok () -> return ()
+           | `Test, Core_kernel.Std.Result.Ok () ->
+             Oci_Runner.data_log t
+                  (`Test (`Ok,(Oci_Runner.print_cmd cmd.cmd args)));
+             return ()
+           | `Required, Core_kernel.Std.Result.Error _ ->
+             Oci_Runner.data_log t
+                  (`Compilation (`Failed (Oci_Runner.print_cmd cmd.cmd args)));
+             raise Oci_Runner.StopQuery
+           | `Test, _ ->
+             Oci_Runner.data_log t
+                  (`Test (`Failed,(Oci_Runner.print_cmd cmd.cmd args)));
+             return ()
+        )
 
 
 let compile_git_repo_runner t q =
-  create_dir_and_run t q
-  >>= fun (working_dir,failures) ->
+  create_dir t q
+  >>= fun working_dir ->
+  Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
+  >>= fun () ->
   Oci_Runner.create_artefact t
     ~dir:"/"
     ~prune:[working_dir]
-  >>= fun artefact -> return {
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.artefact;
-    failures;
-  }
+  >>= fun artefact ->
+  Oci_Runner.data_log t (`Compilation (`Ok artefact));
+  Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests
 
 (*
 let tmux_runner t q =
@@ -120,8 +124,12 @@ let tmux_runner t q =
   *)
 
 let xpra_runner t q =
-  create_dir_and_run t q
-  >>= fun (working_dir,_) ->
+  create_dir t q
+  >>= fun working_dir ->
+  Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
+  >>= fun () ->
+  Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests
+  >>= fun () ->
   let xpra_dir = Oci_Filename.make_absolute working_dir "xpra_socket" in
   Unix.mkdir ~p:() ~perm:0o777 xpra_dir
   >>= fun () ->
@@ -159,6 +167,7 @@ let xpra_runner t q =
   >>= fun () ->
   Unix.chmod ~perm:0o555 remote_xpra
   >>= fun () ->
+  Oci_Runner.data_log t (`XpraDir external_dir);
   Oci_Runner.cha_log t
     "Run locally: XPRA_SOCKET_HOSTNAME=oci xpra attach :100 --socket-dir %S"
     external_dir;
@@ -166,18 +175,16 @@ let xpra_runner t q =
     "Run remotely: xpra attach --remote-xpra %S ssh:HOST:100"
     (Oci_Filename.make_absolute external_dir xpra_script);
   xpra
-  >>= fun () ->
-  return external_dir
 
 
 let () =
   never_returns begin
     Oci_Runner.start
       ~implementations:[
-        Oci_Runner.implement
+        Oci_Runner.implement_unit
           Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc
           compile_git_repo_runner;
-        Oci_Runner.implement
+        Oci_Runner.implement_unit
           Oci_Generic_Masters_Api.XpraRunner.rpc
           xpra_runner;
       ]

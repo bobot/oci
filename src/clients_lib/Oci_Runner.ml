@@ -82,6 +82,7 @@ let implement data f =
        Deferred.Or_error.return reader
     )
 
+exception StopQuery
 
 let implement_unit data f =
   Rpc.Pipe_rpc.implement
@@ -89,13 +90,21 @@ let implement_unit data f =
     (fun connection q ~aborted:_ ->
        let reader,writer = Pipe.create () in
        begin
-         Monitor.try_with_or_error
-           (fun () -> f {connection;log=writer} q)
+         Monitor.try_with
+           (fun () ->
+              try
+                f {connection;log=writer} q
+              with StopQuery -> return ())
          >>> fun res ->
          begin match res with
            | Ok () -> return ()
+           | Error StopQuery -> return ()
            | Error err ->
-             Pipe.write writer (Oci_Log.data (Error err))
+             Pipe.write writer
+               (Oci_Log.data
+                  (Or_error.of_exn
+                     ~backtrace:(`This "During runner computation")
+                     err))
          end
          >>> fun () ->
          Pipe.downstream_flushed writer

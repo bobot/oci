@@ -34,6 +34,22 @@ module MasterCompileGitRepoArtefact =
 
 exception Dependency_error
 
+let run_dependency dep dep_name =
+  let open Oci_Generic_Masters_Api.CompileGitRepo in
+  let r = Oci_Master.dispatch_master_log ~msg:dep_name rpc dep in
+  Oci_Log.reader_get_first r
+    ~f:(fun _ -> true) (** always the first result *)
+  >>= function
+  | Some (Core_kernel.Result.Ok
+            (`Compilation (`Ok r))) ->
+    Oci_Master.cha_log "Dependency %s done" dep_name;
+    return (Some r)
+          | _ ->
+            Oci_Master.err_log
+              "Dependency %s failed (or one of its dependency)" dep_name;
+            return None
+
+
 let compile_deps =
   let open Oci_Generic_Masters_Api.CompileGitRepo in
   fun (q:Query.t) ->
@@ -42,36 +58,30 @@ let compile_deps =
       ~how:`Parallel
       ~f:(fun dep_name ->
           let dep = Query.filter_deps_for {q with name = dep_name} in
-          Oci_Master.dispatch_master ~msg:dep_name rpc dep
-          >>= function
-          | Core_kernel.Result.Ok r ->
-            Oci_Master.cha_log "Dependency %s done" dep_name;
-            return (Some r)
-          | Core_kernel.Result.Error _ ->
-            Oci_Master.err_log
-              "Dependency %s failed (or one of its dependency)" dep_name;
-            return None
+          run_dependency dep dep_name
         )
     >>= fun artefacts ->
     return (List.map artefacts ~f:(function
+        | Some r -> r
         | None -> raise Dependency_error
-        | Some r -> r))
+      ))
 
-let compile_git_repo q =
+let compile_git_repo q log =
   compile_deps q
   >>= fun results ->
   let repo = String.Map.find_exn q.repos q.name in
   Oci_Master.simple_runner ~binary_name ~error:(fun _ -> raise Exit) begin
     fun conn ->
-      Oci_Master.dispatch_runner_exn
+      Oci_Master.dispatch_runner_log log
         Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc conn {
         rootfs = q.rootfs;
         cmds=repo.cmds;
-        artefacts = List.map ~f:(fun r -> r.artefact) results;
+        tests=repo.tests;
+        artefacts = results;
       }
   end
 
-let xpra_git_repo q =
+let xpra_git_repo q log =
   compile_deps q
   >>= fun results ->
   let repo = String.Map.find_exn q.repos q.name in
@@ -83,24 +93,25 @@ let xpra_git_repo q =
       | Oci_Master.Exec_Error s -> return s) (fun _ -> raise Exit);
     choice begin
       conn >>= fun conn ->
-      Oci_Master.dispatch_runner_exn
+      Oci_Master.dispatch_runner_log log
         Oci_Generic_Masters_Api.XpraRunner.rpc conn
         {
           rootfs = q.rootfs;
           cmds = repo.cmds;
-          artefacts = List.map ~f:(fun r -> r.artefact) results;
+          tests = repo.tests;
+          artefacts = results;
         }
     end (fun x -> x);
   ]
 
 let init_compile_git_repo () =
-  MasterCompileGitRepoArtefact.create_master
+  MasterCompileGitRepoArtefact.create_master_unit
     Oci_Generic_Masters_Api.CompileGitRepo.rpc
     compile_git_repo;
 
   (** Xpra *)
   Oci_Master.register Oci_Generic_Masters_Api.XpraGitRepo.rpc
-    (Oci_Master.simple_master xpra_git_repo);
+    (Oci_Master.simple_master_unit xpra_git_repo);
 
   (** RemoteBranch *)
   Oci_Master.register

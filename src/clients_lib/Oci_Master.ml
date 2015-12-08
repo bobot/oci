@@ -100,6 +100,17 @@ let simple_master f q =
       Oci_Log.add log (Oci_Log.data res)
     )
 
+let simple_master_unit f q =
+  Oci_Log.init (fun log ->
+      Monitor.try_with_or_error
+        ~name:"Oci_Master.simple_master"
+        (fun () -> attach_log log (fun () -> f q log))
+      >>= function
+      | Ok () -> return ()
+      | Error error ->
+          Oci_Log.add log (Oci_Log.data (Error error))
+    )
+
 
 module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
   module H = Hashtbl.Make(Query)
@@ -122,7 +133,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
     type save_data = (Query.t * Log.t) list
     with bin_io
 
-    let create_master f =
+    let create_master_unit f =
       let db : Log.t H.t =
         H.create () in
       let f q =
@@ -134,10 +145,14 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
           don't_wait_for begin
             Monitor.try_with_or_error
               ~name:"Oci_Master.Make.create_master"
-              (fun () -> attach_log (Log.writer log) (fun () -> f q))
-            >>= fun r ->
-            Log.add_without_pushback log (Oci_Log.data r);
-            Log.close log
+              (fun () ->
+                 let log = Log.writer log in
+                 attach_log log (fun () -> f q log))
+            >>= function
+            | Ok () -> Log.close log
+            | Error r ->
+              Log.add_without_pushback log (Oci_Log.data (Error r));
+              Log.close log
           end;
           Log.reader log
       in
@@ -177,9 +192,17 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
 
   end
 
-  let create_master data f =
+  let create_master_unit data f =
     let module M = CreateMaster(struct let data = data end) in
-    M.create_master f
+    M.create_master_unit f
+
+  let create_master data f =
+    create_master_unit data
+      (fun q log ->
+         f q
+         >>= fun r ->
+         Oci_Log.add_without_pushback log (Oci_Log.data (Ok r));
+         return ())
 
   let create_master_and_runner data ?(binary_name=Oci_Data.name data) ~error f =
     create_master data (fun q -> simple_runner ~binary_name ~error
@@ -251,7 +274,7 @@ let dispatch_runner_exn ?msg d t q =
     let p = Pipe.map p ~f:(function
         | {Oci_Log.data=Oci_Log.Std _;_} as l -> l
         | {Oci_Log.data=Oci_Log.Extra (Core_kernel.Result.Ok res)} ->
-          Ivar.fill r res;
+          Ivar.fill_if_empty r res;
           Oci_Log.line Oci_Log.Standard "result received"
         | {Oci_Log.data=Oci_Log.Extra (Core_kernel.Result.Error err)} ->
           Oci_Log.add_without_pushback log
@@ -275,6 +298,10 @@ let dispatch_runner_log ?msg log d t q =
 let dispatch_master ?msg d q =
   cmd_log "dispatch master %s%s" (Oci_Data.name d) (print_msg msg);
   Oci_Artefact.dispatch_master d q
+
+let dispatch_master_log ?msg d q =
+  cmd_log "dispatch master %s%s" (Oci_Data.name d) (print_msg msg);
+  Oci_Artefact.dispatch_master_log d q
 
 let dispatch_master_exn ?msg d q =
   cmd_log "dispatch master %s%s" (Oci_Data.name d) (print_msg msg);

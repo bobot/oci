@@ -172,7 +172,7 @@ let xpra ccopt rootfs revspecs repo socket =
   in
   exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-    Oci_Filename.sexp_of_t socket
+    Oci_Generic_Masters_Api.XpraRunner.Result.sexp_of_t socket
 
 let list_rootfs _copts rootfs socket =
   let open Oci_Rootfs_Api in
@@ -224,17 +224,16 @@ open Cmdliner;;
 
 module Configuration = struct
 
-  let run ?(kind=`Required) ?(env=`Extend []) cmd args =
+  let run ?(env=`Extend []) cmd args =
     Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
       cmd;
       args = List.map args ~f:(fun s -> `S s);
       env;
       proc_requested = 1;
-      kind;
       working_dir = Oci_Filename.current_dir;
     }
 
-  let make ?(j=1) ?(vars=[]) ?(kind=`Required) ?(env=`Extend []) targets =
+  let make ?(j=1) ?(vars=[]) ?(env=`Extend []) targets =
     Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
       cmd = "make";
       args =
@@ -243,7 +242,6 @@ module Configuration = struct
         List.map targets ~f:(fun s -> `S s);
       env;
       proc_requested = j;
-      kind;
       working_dir = Oci_Filename.current_dir;
     }
 
@@ -254,11 +252,12 @@ module Configuration = struct
       {url;commit=dumb_commit;
        directory=dir}
 
-  let mk_repo ?(revspec="master") ~url ~deps ~cmds name =
+  let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name =
     let id = (name,url) in
     let data = {
       Oci_Generic_Masters_Api.CompileGitRepo.Query.deps = List.map ~f:fst deps;
-      cmds = (gitclone (snd id))::cmds
+      cmds = (gitclone (snd id))::cmds;
+      tests;
     }
     in
     String.Table.add_exn url_to_default_revspec
@@ -350,7 +349,9 @@ module Configuration = struct
           run "./configure" [];
           make ~j:8 [];
           make ["install"];
-          make ~j:1 ~kind:`Test
+    ] in
+    let framac_tests = [
+          make ~j:1
             ~vars:["PTESTS_OPTS","-error-code -j 8"] ["tests"]
     ] in
     let framac = mk_repo
@@ -358,6 +359,7 @@ module Configuration = struct
         ~url:"git@git.frama-c.com:frama-c/frama-c.git"
         ~deps:framac_deps
         ~cmds:framac_cmds
+        ~tests:framac_tests
     in
     let plugins = Queue.create () in
     let mk_framac_plugin_repo ?revspec ?noconfigure ~url ~deps ~has_tests name=
@@ -375,7 +377,6 @@ module Configuration = struct
       let tests =
         if has_tests
         then [make
-                ~kind:`Test
                 ~vars:["PTESTS_OPTS","-error-code -j 4"] ["tests"]]
         else []
       in
@@ -384,7 +385,8 @@ module Configuration = struct
           ?revspec
           ~url
           ~deps:(framac::deps)
-          ~cmds:(compilation@tests) in
+          ~cmds:compilation
+          ~tests in
       Queue.enqueue plugins (plugin,deps);
       plugin
     in
@@ -454,7 +456,9 @@ module Configuration = struct
         cmds =
           [gitclone (snd framac)] @
           cloneplugins @
-          framac_cmds @
+          framac_cmds;
+        tests =
+          framac_tests @
           [run "frama-c" ["-plugins"]];
       }
       in
@@ -466,7 +470,8 @@ module Configuration = struct
       let data = {
         Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
           List.map ~f:(fun ((name,_),_) -> name) (Queue.to_list plugins);
-        cmds = [
+        cmds = [];
+        tests = [
           run "frama-c" ["-plugins"];
         ];
       }

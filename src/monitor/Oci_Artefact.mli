@@ -75,6 +75,12 @@ val permanent_directory:
 val dispatch_master:
   ('query,'result) Oci_Data.t ->
   'query -> 'result Or_error.t Deferred.t
+
 val dispatch_master_exn:
   ('query,'result) Oci_Data.t ->
   'query -> 'result Deferred.t
+
+
+val dispatch_master_log:
+  ('query,'result) Oci_Data.t ->
+  'query -> 'result Oci_Log.reader

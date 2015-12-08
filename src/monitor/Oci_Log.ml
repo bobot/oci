@@ -67,6 +67,35 @@ let add_without_pushback = Oci_Queue.add_without_pushback
 let add = Oci_Queue.add
 let transfer = Oci_Queue.transfer_id
 
+let reader_stop_after ~f t = {
+  state = fun () ->
+    let reached = ref false in
+    Pipe.filter (t.state ()) ~f:(function
+        | _ when !reached -> false
+        | { data = Std _ } -> true
+        | { data= Extra e } when f e ->
+          reached := true;
+          true
+        | {data= Extra _ } -> true
+      )
+}
+
+let reader_get_first ~f t =
+    let rec aux r =
+      Pipe.read' r
+      >>= function
+      | `Eof -> return None
+      | `Ok q ->
+        match
+          Queue.find_map q ~f:(function
+              | { data = Extra e } when f e -> Some e
+              | _ -> None)
+        with
+        | None -> aux r
+        | x -> return x
+    in
+    aux (t.state ())
+
 exception Closed_Log
 
 module Make(S: sig

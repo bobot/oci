@@ -31,6 +31,8 @@ val start:
   never_returns
 (** The runner waits for request. *)
 
+exception StopQuery
+
 val implement:
   ('query,'result) Oci_Data.t ->
   ('result t -> 'query -> 'result Deferred.t) ->

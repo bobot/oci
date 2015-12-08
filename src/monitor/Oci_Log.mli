@@ -55,6 +55,12 @@ type 'result reader
 val read: 'result reader -> 'result line Pipe.Reader.t
 val init: ('result writer -> unit Deferred.t) -> 'result reader
 
+val reader_stop_after:
+  f:('result Core.Std.Or_error.t -> bool) -> 'result reader -> 'result reader
+val reader_get_first:
+  f:('result Core.Std.Or_error.t -> bool) -> 'result reader ->
+  'result Core.Std.Or_error.t Deferred.Option.t
+
 exception Closed_Log
 
 module Make(S: sig

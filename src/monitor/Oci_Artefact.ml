@@ -234,7 +234,7 @@ let masters =
 
 module Direct_Master = struct
   type t =
-    | DM: ('q,'r) Oci_Data.t * ('q -> 'r Deferred.Or_error.t) -> t
+    | DM: ('q,'r) Oci_Data.t * ('q -> 'r Oci_Log.reader) -> t
   let db = Type_equal.Id.Uid.Table.create ()
 
   let add_exn ~key:d ~data:f =
@@ -244,7 +244,7 @@ module Direct_Master = struct
       ~data:(DM(d,f))
 
   let find_exn (type q) (type r) (d:(q,r) Oci_Data.t) :
-    (q -> r Deferred.Or_error.t) =
+    (q -> r Oci_Log.reader) =
     match Type_equal.Id.Uid.Table.find_exn
             db (Type_equal.Id.uid (Oci_Data.id d)) with
     | DM(d',f) ->
@@ -254,12 +254,32 @@ module Direct_Master = struct
 end
 
 let dispatch_master d q =
+  let name = Oci_Data.name d in
   Monitor.try_with_join_or_error
-  (fun () -> (Direct_Master.find_exn d) q)
+    (fun () ->
+       debug "%s called from a master" name;
+       Monitor.try_with_join_or_error
+         ~name (fun () ->
+             let r = (Direct_Master.find_exn d) q in
+             let r = Oci_Log.read r in
+             let r = Pipe.filter_map r ~f:(function
+                 | {Oci_Log.data = Oci_Log.Extra x} -> Some x
+                 | _ -> None )
+             in
+             Pipe.read r
+             >>= function
+             | `Eof -> raise Oci_Data.NoResult
+             | `Ok x ->
+               Pipe.close_read r;
+               return x))
 
 let dispatch_master_exn d q =
   Deferred.Or_error.ok_exn
-    ((Direct_Master.find_exn d) q)
+    (dispatch_master d q)
+
+let dispatch_master_log d q =
+  debug "%s called from a master" (Oci_Data.name d);
+  (Direct_Master.find_exn d) q
 
 
 
@@ -286,7 +306,7 @@ let register_master
   in
   Direct_Master.add_exn
     ~key:data
-    ~data:(simple_rpc {rootfs="a master";proc_got=0});
+    ~data:f;
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Rpc.implement (Oci_Data.rpc data) simple_rpc);
   masters := Rpc.Implementations.add_exn !masters

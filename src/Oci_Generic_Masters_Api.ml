@@ -32,7 +32,6 @@ module CompileGitRepoRunner = struct
     env : [ `Replace of (string * string) list
           | `Extend of (string * string) list];
     proc_requested : int;
-    kind: [`Required | `Test];
     working_dir: Oci_Filename.t (** Relative path *)
   } with sexp, bin_io, compare
   (** `Proc replaced by number of processus *)
@@ -55,6 +54,7 @@ module CompileGitRepoRunner = struct
     type t = {
       rootfs: Oci_Rootfs_Api.Rootfs.t;
       cmds: cmds;
+      tests: cmds;
       artefacts: Oci_Common.Artefact.t list;
     } with sexp, bin_io, compare
 
@@ -62,16 +62,17 @@ module CompileGitRepoRunner = struct
   end
 
   module Result = struct
-    type t = {
-      artefact: Oci_Common.Artefact.t;
-      failures: string list;
-    } with sexp, bin_io, compare
+    type t = [
+      | `Compilation of [`Ok of Oci_Common.Artefact.t | `Failed of string]
+      | `Test of [ `Ok | `Failed ] * string
+    ]
+    with sexp, bin_io, compare
   end
 
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo_runner"
-      ~version:1
+      ~version:3
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -79,19 +80,32 @@ end
 
 module XpraRunner = struct
 
+  module Result = struct
+    type t = [
+      | CompileGitRepoRunner.Result.t
+      | `XpraDir of Oci_Filename.t
+    ]
+    with sexp, bin_io, compare
+  end
+
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.xpra_runner"
-      ~version:1
+      ~version:2
       ~bin_query:CompileGitRepoRunner.Query.bin_t
-      ~bin_result:Oci_Filename.bin_t
+      ~bin_result:Result.bin_t
 end
 
 module CompileGitRepo = struct
+  (** Compile and tests git repository but
+      return after compilation
+  *)
+
   module Query = struct
     type repo = {
       deps: String.t list;
       cmds: CompileGitRepoRunner.cmds;
+      tests: CompileGitRepoRunner.cmds;
     } with sexp, bin_io, compare
 
     type t = {
@@ -133,7 +147,7 @@ module CompileGitRepo = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo"
-      ~version:3
+      ~version:5
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -143,9 +157,9 @@ module XpraGitRepo = struct
   let rpc =
     Oci_Data.register
       ~name:"XpraGitRepo.compile_git_repo"
-      ~version:1
+      ~version:2
       ~bin_query:CompileGitRepo.Query.bin_t
-      ~bin_result:Oci_Filename.bin_t
+      ~bin_result:XpraRunner.Result.bin_t
 
 end
 
