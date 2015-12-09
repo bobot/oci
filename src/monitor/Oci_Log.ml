@@ -128,19 +128,17 @@ module Make(S: sig
     return (Oci_Filename.make_absolute d (to_string id))
 
   let read_from_file id =
-    let r,w = Pipe.create () in
-    don't_wait_for begin
-      log_file id
-      >>= fun file ->
-      Reader.open_file file
-      >>= fun reader ->
-      let pipe,_ = Unpack_sequence.unpack_into_pipe
-          ~from:(Unpack_sequence.Unpack_from.Reader reader)
-          ~using:(Unpack_buffer.create_bin_prot
-                    (bin_reader_line S.bin_reader_t)) in
-      Pipe.transfer_id pipe w
-    end;
-    r
+    Pipe.init (fun w ->
+        log_file id
+        >>= fun file ->
+        Reader.open_file file
+        >>= fun reader ->
+        let pipe,_ = Unpack_sequence.unpack_into_pipe
+            ~from:(Unpack_sequence.Unpack_from.Reader reader)
+            ~using:(Unpack_buffer.create_bin_prot
+                      (bin_reader_line S.bin_reader_t)) in
+        Pipe.transfer_id pipe w
+      )
 
   let read id =
      match Table.find db_log id with

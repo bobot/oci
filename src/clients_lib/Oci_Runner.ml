@@ -68,17 +68,16 @@ let implement data f =
   Rpc.Pipe_rpc.implement
     (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
-       let reader,writer = Pipe.create () in
-       begin
-         Monitor.try_with_or_error
-           (fun () -> f {connection;log=writer} q)
-         >>> fun res ->
-         Pipe.write writer (Oci_Log.data res)
-         >>> fun () ->
-         Pipe.downstream_flushed writer
-         >>> fun _ ->
-         Pipe.close writer
-       end;
+       let reader = Pipe.init (fun writer ->
+           Monitor.try_with_or_error
+             (fun () -> f {connection;log=writer} q)
+           >>= fun res ->
+           Pipe.write writer (Oci_Log.data res)
+           >>= fun () ->
+           Pipe.downstream_flushed writer
+           >>= fun _ ->
+           return ()
+         ) in
        Deferred.Or_error.return reader
     )
 
@@ -88,14 +87,13 @@ let implement_unit data f =
   Rpc.Pipe_rpc.implement
     (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
-       let reader,writer = Pipe.create () in
-       begin
+       let reader = Pipe.init (fun writer ->
          Monitor.try_with
            (fun () ->
               try
                 f {connection;log=writer} q
               with StopQuery -> return ())
-         >>> fun res ->
+         >>= fun res ->
          begin match res with
            | Ok () -> return ()
            | Error StopQuery -> return ()
@@ -106,11 +104,12 @@ let implement_unit data f =
                      ~backtrace:(`This "During runner computation")
                      err))
          end
-         >>> fun () ->
+         >>= fun () ->
          Pipe.downstream_flushed writer
-         >>> fun _ ->
-         Pipe.close writer
-       end;
+         >>= fun _ ->
+         Deferred.unit
+         )
+       in
        Deferred.Or_error.return reader
     )
 

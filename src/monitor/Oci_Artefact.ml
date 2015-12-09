@@ -205,11 +205,11 @@ let saver_artifact_data () =
 
 
 let create_proc nb =
-  let (_, writer) as r = Pipe.create () in
+  let (_, writer) as pipes = Pipe.create () in
   for _i=1 to nb do
     Pipe.write_without_pushback writer ()
   done;
-  r
+  pipes
 
 let get_proc nb =
   let conf = get_conf () in
