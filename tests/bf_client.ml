@@ -37,36 +37,40 @@ let print_time fmt t =
   if Log.Global.level () = `Debug then Time.pp fmt t
   else Format.pp_print_string fmt (Time.format t "%H:%M:%S")
 
-let exec_one test input sexp_input sexp_output conn =
+let exec_one test input ~init ~fold sexp_input sexp_output conn =
   debug "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log test) conn input
   >>= fun (p,_) ->
+  let stdout = (Lazy.force Writer.stdout) in
+  let fmt = Writer.to_formatter stdout in
   let open Textutils.Std in
-  Pipe.iter p ~f:(function
+  Pipe.fold p ~init ~f:(fun acc -> function
       | {Oci_Log.data=Oci_Log.Std (kind,line);time}
         when Console.is_color_tty () ->
-        Format.printf
+        Format.fprintf fmt
           "[%a] %s\n%!"
           print_time time
           (Console.Ansi.string_with_attr
              [Oci_Log.color_of_kind kind]
              line);
-        Deferred.unit
+        return acc
       | {Oci_Log.data=Oci_Log.Std (kind,line);time} ->
-        Format.printf
+        Format.fprintf fmt
           "[%a: %a] %s@."
           pp_kind kind
           print_time time
           line;
-        Deferred.unit
+        return acc
       | {Oci_Log.data=Oci_Log.Extra r} ->
-        Format.printf
+        Format.fprintf fmt
           "[Result] %s@."
           (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
-        Deferred.unit
+        return (fold acc r)
     )
+  >>= fun res ->
+  Writer.flushed stdout
   >>= fun () ->
-  Writer.flushed (Lazy.force Writer.stdout)
+  return res
 
 let forget test input sexp_input _sexp_output conn =
   debug "Forget %s\n%!" (Sexp.to_string_hum (sexp_input input));
@@ -74,11 +78,12 @@ let forget test input sexp_input _sexp_output conn =
   >>= fun r ->
   info "%s@."
     (Sexp.to_string_hum ((Or_error.sexp_of_t Unit.sexp_of_t) r));
-  Deferred.unit
+  Deferred.return `Ok
 
-let exec test input sexp_input sexp_output conn =
+let exec test ?(init=`Ok)
+    ?(fold=fun acc _ -> acc) input sexp_input sexp_output conn =
   if Sys.getenv "OCIFORGET" = None
-  then exec_one test input sexp_input sexp_output conn
+  then exec_one ~init ~fold test input sexp_input sexp_output conn
   else forget test input sexp_input sexp_output conn
 
 type default_revspec = {
@@ -150,7 +155,14 @@ let create_query _ccopt rootfs revspecs repo socket =
 let run ccopt rootfs revspecs (repo:string) socket =
   create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
-  exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query
+  let fold acc = function
+    | Result.Ok (`Compilation (`Ok _)) -> acc
+    | Result.Ok (`Compilation (`Failed _)) -> `Error
+    | Result.Ok (`Test (`Ok,_)) -> acc
+    | Result.Ok (`Test (`Failed,_)) -> `Error
+    | Result.Error _ -> `Error
+  in
+  exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query ~fold
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
     Oci_Generic_Masters_Api.CompileGitRepo.Result.sexp_of_t socket
 
@@ -176,11 +188,13 @@ let xpra ccopt rootfs revspecs repo socket =
 
 let list_rootfs _copts rootfs socket =
   let open Oci_Rootfs_Api in
-  Deferred.List.iter rootfs
-    ~f:(fun rootfs ->
-         exec find_rootfs rootfs
-           Rootfs_Id.sexp_of_t
-           Rootfs.sexp_of_t socket
+  Deferred.List.fold rootfs
+    ~init:`Ok
+    ~f:(fun acc rootfs ->
+        exec find_rootfs rootfs
+          ~init:acc
+          Rootfs_Id.sexp_of_t
+          Rootfs.sexp_of_t socket
       )
 
 let add_packages rootfs packages =
@@ -201,10 +215,10 @@ let connect ccopt cmd =
   >>= fun socket ->
   let socket = Result.ok_exn socket in
   cmd socket
+  >>= fun res ->
+  Rpc.Connection.close socket
   >>= fun () ->
-  Rpc.Connection.close socket;
-  >>= fun () ->
-  Shutdown.exit 0
+  return res
 
 let run ccopt rootfs revspecs repo =
   connect ccopt (run ccopt rootfs revspecs repo)
@@ -624,7 +638,10 @@ let () =
   don't_wait_for begin
     match Term.eval_choice default_cmd cmds with
     | `Error _ -> exit 1
-    | `Ok r -> r >>= fun () -> exit 0
+    | `Ok r -> begin r >>= function
+      | `Ok -> Shutdown.exit 0
+      | `Error -> Shutdown.exit 1
+      end
     | `Help | `Version -> exit 0
   end
 
