@@ -89,7 +89,7 @@ val cmd_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
 val data_log: 'result t -> 'result -> unit
 val error_log: 'result t -> 'result Or_error.t -> unit
 
-val process_log: 'r t -> Process.t -> unit
+val process_log: 'r t -> Process.t -> unit Deferred.t
 
 val process_create:
   'r t -> Process.t Or_error.t Deferred.t Process.with_create_args

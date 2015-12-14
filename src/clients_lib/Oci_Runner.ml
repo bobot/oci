@@ -205,8 +205,10 @@ let process_log t p =
   let send_to_log t kind reader =
     let reader = Reader.lines reader in
     Pipe.transfer ~f:(fun line -> Oci_Log.line kind line) reader t.log in
-  don't_wait_for (send_to_log t Oci_Log.Standard (Process.stdout p));
-  don't_wait_for (send_to_log t Oci_Log.Error (Process.stderr p))
+  Deferred.all_unit [
+    send_to_log t Oci_Log.Standard (Process.stdout p);
+    send_to_log t Oci_Log.Error (Process.stderr p);
+  ]
 
 
 let print_cmd prog args =
@@ -214,11 +216,12 @@ let print_cmd prog args =
 
 let process_create t ?working_dir ?env ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
-  let open Deferred.Or_error in
-  Process.create ?working_dir ?env ~prog ~args ()
-  >>= fun p ->
-  process_log t p;
-  return p
+  Deferred.Or_error.bind
+    (Process.create ?working_dir ?env ~prog ~args ())
+    (fun p ->
+       process_log t p
+       >>= fun () ->
+       Deferred.Or_error.return p)
 
 exception CommandFailed
 
