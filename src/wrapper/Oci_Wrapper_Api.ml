@@ -46,4 +46,6 @@ type parameters = {
   (** proc, dev, run *)
   prepare_network: bool;
   workdir: Oci_Filename.t option;
+  cgroup: string option;
+  (** move to the given cgroup *)
 } with sexp, bin_io

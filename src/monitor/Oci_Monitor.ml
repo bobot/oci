@@ -244,6 +244,7 @@ let start_master ~conf ~master ~oci_data ~binaries
     bind_system_mount = false;
     prepare_network = false;
     workdir = None;
+    cgroup = None;
   } in
   let implementations = Rpc.Implementations.create_exn
       ~on_unknown_rpc:`Raise

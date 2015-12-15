@@ -482,6 +482,7 @@ let start_runner ~binary_name =
     bind_system_mount = true;
     prepare_network = false;
     workdir = None;
+    cgroup = None;
   } in
   info "Start runner %s" binary_name;
   let initial_state = {rootfs;proc_got} in
