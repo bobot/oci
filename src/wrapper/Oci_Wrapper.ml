@@ -27,12 +27,6 @@
 open Core.Std
 open ExtUnix.Specific
 
-(** remove the process from the group of the process monitor, and
-    detach it from the controlling terminal. It allows to manage the
-    shutdown nicely *)
-let _sessionid = Core.Std.Caml.Unix.setsid ()
-(* let () = setpgid 0 0 *)
-
 let mkdir ?(perm=0o750) dir =
   if not (Sys.file_exists_exn dir) then Unix.mkdir dir ~perm
 
@@ -150,7 +144,8 @@ let command_no_fail ?(error=(fun () -> ())) fmt =
 
 (** {2 CGroup} *)
 let move_to_cgroup name =
-  command_no_fail "cgm movepid all %s %i" name (Pid.to_int (Unix.getpid ()))
+  command_no_fail
+    "cgm movepid all %s %i" name (Pid.to_int (Unix.getpid ()))
 
 (** {2 User namespace} *)
 open Oci_Wrapper_Api
@@ -284,8 +279,12 @@ let () =
     exit 1
   end;
   Unix.handle_unix_error begin fun () ->
-    test_userns_availability ();
+    (** remove the process from the group of the process monitor, and
+    detach it from the controlling terminal. It allows to manage the
+    shutdown nicely *)
+    let _sessionid = Core.Std.Caml.Unix.setsid () in
     Option.iter ~f:move_to_cgroup param.cgroup;
+    test_userns_availability ();
     (* Option.iter param.rootfs ~f:(mkdir ~perm:0o750); *)
     go_in_userns param.idmaps;
     (** make the mount private and mount basic directories *)

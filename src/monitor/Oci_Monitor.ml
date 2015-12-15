@@ -94,6 +94,7 @@ type conf = {
   mutable wait_to_artefact: unit Deferred.t option;
   wrappers_dir : Oci_Filename.t;
   running_processes: process Bag.t;
+  cgroup: string option;
 }
 
 
@@ -130,10 +131,32 @@ let cleanup_running_processes conf () =
     ~init:[]
   |> Deferred.all_unit
 
+let create_cgroup ~conf cgroup_name =
+  match conf.cgroup, cgroup_name with
+  | None, _ | _, None -> Deferred.return None
+  | Some cgroup_root, Some cgroup_name ->
+    let cgroup = cgroup_root ^ "/" ^ cgroup_name in
+    debug "Create cgroup %s" cgroup;
+    Async_shell.test "cgm" ["create";"all";cgroup]
+    >>= function
+    | true -> Deferred.return (Some cgroup)
+    | false ->
+      error
+        "Can't create cgroup %s. You should create and give ownership of \n\
+         the cgroup:\n\
+         - sudo cgm create all %s\n\
+         - sudo cgm chown  all %s %i %i\n\
+        " cgroup cgroup_root cgroup_root (Unix.getuid ()) (Unix.getgid ());
+      exit 1
+
 let exec_in_namespace =
   let wrapper_id = ref (-1) in
   fun conf parameters ->
-    let open Oci_Wrapper_Api in
+    (** create_cgroup *)
+    create_cgroup ~conf parameters.Oci_Wrapper_Api.cgroup
+    >>= fun cgroup ->
+    let parameters = {parameters with cgroup} in
+    (** create communication channel *)
     incr wrapper_id;
     let named_pipe = Oci_Filename.make_absolute conf.wrappers_dir
         (Printf.sprintf "wrappers%i" !wrapper_id)  in
@@ -155,7 +178,7 @@ let exec_in_namespace =
     Unix.unlink named_pipe_in
     >>= fun () ->
     Writer.write_bin_prot writer
-      bin_writer_parameters
+      Oci_Wrapper_Api.bin_writer_parameters
       parameters;
     Writer.close writer
     >>= fun () ->
@@ -192,7 +215,7 @@ let exec_in_namespace =
         return (Oci_Artefact_Api.Exec_Error
                   (Unix.Exit_or_signal.to_string_hum s))
 
-let compute_conf ~oci_data =
+let compute_conf ~oci_data ~cgroup =
   User_and_group.for_this_process_exn ()
   >>= fun ug ->
   let current_user = {User.uid=Unix.getuid ();gid=Unix.getgid ()} in
@@ -212,7 +235,9 @@ let compute_conf ~oci_data =
                 wait_to_artefact=None;
                 wrappers_dir =
                   Oci_Filename.make_absolute oci_data "wrappers";
-                running_processes = Bag.create ()} in
+                running_processes = Bag.create ();
+                cgroup;
+               } in
     Async_shell.run "mkdir" ["-p";"--";oci_data]
     >>= fun () ->
     Unix.chmod ~perm:0o777 oci_data
@@ -223,14 +248,12 @@ let compute_conf ~oci_data =
     >>= fun () ->
     return conf
 
-
 let start_master ~conf ~master ~oci_data ~binaries
     ~proc ~verbosity ~cleanup_rootfs
     ~identity_file =
-  let open Oci_Wrapper_Api in
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
   let parameters = {
-    rootfs = "/";
+    Oci_Wrapper_Api.rootfs = "/";
     idmaps =
       Oci_Wrapper_Api.idmaps
         ~first_user_mapped:conf.first_user_mapped
@@ -244,7 +267,7 @@ let start_master ~conf ~master ~oci_data ~binaries
     bind_system_mount = false;
     prepare_network = false;
     workdir = None;
-    cgroup = None;
+    cgroup = Some "master";
   } in
   let implementations = Rpc.Implementations.create_exn
       ~on_unknown_rpc:`Raise
@@ -296,11 +319,9 @@ let start_master ~conf ~master ~oci_data ~binaries
     end (fun _ -> ());
   ]
 
-
-
 let run
     master binaries oci_data identity_file proc
-    verbosity cleanup_rootfs () =
+    verbosity cleanup_rootfs cgroup () =
   Log.Global.set_level verbosity;
   assert (not (Signal.is_managed_by_async Signal.term));
   (** Handle nicely terminating signals *)
@@ -314,7 +335,7 @@ let run
         don't_wait_for (Oci_Artefact_Api.oci_shutdown ())
       end
     );
-  compute_conf ~oci_data
+  compute_conf ~oci_data ~cgroup
   >>= fun conf ->
   Oci_Artefact_Api.oci_at_shutdown (cleanup_running_processes conf);
   start_master ~conf ~binaries ~oci_data ~master
@@ -350,6 +371,9 @@ let () = Command.run begin
           ~doc:" Specify the verbosity level (Debug,Error,Info)" +>
         flag "--cleanup-rootfs" (optional_with_default true bool)
           ~doc:" For debug can be set to false for keeping rootfs after running"
+        +>
+        flag "--cgroup" (optional string)
+          ~doc:" Indicate in which cgroup OCI has the right to create cgroups"
       )
       run
   end
