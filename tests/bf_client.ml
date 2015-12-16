@@ -365,8 +365,9 @@ module Configuration = struct
           make ["install"];
     ] in
     let framac_tests = [
+          make ~j:1 ["check-headers"];
           make ~j:1
-            ~vars:["PTESTS_OPTS","-error-code -j 8"] ["tests"]
+            ~vars:["PTESTS_OPTS","-error-code -j 8"] ["tests"];
     ] in
     let framac = mk_repo
         "frama-c"
@@ -472,8 +473,8 @@ module Configuration = struct
           cloneplugins @
           framac_cmds;
         tests =
-          framac_tests @
-          [run "frama-c" ["-plugins"]];
+          [run "frama-c" ["-plugins"]] @
+          framac_tests
       }
       in
       db_repos := String.Map.add !db_repos ~key:name ~data;
@@ -499,9 +500,8 @@ end
 
 (**
 Actuelle:
- - Tester l'interne et la doc compile
+ - Tester la doc compile (externe/interne)
  - Tester la doc en externe
- - Tester les entêtes pour frama-c
  - Faire la distrib OPEN-SOURCE + CLOSE-SOURCE et la compiler,
    la tester + make doc tous faire avec lui
  - example du manuel du developper.
