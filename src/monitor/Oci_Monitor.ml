@@ -320,8 +320,8 @@ let start_master ~conf ~master ~oci_data ~binaries
   ]
 
 let run
-    master binaries oci_data identity_file proc
-    verbosity cleanup_rootfs cgroup () =
+    master binaries oci_data identity_file
+    verbosity cleanup_rootfs cgroup proc =
   Log.Global.set_level verbosity;
   assert (not (Signal.is_managed_by_async Signal.term));
   (** Handle nicely terminating signals *)
@@ -342,38 +342,120 @@ let run
     ~proc ~verbosity ~cleanup_rootfs
     ~identity_file
 
-let () = Command.run begin
-    let current_work_dir = Caml.Sys.getcwd () in
-    let map_to_absolute f =
-      if Oci_Filename.is_relative f
-      then Oci_Filename.make_absolute current_work_dir f
-      else f
+open Cmdliner
+
+let help_secs = [
+ `S "BUGS"; `P "Check bug reports at the oci repository.";]
+
+let current_work_dir = Caml.Sys.getcwd ()
+let abs_file kind =
+  let map_to_absolute f =
+    if Oci_Filename.is_relative f
+    then Oci_Filename.make_absolute current_work_dir f
+    else f
+  in
+  let parse s =
+    let ret b error =
+      if b
+      then `Ok (map_to_absolute s)
+      else `Error error
     in
-    let map_to_absolute_o =
-      Command.Spec.map_flag ~f:(Option.map ~f:map_to_absolute) in
-    let map_to_absolute = Command.Spec.map_flag ~f:map_to_absolute
-    in
-    Command.async_basic
-      ~summary:"Start OCI continous integration framework"
-      Command.Spec.(
-        empty +>
-        flag "--master" (map_to_absolute (required file))
-          ~doc:" Specify the master to use" +>
-        flag "--binaries" (map_to_absolute (required file))
-          ~doc:" Specify where the runners are" +>
-        flag "--oci-data" (map_to_absolute (required file))
-          ~doc:" Specify where the OCI should store its files" +>
-        flag "--identity-file" (map_to_absolute_o (optional file))
-          ~doc:" Specify an identity file to use for ssh connection" +>
-        flag "--proc" (optional_with_default 4 int)
-          ~doc:" Maximum number of worker to run simultaneously" +>
-        flag "--verbosity" (optional_with_default `Info Log.Level.arg)
-          ~doc:" Specify the verbosity level (Debug,Error,Info)" +>
-        flag "--cleanup-rootfs" (optional_with_default true bool)
-          ~doc:" For debug can be set to false for keeping rootfs after running"
-        +>
-        flag "--cgroup" (optional string)
-          ~doc:" Indicate in which cgroup OCI has the right to create cgroups"
-      )
-      run
+    match kind with
+    | `Regular -> ret (Caml.Sys.file_exists s && not (Caml.Sys.is_directory s))
+                    "must be a regular file"
+    | `Dir -> ret (Caml.Sys.file_exists s && Caml.Sys.is_directory s)
+                "must be a directory"
+    | `Exec -> ret (Caml.Sys.file_exists s && not (Caml.Sys.is_directory s))
+                 "must be an executable"
+  in
+  parse, Format.pp_print_string
+
+let log_level =
+  let parse s =
+    try `Ok (Log.Level.of_string s)
+    with _ -> `Error "Log level should be [Debug|Info|Error]"
+  in
+  parse, (fun fmt s -> Format.pp_print_string fmt (Log.Level.to_string s))
+
+let cmd =
+  let master =
+    Arg.(required & opt (some (abs_file `Exec)) None & info ["master"]
+           ~docv:"EXEC"
+           ~doc:"Specify the master to use.")
+  in
+  let binaries =
+    Arg.(required & opt (some (abs_file `Dir)) None & info ["binaries"]
+           ~docv:"DIR"
+           ~doc:"Specify where the runners are.")
+  in
+  let oci_data =
+    Arg.(required & opt (some (abs_file `Dir)) None & info ["oci-data"]
+           ~docv:"DIR"
+           ~doc:"Specify where the OCI should store its files.")
+  in
+  let identity_file =
+    Arg.(value & opt (some (abs_file `Regular)) None & info ["identity-file"]
+           ~docv:"FILE"
+           ~doc:"Specify an identity file to use for ssh connection.")
+  in
+  let verbosity =
+    Arg.(value & opt log_level `Info & info ["proc"]
+           ~docv:"[Debug|Error|Info]"
+           ~doc:"Specify the verbosity level.")
+  in
+  let cleanup_rootfs =
+    Arg.(value & vflag true [false,
+                             info ["cleanup-rootfs"]
+                               ~doc:"For debugging keep the rootfs used after \
+                                     the end of the runner."])
+  in
+  let cgroup =
+    Arg.(value & opt (some string) None &
+         info ["cgroup"]
+           ~docv:"NAME"
+           ~doc:"Indicate in which cgroup OCI has the right to create cgroups")
+  in
+  let proc =
+    Arg.(value & opt (some int) None & info ["proc"]
+           ~docv:"N"
+           ~doc:"Maximum number of worker to run simultaneously.")
+  in
+  let cpus =
+    Arg.(value & opt (some string) None &
+         info ["cpus"]
+           ~docv:"NAME"
+           ~doc:"Indicate which cpus should be used. Format list of cpus \
+                 number or interval \"1,3,2,7,8-12,15\"")
+  in
+  let cpuinfo =
+    Arg.(value & flag &
+         info ["cpuinfo"]
+           ~docv:"NAME"
+           ~doc:"Indicate to read /proc/cpuinfo for getting the cpu layout. \
+                 The cpu layout is used for keeping two cpus running on the \
+                 same core (hyper-threading) to be used by two different \
+                 runners")
+  in
+  let parse_proc proc _ _ =
+    Option.value ~default:4 proc
+  in
+  let doc = "Create a new rootfs by adding packages in a rootfs" in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Add the specified packages in the given rootfs"] @ help_secs
+  in
+  Term.(const run $ master $ binaries $ oci_data $
+        identity_file $ verbosity $ cleanup_rootfs $ cgroup $
+        (Term.(const parse_proc $ proc $ cpus $ cpuinfo))),
+  Term.info "Oci_Monitor" ~doc ~man
+
+
+let () =
+  don't_wait_for begin
+    match Term.eval cmd with
+    | `Error _ -> exit 1
+    | `Ok r -> begin r >>= fun () -> Shutdown.exit 2 end
+    | `Help | `Version -> exit 0
   end
+
+let () = never_returns (Scheduler.go ())

@@ -25,6 +25,12 @@ open Async.Std
 open Oci_Common
 open Oci_Std
 
+(* type proc = *)
+(*   | NoCPUSet of Int.t *)
+(*   | CPUSet of Int.t List.t List.t *)
+(*   (\** list of group of cpu *\) *)
+(* with sexp, bin_io *)
+
 type artefact_api = {
   binaries : Oci_Filename.t;
   oci_data : Oci_Filename.t;

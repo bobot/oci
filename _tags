@@ -2,5 +2,4 @@
 <bin>: -traverse
 <oci-data>: -traverse
 <src/wrapper/Oci_Wrapper.*>: -package(async), -package(async_shell), -package(cmdliner)
-<src/**>: -package(cmdliner)
 <*.tmp> : -traverse
