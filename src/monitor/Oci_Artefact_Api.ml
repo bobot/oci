@@ -25,11 +25,7 @@ open Async.Std
 open Oci_Common
 open Oci_Std
 
-(* type proc = *)
-(*   | NoCPUSet of Int.t *)
-(*   | CPUSet of Int.t List.t List.t *)
-(*   (\** list of group of cpu *\) *)
-(* with sexp, bin_io *)
+(** master to monitor *)
 
 type artefact_api = {
   binaries : Oci_Filename.t;
@@ -39,7 +35,7 @@ type artefact_api = {
   debug_level : Bool.t;
   cleanup_rootfs: Bool.t;
   identity_file: string option;
-  proc: Int.t;
+  proc: Int.t List.t List.t;
 } with sexp, bin_io
 
 let get_configuration = Rpc.Rpc.create
@@ -97,6 +93,19 @@ let start_in_namespace
   in
   let error = exec_in_namespace (parameters:Oci_Wrapper_Api.parameters) in
   return (error,conn)
+
+type set_cpuset = {
+  cgroup: string;
+  cpuset: Int.t list;
+} with bin_io
+
+let set_cpuset = Rpc.Rpc.create
+    ~name:"Oci_Artefact.set_cpuset"
+    ~version:1
+    ~bin_query:bin_set_cpuset
+    ~bin_response:Unit.bin_t
+
+(** runner to master *)
 
 type rpc_create_query = {
   src: Oci_Filename.t;

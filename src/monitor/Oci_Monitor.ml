@@ -95,6 +95,7 @@ type conf = {
   wrappers_dir : Oci_Filename.t;
   running_processes: process Bag.t;
   cgroup: string option;
+  cpuset_available: bool;
 }
 
 
@@ -155,7 +156,12 @@ let exec_in_namespace =
     (** create_cgroup *)
     create_cgroup ~conf parameters.Oci_Wrapper_Api.cgroup
     >>= fun cgroup ->
-    let parameters = {parameters with cgroup} in
+    let parameters = {parameters with cgroup;
+                                      initial_cpuset =
+                                        if conf.cpuset_available
+                                        then parameters.initial_cpuset
+                                        else None
+                     } in
     (** create communication channel *)
     incr wrapper_id;
     let named_pipe = Oci_Filename.make_absolute conf.wrappers_dir
@@ -215,7 +221,7 @@ let exec_in_namespace =
         return (Oci_Artefact_Api.Exec_Error
                   (Unix.Exit_or_signal.to_string_hum s))
 
-let compute_conf ~oci_data ~cgroup =
+let compute_conf ~oci_data ~cgroup ~cpuset_available =
   User_and_group.for_this_process_exn ()
   >>= fun ug ->
   let current_user = {User.uid=Unix.getuid ();gid=Unix.getgid ()} in
@@ -237,6 +243,7 @@ let compute_conf ~oci_data ~cgroup =
                   Oci_Filename.make_absolute oci_data "wrappers";
                 running_processes = Bag.create ();
                 cgroup;
+                cpuset_available;
                } in
     Async_shell.run "mkdir" ["-p";"--";oci_data]
     >>= fun () ->
@@ -252,6 +259,15 @@ let start_master ~conf ~master ~oci_data ~binaries
     ~proc ~verbosity ~cleanup_rootfs
     ~identity_file =
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
+  begin match proc with
+    | [] -> error "We must have at least two group of processor";
+      Shutdown.exit 1
+    | [_] -> error "We have only one group of processor,\
+                     you should not use cpuinfo";
+      Shutdown.exit 1
+    | master_proc::procs -> return (master_proc,procs)
+  end
+  >>= fun (master_proc,proc) ->
   let parameters = {
     Oci_Wrapper_Api.rootfs = "/";
     idmaps =
@@ -268,6 +284,7 @@ let start_master ~conf ~master ~oci_data ~binaries
     prepare_network = false;
     workdir = None;
     cgroup = Some "master";
+    initial_cpuset = Some master_proc;
   } in
   let implementations = Rpc.Implementations.create_exn
       ~on_unknown_rpc:`Raise
@@ -291,7 +308,16 @@ let start_master ~conf ~master ~oci_data ~binaries
                      proc;
                     });
         Rpc.Rpc.implement Oci_Artefact_Api.exec_in_namespace
-          (fun () -> exec_in_namespace conf)
+          (fun () -> exec_in_namespace conf);
+        Rpc.Rpc.implement Oci_Artefact_Api.set_cpuset
+          (fun () (a:Oci_Artefact_Api.set_cpuset) ->
+             if conf.cpuset_available then
+               Async_shell.run "cgm"
+                 ["setvalue";"cpuset";
+                  a.cgroup; "cpuset.cpus";
+                  (String.concat ~sep:"," (List.map ~f:Int.to_string a.cpuset))]
+             else Deferred.unit
+          );
       ]
   in
   info "Start master";
@@ -321,7 +347,7 @@ let start_master ~conf ~master ~oci_data ~binaries
 
 let run
     master binaries oci_data identity_file
-    verbosity cleanup_rootfs cgroup proc =
+    verbosity cleanup_rootfs cgroup (proc,cpuset_available) =
   Log.Global.set_level verbosity;
   assert (not (Signal.is_managed_by_async Signal.term));
   (** Handle nicely terminating signals *)
@@ -335,12 +361,104 @@ let run
         don't_wait_for (Oci_Artefact_Api.oci_shutdown ())
       end
     );
-  compute_conf ~oci_data ~cgroup
+  compute_conf ~oci_data ~cgroup ~cpuset_available
   >>= fun conf ->
   Oci_Artefact_Api.oci_at_shutdown (cleanup_running_processes conf);
   start_master ~conf ~binaries ~oci_data ~master
     ~proc ~verbosity ~cleanup_rootfs
     ~identity_file
+
+(** cpuinfo *)
+type cpu_data = {
+  processor  : Int.t;
+  physical_id: Int.t;
+  core_id    : Int.t;
+}
+
+type cpuinfo = {
+  nb_cpus: Int.t;
+  cpu_datas: cpu_data Int.Table.t;
+  layout: cpu_data list list;
+}
+
+let read_cpuinfo () =
+  let cpu_datas = Int.Table.create () in
+  let rec read_processor cin =
+    let processor = ref None in
+    let core_id = ref None in
+    let physical_id = ref None in
+    let set_int r i =
+      try r := Some (Int.of_string i)
+      with _ -> error "Error during /proc/cpuinfo parsing"
+    in
+    let rec read_next () =
+      match
+        List.map ~f:(String.strip ?drop:None)
+          (String.split ~on:':' (Caml.Pervasives.input_line cin)) with
+      | [""] ->
+        begin
+          match !processor, !core_id, !physical_id with
+          | Some processor, Some core_id, Some physical_id -> begin
+            let cpu_data = {processor;physical_id;core_id} in
+            match Int.Table.add_or_error cpu_datas
+                    ~key:cpu_data.processor
+                    ~data:cpu_data with
+            | Ok () -> read_processor cin
+            | Error _ ->
+              error "Error during /proc/cpuinfo parsing: duplicate processor";
+              Caml.Pervasives.exit 1
+            end
+          | _ ->
+            error "Error during /proc/cpuinfo parsing: \
+                   cpuinfo parsing error, not all fields founds";
+            Caml.Pervasives.exit 1
+        end
+      | ["processor";i] -> set_int processor i; read_next ()
+      | ["core id";i] -> set_int core_id i; read_next ()
+      | ["physical id";i] -> set_int physical_id i; read_next ()
+      | _ -> read_next ()
+    in
+    read_next ()
+  in
+  let cin = Caml.Pervasives.open_in "/proc/cpuinfo" in
+  try read_processor cin
+  with
+  | End_of_file ->
+    Caml.Pervasives.close_in cin;
+    {
+      nb_cpus = Int.Table.length cpu_datas;
+      cpu_datas = cpu_datas;
+      layout =
+        let h = Hashtbl.Poly.create () in
+        Hashtbl.iter cpu_datas
+          ~f:(fun ~key:_ ~data ->
+              Hashtbl.add_multi h
+                ~key:(data.physical_id,data.core_id)
+                ~data
+            );
+        Hashtbl.data h
+    }
+  | exn -> Caml.Pervasives.close_in cin; raise exn
+
+let partition_cpus cpuinfo cpus =
+  List.filter_map
+      cpuinfo.layout
+      ~f:(fun l ->
+          match List.filter_map l ~f:(fun s ->
+              if List.mem cpus s.processor then Some s.processor else None) with
+          | [] -> None
+          | l -> Some l)
+
+
+(** *)
+
+let list_interval i1 i2 =
+  let l = ref [] in
+  for i=i1 to i2 do
+    l := i::!l
+  done;
+  !l
+
 
 open Cmdliner
 
@@ -369,6 +487,26 @@ let abs_file kind =
                  "must be an executable"
   in
   parse, Format.pp_print_string
+
+let int_list =
+  let parse s =
+    let l = String.split ~on:',' s in
+    let interval si =
+      match String.split ~on:'-' si with
+      | [i1;i2] -> list_interval (Int.of_string i1) (Int.of_string i2)
+      | _ -> raise Exit
+    in
+    try
+      let l = List.map ~f:interval l in
+      `Ok (List.concat l)
+    with _ -> `Error
+                (Printf.sprintf "Error during parsing of list of int: %s" s)
+  in
+  let print fmt l =
+    let l = List.map ~f:Int.to_string l in
+    Format.pp_print_string fmt (String.concat ~sep:"," l)
+  in
+  parse, print
 
 let log_level =
   let parse s =
@@ -418,10 +556,11 @@ let cmd =
   let proc =
     Arg.(value & opt (some int) None & info ["proc"]
            ~docv:"N"
-           ~doc:"Maximum number of worker to run simultaneously.")
+           ~doc:"Maximum number of worker to run simultaneously. Subsumed by \
+                 --cpus. Default is 4 except")
   in
   let cpus =
-    Arg.(value & opt (some string) None &
+    Arg.(value & opt (some int_list) None &
          info ["cpus"]
            ~docv:"NAME"
            ~doc:"Indicate which cpus should be used. Format list of cpus \
@@ -434,10 +573,28 @@ let cmd =
            ~doc:"Indicate to read /proc/cpuinfo for getting the cpu layout. \
                  The cpu layout is used for keeping two cpus running on the \
                  same core (hyper-threading) to be used by two different \
-                 runners")
+                 runners. It is also used for computing the default of --proc \
+                 as the number of cpus on the computer")
   in
-  let parse_proc proc _ _ =
-    Option.value ~default:4 proc
+  let parse_proc proc cpus cpuinfo =
+    let cpuinfo = if not cpuinfo then None
+      else Some (read_cpuinfo ())
+    in
+    let cpus = match cpus with
+      | None ->
+        let default = match cpuinfo with
+          | None -> 4
+          | Some cpuinfo -> cpuinfo.nb_cpus
+        in
+        let nb = (Option.value ~default proc) in
+        list_interval 0 (nb-1)
+      | Some l -> l
+    in
+    match cpuinfo with
+    | Some cpuinfo -> partition_cpus cpuinfo cpus, true
+    | None ->
+      (** no sibling information: cpus don't have siblings *)
+      List.map ~f:(fun x -> [x]) cpus, false
   in
   let doc = "Create a new rootfs by adding packages in a rootfs" in
   let man = [

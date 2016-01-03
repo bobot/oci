@@ -48,4 +48,5 @@ type parameters = {
   workdir: Oci_Filename.t option;
   cgroup: string option;
   (** move to the given cgroup *)
+  initial_cpuset: Int.t List.t option;
 } with sexp, bin_io

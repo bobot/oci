@@ -147,6 +147,12 @@ let move_to_cgroup name =
   command_no_fail
     "cgm movepid all %s %i" name (Pid.to_int (Unix.getpid ()))
 
+let set_cpuset cgroupname cpuset =
+  command_no_fail
+    "cgm setvalue cpuset %s cpuset.cpus %s"
+    cgroupname
+    (String.concat ~sep:"," (List.map ~f:Int.to_string cpuset))
+
 (** {2 User namespace} *)
 open Oci_Wrapper_Api
 
@@ -283,7 +289,12 @@ let () =
     detach it from the controlling terminal. It allows to manage the
     shutdown nicely *)
     let _sessionid = Core.Std.Caml.Unix.setsid () in
-    Option.iter ~f:move_to_cgroup param.cgroup;
+    begin match param.cgroup with
+    | None -> ()
+    | Some cgroup ->
+      move_to_cgroup cgroup;
+      Option.iter ~f:(set_cpuset ".") param.initial_cpuset;
+    end;
     test_userns_availability ();
     (* Option.iter param.rootfs ~f:(mkdir ~perm:0o750); *)
     go_in_userns param.idmaps;
