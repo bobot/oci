@@ -79,3 +79,14 @@ let outside_user ~first_user_mapped = function
   | Superroot -> {uid=first_user_mapped.uid; gid=first_user_mapped.gid}
   | Root -> {uid=first_user_mapped.uid+1; gid=first_user_mapped.gid+1}
   | User -> {uid=first_user_mapped.uid+1001;gid=first_user_mapped.gid+1001}
+
+module Formatted (X:sig
+    type 'a arg
+    val template: (string arg, unit, string) format
+  end) = struct
+  type t = string
+  with sexp, bin_io, compare
+
+  let mk x = string_of_format x
+  let get x = Scanf.format_from_string x X.template
+end

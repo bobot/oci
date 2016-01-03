@@ -56,7 +56,10 @@ let run_cmds t kind working_dir = function
              List.map cmd.args
                ~f:(function
                    | `S s -> s
-                   | `Proc -> string_of_int got)
+                   | `Proc s ->
+                     let fmt = (Oci_Generic_Masters_Api.
+                                  CompileGitRepoRunner.Formatted_proc.get s) in
+                     Printf.sprintf fmt got)
            in
            Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args
              ~env:(cmd.env :> Async.Std.Process.env) ()

@@ -55,3 +55,12 @@ with sexp, compare, bin_io
 val master_user: user_kind -> User.t
 val runner_user: user_kind -> User.t
 val outside_user: first_user_mapped:User.t ->  user_kind -> User.t
+
+module Formatted (X:sig
+    type 'a arg
+    val template: (string arg, unit, string) format
+  end) : sig
+  type t with sexp, bin_io, compare
+  val mk : (string X.arg, unit, string) format -> t
+  val get: t -> (string X.arg, unit, string) format
+end

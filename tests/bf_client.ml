@@ -247,11 +247,14 @@ module Configuration = struct
       working_dir = Oci_Filename.current_dir;
     }
 
+  let mk_proc s =
+    `Proc (Oci_Generic_Masters_Api.CompileGitRepoRunner.Formatted_proc.mk s)
+
   let make ?(j=1) ?(vars=[]) ?(env=`Extend []) targets =
     Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
       cmd = "make";
       args =
-        `S "-j" :: `Proc ::
+        (mk_proc "-j=%i") ::
         List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
         List.map targets ~f:(fun s -> `S s);
       env;
@@ -364,10 +367,21 @@ module Configuration = struct
           make ~j:8 [];
           make ["install"];
     ] in
+    let make_tests j =
+            Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
+        cmd = "make";
+        args = [
+          (mk_proc "-j=%i");
+          (mk_proc "PTESTS_OPTS=-error-code -j=%i");
+          `S "tests"];
+        env = `Extend [];
+        proc_requested = j;
+        working_dir = Oci_Filename.current_dir;
+      }
+    in
     let framac_tests = [
-          make ~j:1 ["check-headers"];
-          make ~j:1
-            ~vars:["PTESTS_OPTS","-error-code -j 8"] ["tests"];
+      make ~j:1 ["check-headers"];
+      make_tests 8;
     ] in
     let framac = mk_repo
         "frama-c"
@@ -391,8 +405,7 @@ module Configuration = struct
       in
       let tests =
         if has_tests
-        then [make
-                ~vars:["PTESTS_OPTS","-error-code -j 4"] ["tests"]]
+        then [make_tests 4]
         else []
       in
       let plugin = mk_repo

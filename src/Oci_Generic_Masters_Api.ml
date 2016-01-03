@@ -24,10 +24,15 @@ open Core.Std
 
 module CompileGitRepoRunner = struct
 
+  module Formatted_proc = Oci_Common.Formatted(struct
+      type 'a arg = int -> 'a
+      let template = format_of_string "%i"
+    end)
+
   type exec = {
     cmd: string;
     args: [ `S of string |
-            `Proc
+            `Proc of Formatted_proc.t
           ] list;
     env : [ `Replace of (string * string) list
           | `Extend of (string * string) list];
