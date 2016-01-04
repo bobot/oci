@@ -77,7 +77,7 @@ module CompileGitRepoRunner = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo_runner"
-      ~version:3
+      ~version:4
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -96,7 +96,7 @@ module XpraRunner = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.xpra_runner"
-      ~version:2
+      ~version:3
       ~bin_query:CompileGitRepoRunner.Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -152,7 +152,7 @@ module CompileGitRepo = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo"
-      ~version:5
+      ~version:6
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -162,7 +162,7 @@ module XpraGitRepo = struct
   let rpc =
     Oci_Data.register
       ~name:"XpraGitRepo.compile_git_repo"
-      ~version:2
+      ~version:3
       ~bin_query:CompileGitRepo.Query.bin_t
       ~bin_result:XpraRunner.Result.bin_t
 
