@@ -254,7 +254,7 @@ module Configuration = struct
     Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
       cmd = "make";
       args =
-        (mk_proc "-j=%i") ::
+        (mk_proc "--jobs=%i") ::
         List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
         List.map targets ~f:(fun s -> `S s);
       env;
@@ -372,8 +372,8 @@ module Configuration = struct
     Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
       cmd = "make";
       args = [
-        (mk_proc "-j=%i");
-        (mk_proc "PTESTS_OPTS=-error-code -j=%i");
+        (mk_proc "--jobs=%i");
+        (mk_proc "PTESTS_OPTS=-error-code --jobs=%i");
         `S "-k";
         `S "tests"];
       env = `Extend [];
