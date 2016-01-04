@@ -269,7 +269,8 @@ module Configuration = struct
       {url;commit=dumb_commit;
        directory=dir}
 
-  let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name =
+  let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name
+    : string * string =
     let id = (name,url) in
     let data = {
       Oci_Generic_Masters_Api.CompileGitRepo.Query.deps = List.map ~f:fst deps;
@@ -282,232 +283,232 @@ module Configuration = struct
     db_repos := String.Map.add !db_repos ~key:name ~data;
     id
 
-  let () =
-    let ocaml = mk_repo
-        "ocaml"
-        ~url:"git@git.frama-c.com:bobot/ocaml.git"
-        ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
-        ~deps:[]
-        ~cmds:[
-          run "./configure" [];
-          make ["world.opt"];
-          make ["install"];
-          run "mkdir" ["-p";"/usr/local/lib/ocaml/site-lib/stublibs/"];
-          run "touch" ["/usr/local/lib/ocaml/site-lib/stublibs/.placeholder"];
-          run "sh" ["-c";"echo /usr/local/lib/ocaml/site-lib/stublibs/ >> \
-                          /usr/local/lib/ocaml/ld.conf"]
-        ]
+  let ocaml = mk_repo
+      "ocaml"
+      ~url:"git@git.frama-c.com:bobot/ocaml.git"
+      ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
+      ~deps:[]
+      ~cmds:[
+        run "./configure" [];
+        make ["world.opt"];
+        make ["install"];
+        run "mkdir" ["-p";"/usr/local/lib/ocaml/site-lib/stublibs/"];
+        run "touch" ["/usr/local/lib/ocaml/site-lib/stublibs/.placeholder"];
+        run "sh" ["-c";"echo /usr/local/lib/ocaml/site-lib/stublibs/ >> \
+                        /usr/local/lib/ocaml/ld.conf"]
+      ]
+
+  let ocamlfind = mk_repo
+      "ocamlfind"
+      ~url:"git@git.frama-c.com:bobot/ocamlfind.git"
+      ~deps:[ocaml]
+      ~cmds:[
+        run "./configure" [];
+        make ["all"];
+        make ["opt"];
+        make ["install"];
+      ]
+
+  let zarith = mk_repo
+      "ZArith"
+      ~url:"git@git.frama-c.com:bobot/zarith.git"
+      ~deps:[ocaml;ocamlfind]
+      ~cmds:[
+        run "./configure" [];
+        make [];
+        make ["install"];
+      ]
+
+  let xmllight = mk_repo
+      "xml-light"
+      ~url:"https://github.com/ncannasse/xml-light.git"
+      ~revspec:"2.4"
+      ~deps:[ocaml;ocamlfind]
+      ~cmds:[
+        make ["install_ocamlfind"]
+      ]
+
+  let camlp4 = mk_repo
+      "camlp4"
+      ~url:"https://github.com/ocaml/camlp4.git"
+      ~revspec:"4.02+6"
+      ~deps:[ocaml;ocamlfind]
+      ~cmds:[
+        run "./configure" [];
+        make ["all"];
+        make ["install";"install-META"]
+      ]
+
+  let lablgtk = mk_repo
+      "lablgtk"
+      ~url:"https://forge.ocamlcore.org/anonscm/git/lablgtk/lablgtk.git"
+      ~revspec:"28290b0ee79817510bbc908bc733e80258aea7c1"
+      ~deps:[ocaml;ocamlfind;camlp4]
+      ~cmds:[
+        run "./configure" [];
+        make ["world"];
+        make ~env:(`Extend ["OCAMLFIND_LDCONF","ignore"]) ["install"];
+      ]
+
+  let ocamlgraph = mk_repo
+      "ocamlgraph"
+      ~url:"https://github.com/backtracking/ocamlgraph.git"
+      ~deps:[ocaml;ocamlfind;lablgtk]
+      ~cmds:[
+        run "autoconf" [];
+        run "./configure" [];
+        make [];
+        make ["install-findlib"];
+      ]
+
+  let framac_deps = [ocaml;ocamlfind;ocamlgraph;zarith;lablgtk]
+  let framac_cmds = [
+    run "autoconf" [];
+    run "./configure" [];
+    make ~j:8 [];
+    make ["install"];
+  ]
+  let make_tests j =
+    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
+      cmd = "make";
+      args = [
+        (mk_proc "-j=%i");
+        (mk_proc "PTESTS_OPTS=-error-code -j=%i");
+        `S "tests"];
+      env = `Extend [];
+      proc_requested = j;
+      working_dir = Oci_Filename.current_dir;
+    }
+
+  let framac_tests = [
+    make ~j:1 ["check-headers"];
+    make_tests 8;
+  ]
+
+  let framac = mk_repo
+      "frama-c"
+      ~url:"git@git.frama-c.com:frama-c/frama-c.git"
+      ~deps:framac_deps
+      ~cmds:framac_cmds
+      ~tests:framac_tests
+
+  let plugins = Queue.create ()
+  let mk_framac_plugin_repo ?revspec ?noconfigure ~url ~deps ~has_tests name=
+    let configure =
+      match noconfigure with
+      | None -> [run "autoconf" []; run "./configure" []]
+      | Some () -> []
     in
-    let ocamlfind = mk_repo
-        "ocamlfind"
-        ~url:"git@git.frama-c.com:bobot/ocamlfind.git"
-        ~deps:[ocaml]
-        ~cmds:[
-          run "./configure" [];
-          make ["all"];
-          make ["opt"];
-          make ["install"];
-        ]
+    let compilation =
+      configure @ [
+        make ~j:8 [];
+        make ["install"];
+      ]
     in
-    let zarith = mk_repo
-        "ZArith"
-        ~url:"git@git.frama-c.com:bobot/zarith.git"
-        ~deps:[ocaml;ocamlfind]
-        ~cmds:[
-          run "./configure" [];
-          make [];
-          make ["install"];
-        ]
+    let tests =
+      if has_tests
+      then [make_tests 4]
+      else []
     in
-    let xmllight = mk_repo
-        "xml-light"
-        ~url:"https://github.com/ncannasse/xml-light.git"
-        ~revspec:"2.4"
-        ~deps:[ocaml;ocamlfind]
-        ~cmds:[
-          make ["install_ocamlfind"]
-        ]
+    let plugin = mk_repo
+        name
+        ?revspec
+        ~url
+        ~deps:(framac::deps)
+        ~cmds:compilation
+        ~tests in
+    Queue.enqueue plugins (plugin,deps);
+    plugin
+
+
+  let _genassigns = mk_framac_plugin_repo
+      "Genassigns"
+      ~url:"git@git.frama-c.com:frama-c/genassigns.git"
+      ~deps:[]
+      ~has_tests:true
+
+  let eacsl = mk_framac_plugin_repo
+      "E-ACSL"
+      ~url:"git@git.frama-c.com:frama-c/e-acsl.git"
+      ~deps:[]
+      ~has_tests:true
+
+  let _context_from_precondition = mk_framac_plugin_repo
+      "context-from-precondition"
+      ~url:"git@git.frama-c.com:signoles/context-from-precondition.git"
+      ~deps:[eacsl]
+      ~has_tests:false
+
+  let _a3export = mk_framac_plugin_repo
+      "a3export"
+      ~url:"git@git.frama-c.com:frama-c/a3export.git"
+      ~deps:[]
+      ~has_tests:false
+
+  let _mthread = mk_framac_plugin_repo
+      "Mthread"
+      ~url:"git@git.frama-c.com:frama-c/mthread.git"
+      ~deps:[]
+      ~noconfigure:()
+      ~has_tests:true
+
+  let _pathcrawler = mk_framac_plugin_repo
+      "PathCrawler"
+      ~url:"git@git.frama-c.com:pathcrawler/pathcrawler.git"
+      ~deps:[xmllight]
+      ~has_tests:true
+
+  let _framac_internal =
+    let name = "frama-c-internal" in
+    let plugins =
+      plugins
+      |> Queue.to_list
     in
-    let camlp4 = mk_repo
-        "camlp4"
-        ~url:"https://github.com/ocaml/camlp4.git"
-        ~revspec:"4.02+6"
-        ~deps:[ocaml;ocamlfind]
-        ~cmds:[
-          run "./configure" [];
-          make ["all"];
-          make ["install";"install-META"]
-        ]
+    let plugins_name = String.Set.of_list
+        (List.map ~f:(fun ((name,_),_) -> name)
+           plugins)
     in
-    let lablgtk = mk_repo
-        "lablgtk"
-        ~url:"https://forge.ocamlcore.org/anonscm/git/lablgtk/lablgtk.git"
-        ~revspec:"28290b0ee79817510bbc908bc733e80258aea7c1"
-        ~deps:[ocaml;ocamlfind;camlp4]
-        ~cmds:[
-          run "./configure" [];
-          make ["world"];
-          make ~env:(`Extend ["OCAMLFIND_LDCONF","ignore"]) ["install"];
-        ] in
-    let ocamlgraph = mk_repo
-        "ocamlgraph"
-        ~url:"https://github.com/backtracking/ocamlgraph.git"
-        ~deps:[ocaml;ocamlfind;lablgtk]
-        ~cmds:[
-          run "autoconf" [];
-          run "./configure" [];
-          make [];
-          make ["install-findlib"];
-        ]
+    let plugins_deps =
+      plugins
+      |> List.map ~f:(fun (_,deps) ->
+          List.filter deps
+            ~f:(fun (dep,_) -> not (String.Set.mem plugins_name dep)))
+      |> List.concat
     in
-    let framac_deps = [ocaml;ocamlfind;ocamlgraph;zarith;lablgtk] in
-    let framac_cmds = [
-          run "autoconf" [];
-          run "./configure" [];
-          make ~j:8 [];
-          make ["install"];
-    ] in
-    let make_tests j =
-            Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
-        cmd = "make";
-        args = [
-          (mk_proc "-j=%i");
-          (mk_proc "PTESTS_OPTS=-error-code -j=%i");
-          `S "tests"];
-        env = `Extend [];
-        proc_requested = j;
-        working_dir = Oci_Filename.current_dir;
-      }
+    let cloneplugins =
+      plugins
+      |> List.map ~f:(fun ((name,_) as pkg,_) ->
+          gitclone ~dir:(Oci_Filename.concat "src/plugins" name) (snd pkg)
+        )
     in
-    let framac_tests = [
-      make ~j:1 ["check-headers"];
-      make_tests 8;
-    ] in
-    let framac = mk_repo
-        "frama-c"
-        ~url:"git@git.frama-c.com:frama-c/frama-c.git"
-        ~deps:framac_deps
-        ~cmds:framac_cmds
-        ~tests:framac_tests
-    in
-    let plugins = Queue.create () in
-    let mk_framac_plugin_repo ?revspec ?noconfigure ~url ~deps ~has_tests name=
-      let configure =
-        match noconfigure with
-        | None -> [run "autoconf" []; run "./configure" []]
-        | Some () -> []
-      in
-      let compilation =
-        configure @ [
-          make ~j:8 [];
-          make ["install"];
-        ]
-      in
-      let tests =
-        if has_tests
-        then [make_tests 4]
-        else []
-      in
-      let plugin = mk_repo
-          name
-          ?revspec
-          ~url
-          ~deps:(framac::deps)
-          ~cmds:compilation
-          ~tests in
-      Queue.enqueue plugins (plugin,deps);
-      plugin
-    in
-    let _genassigns = mk_framac_plugin_repo
-        "Genassigns"
-        ~url:"git@git.frama-c.com:frama-c/genassigns.git"
-        ~deps:[]
-        ~has_tests:true
-    in
-    let eacsl = mk_framac_plugin_repo
-        "E-ACSL"
-        ~url:"git@git.frama-c.com:frama-c/e-acsl.git"
-        ~deps:[]
-        ~has_tests:true
-    in
-    let _context_from_precondition = mk_framac_plugin_repo
-        "context-from-precondition"
-        ~url:"git@git.frama-c.com:signoles/context-from-precondition.git"
-        ~deps:[eacsl]
-        ~has_tests:false
-    in
-    let _a3export = mk_framac_plugin_repo
-        "a3export"
-        ~url:"git@git.frama-c.com:frama-c/a3export.git"
-        ~deps:[]
-        ~has_tests:false
-    in
-    let _mthread = mk_framac_plugin_repo
-        "Mthread"
-        ~url:"git@git.frama-c.com:frama-c/mthread.git"
-        ~deps:[]
-        ~noconfigure:()
-        ~has_tests:true
-    in
-    let _pathcrawler = mk_framac_plugin_repo
-        "PathCrawler"
-        ~url:"git@git.frama-c.com:pathcrawler/pathcrawler.git"
-        ~deps:[xmllight]
-        ~has_tests:true
-    in
-    let _framac_internal =
-      let name = "frama-c-internal" in
-      let plugins =
-        plugins
-        |> Queue.to_list
-      in
-      let plugins_name = String.Set.of_list
-          (List.map ~f:(fun ((name,_),_) -> name)
-             plugins)
-      in
-      let plugins_deps =
-        plugins
-        |> List.map ~f:(fun (_,deps) ->
-            List.filter deps
-              ~f:(fun (dep,_) -> not (String.Set.mem plugins_name dep)))
-        |> List.concat
-      in
-      let cloneplugins =
-        plugins
-        |> List.map ~f:(fun ((name,_) as pkg,_) ->
-            gitclone ~dir:(Oci_Filename.concat "src/plugins" name) (snd pkg)
-          )
-      in
-      let data = {
-        Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
-          List.dedup (List.map ~f:fst (framac_deps@plugins_deps));
-        cmds =
-          [gitclone (snd framac)] @
-          cloneplugins @
-          framac_cmds;
-        tests =
-          [run "frama-c" ["-plugins"]] @
+    let data = {
+      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
+        List.dedup (List.map ~f:fst (framac_deps@plugins_deps));
+      cmds =
+        [gitclone (snd framac)] @
+        cloneplugins @
+        framac_cmds;
+      tests =
+        [run "frama-c" ["-plugins"]] @
           framac_tests
-      }
-      in
+    }
+    in
       db_repos := String.Map.add !db_repos ~key:name ~data;
       (name,"")
+
+  let _framac_external =
+    let name = "frama-c-external" in
+    let data = {
+      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
+        List.map ~f:(fun ((name,_),_) -> name) (Queue.to_list plugins);
+      cmds = [];
+      tests = [
+        run "frama-c" ["-plugins"];
+      ];
+    }
     in
-    let _framac_external =
-      let name = "frama-c-external" in
-      let data = {
-        Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
-          List.map ~f:(fun ((name,_),_) -> name) (Queue.to_list plugins);
-        cmds = [];
-        tests = [
-          run "frama-c" ["-plugins"];
-        ];
-      }
-      in
-      db_repos := String.Map.add !db_repos ~key:name ~data;
-      (name,"")
-    in
-    ()
+    db_repos := String.Map.add !db_repos ~key:name ~data;
+    (name,"")
 
 end
 
