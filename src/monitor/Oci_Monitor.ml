@@ -306,6 +306,7 @@ let start_master ~conf ~master ~oci_data ~binaries
                      cleanup_rootfs;
                      identity_file;
                      proc;
+                     master_proc;
                     });
         Rpc.Rpc.implement Oci_Artefact_Api.exec_in_namespace
           (fun () -> exec_in_namespace conf);
@@ -537,7 +538,7 @@ let cmd =
            ~doc:"Specify an identity file to use for ssh connection.")
   in
   let verbosity =
-    Arg.(value & opt log_level `Info & info ["proc"]
+    Arg.(value & opt log_level `Info & info ["verbose"]
            ~docv:"[Debug|Error|Info]"
            ~doc:"Specify the verbosity level.")
   in
@@ -596,7 +597,7 @@ let cmd =
       (** no sibling information: cpus don't have siblings *)
       List.map ~f:(fun x -> [x]) cpus, false
   in
-  let doc = "Create a new rootfs by adding packages in a rootfs" in
+  let doc = "Start an Oci  monitor and the given master" in
   let man = [
     `S "DESCRIPTION";
     `P "Add the specified packages in the given rootfs"] @ help_secs

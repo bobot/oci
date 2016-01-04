@@ -27,23 +27,17 @@ open Oci_Common
 
 open Log.Global
 
-type used_procs = {
-  proc_got: Int.t List.t Stack.t;
-  partial_proc_used: Int.t Stack.t;
-  (** not currently used *)
-  partial_proc_alloc: Int.t Stack.t;
-}
+type used_procs =
+  | SemiFreezed
+  | Running of Int.t list * Int.t list * Int.t List.t List.t
 
-let dumb_used_procs = {
-  proc_got = Stack.create ();
-  partial_proc_used = Stack.create ();
-  partial_proc_alloc = Stack.create ();
-}
+let dumb_used_procs = SemiFreezed
 
 type runners_data = {
   rootfs: Oci_Filename.t;
-  used_procs: used_procs;
+  mutable used_procs: used_procs;
   cgroup: string;
+  mutable closed: bool;
 }
 
 type conf = {
@@ -217,10 +211,20 @@ let saver_artifact_data () =
   Writer.write_bin_prot writer Int.bin_writer_t conf.last_artefact_id;
   Writer.close writer
 
+let invariant_procs = function
+  | SemiFreezed -> true
+  | Running (alloc,used,got) ->
+    not (List.is_empty used &&
+         List.is_empty alloc) &&
+    not (List.exists ~f:List.is_empty got)
+
+let give_to_global writer (l:Int.t List.t) =
+  assert (not (List.is_empty l));
+  Pipe.write_without_pushback writer l
 
 let create_proc procs =
   let (_, writer) as pipes = Pipe.create () in
-  List.iter procs ~f:(Pipe.write_without_pushback writer);
+  List.iter procs ~f:(give_to_global writer);
   pipes
 
 let create_used_procs () =
@@ -230,99 +234,101 @@ let create_used_procs () =
   >>= function
   | `Eof | `Ok [] -> assert false
   | `Ok (e::l) ->
-  let used_proc = {
-    proc_got = Stack.create ();
-    partial_proc_used = Stack.create ();
-    partial_proc_alloc = Stack.create ();
-  } in
-  Stack.push used_proc.partial_proc_used e;
-  List.iter l ~f:(Stack.push used_proc.partial_proc_alloc);
-  return (used_proc, [e])
+  return (Running([e],l,[]), [e])
 
 let get_proc local_procs nb =
-  let get_proc_in_global_pool nb l =
-    let conf = get_conf () in
-    let (reader, writer) = conf.proc in
+  let conf = get_conf () in
+  let (reader, writer) = conf.proc in
+  let get_proc_in_global_pool nb hdgot got l =
     match Pipe.read_now' reader with
     | `Eof -> assert false
-    | `Nothing_available -> l
+    | `Nothing_available ->
+      Running([],hdgot,got), l
     | `Ok q ->
-      let rec aux nb l =
+      let rec aux nb hdgot got l =
         match Queue.dequeue q with
-        | None -> l
+        | None ->
+          Running([],hdgot,got), l
         | Some e ->
           let e_len = List.length e in
           let nb' = nb - e_len in
           if nb' <= 0 then begin
             let e_used,e_alloc = List.split_n e nb in
-            List.iter ~f:(Stack.push local_procs.partial_proc_used) e_used;
-            List.iter ~f:(Stack.push local_procs.partial_proc_alloc) e_alloc;
-            Queue.iter ~f:(Pipe.write_without_pushback writer) q;
-            e_used@l
+            Queue.iter ~f:(give_to_global writer) q;
+            Running(e_alloc,e_used,hdgot::got), (e_used@l)
           end
           else begin
-            Stack.push local_procs.proc_got e;
-            aux nb' (e@l)
+            aux nb' e (hdgot::got) (e@l)
           end
       in
-      aux nb l
+      aux nb hdgot got l
   in
-  let rec get_proc_in_local_pool nb l =
-    if nb <= 0 then l
+  let rec get_proc_in_local_pool nb alloc used got l =
+    if nb <= 0 then Running(alloc,used,got), l
     else
-      match Stack.pop local_procs.partial_proc_alloc with
-      | None ->
-        Stack.push local_procs.proc_got
-          (Stack.to_list local_procs.partial_proc_used);
-        Stack.clear local_procs.partial_proc_used;
-        get_proc_in_global_pool nb l
-      | Some p ->
-        Stack.push local_procs.partial_proc_used p;
-        get_proc_in_local_pool (nb-1) (p::l)
+      match alloc with
+      | [] ->
+        get_proc_in_global_pool nb used got l
+      | p::alloc ->
+        get_proc_in_local_pool (nb-1) alloc (p::used) got (p::l)
   in
-  get_proc_in_local_pool nb []
+  assert (invariant_procs local_procs);
+  match local_procs with
+  | SemiFreezed -> begin
+      Pipe.read reader
+      >>= function
+      | `Eof -> assert false
+      | `Ok alloc ->
+        assert (not (List.is_empty alloc));
+        return (get_proc_in_local_pool nb alloc [] [] [])
+    end
+  | Running(alloc,used,got) ->
+    return (get_proc_in_local_pool nb alloc used got [])
 
 
 let release_proc local_procs nb =
   let conf = get_conf () in
   let (_, writer)  = conf.proc in
-  let rec release_in_local_pool nb l =
-    if nb <= 0 then l
+  let rec release_in_local_pool nb alloc used got l =
+    if nb <= 0 then Running(alloc,used,got), l
     else
-      match Stack.pop local_procs.partial_proc_used with
-      | None ->
-        begin match Stack.pop local_procs.proc_got with
-          | None ->
-            debug "More cpu released than used!!";
-            l
-          | Some e ->
-            Pipe.write_without_pushback
-              writer (Stack.to_list local_procs.partial_proc_alloc);
-            List.iter ~f:(Stack.push local_procs.partial_proc_used) e;
-            assert (List.length e > 0);
-            release_in_local_pool nb l
+      match used with
+      | [] ->
+        begin match got with
+          | [] ->
+            if nb > 0 then debug "More cpu released than used!!";
+            SemiFreezed, l
+          | used::got ->
+            give_to_global writer alloc;
+            release_in_local_pool nb [] used got l
         end
-      | Some p ->
-        Stack.push local_procs.partial_proc_alloc p;
-        release_in_local_pool (nb-1) (p::l)
+      | p::used ->
+        release_in_local_pool (nb-1) (p::alloc) used got (p::l)
   in
-  release_in_local_pool nb []
+  assert (invariant_procs local_procs);
+  match local_procs with
+  | SemiFreezed ->
+    if nb > 0 then debug "More cpu released than used!!";
+    SemiFreezed, []
+  | Running(alloc,used,got) ->
+    release_in_local_pool nb alloc used got []
 
 let release_all_proc local_procs =
   let conf = get_conf () in
   let (_, writer)  = conf.proc in
-  let p1 = (Stack.to_list local_procs.partial_proc_used)@
-           (Stack.to_list local_procs.partial_proc_alloc) in
-  Stack.push local_procs.proc_got p1;
-  Stack.iter ~f:(Pipe.write_without_pushback writer) local_procs.proc_got;
-  Stack.clear local_procs.partial_proc_alloc;
-  Stack.clear local_procs.partial_proc_used;
-  Stack.clear local_procs.proc_got
+  assert (invariant_procs local_procs);
+  match local_procs with
+  | SemiFreezed -> SemiFreezed
+  | Running(alloc,used,got) ->
+    give_to_global writer (alloc@used);
+    List.iter ~f:(give_to_global writer) got;
+    SemiFreezed
 
 let get_used_cpu local_procs =
-  List.concat
-    ((Stack.to_list local_procs.partial_proc_used)::
-     (Stack.to_list local_procs.proc_got))
+  let conf = get_conf () in
+  match local_procs with
+  | SemiFreezed -> conf.conf_monitor.master_proc
+  | Running(_,used,got) -> List.concat (used::got)
 
 let update_cpuset d =
   let conf = get_conf () in
@@ -459,10 +465,19 @@ let exec_in_namespace parameters =
     (get_conf ()).conn_monitor
     parameters
 
+exception RunnerClosed
+
 let add_artefact_api init =
+  let implement_when_open rpc f =
+    let f state x =
+      if state.closed then raise RunnerClosed
+      else f state x
+    in
+    Rpc.Rpc.implement rpc f
+  in
   List.fold_left ~f:Rpc.Implementations.add_exn ~init [
     (** create *)
-    Rpc.Rpc.implement
+    implement_when_open
       Oci_Artefact_Api.rpc_create
       (fun {rootfs} {Oci_Artefact_Api.src;prune;rooted_at;only_new} ->
          assert (not (Oci_Filename.is_relative src));
@@ -480,7 +495,7 @@ let add_artefact_api init =
            ~only_new
       );
     (** link_to *)
-    Rpc.Rpc.implement
+    implement_when_open
       Oci_Artefact_Api.rpc_link_to
       (fun {rootfs} (user,artefact,dst) ->
          assert (not (Oci_Filename.is_relative dst));
@@ -489,7 +504,7 @@ let add_artefact_api init =
          link_to_gen (Oci_Common.master_user user) artefact dst
       );
     (** copy_to *)
-    Rpc.Rpc.implement
+    implement_when_open
       Oci_Artefact_Api.rpc_copy_to
       (fun {rootfs} (user,artefact,dst) ->
          assert (not (Oci_Filename.is_relative dst));
@@ -498,7 +513,7 @@ let add_artefact_api init =
          copy_to_gen (Oci_Common.master_user user) artefact dst
       );
     (** get_internet *)
-    Rpc.Rpc.implement
+    implement_when_open
       Oci_Artefact_Api.rpc_get_internet
       (fun {rootfs} () ->
          let resolv = "etc/resolv.conf" in
@@ -507,7 +522,7 @@ let add_artefact_api init =
          Async_shell.run "cp" ["--";src;dst]
       );
     (** git_clone *)
-    Rpc.Rpc.implement
+    implement_when_open
       Oci_Artefact_Api.rpc_git_clone
       (fun {rootfs} {Oci_Artefact_Api.url;dst;user;commit} ->
         let dst = Oci_Filename.make_relative "/" dst in
@@ -515,7 +530,7 @@ let add_artefact_api init =
         Oci_Git.clone ~user ~url ~dst ~commit
       );
     (** give_external_access *)
-    Rpc.Rpc.implement
+    implement_when_open
       Oci_Artefact_Api.rpc_give_external_access
       (fun {rootfs} src ->
         let src = Oci_Filename.make_relative "/" src in
@@ -533,7 +548,7 @@ let add_artefact_api init =
         return dst
       );
     (** get_or_release *)
-    Rpc.Rpc.implement
+    implement_when_open
       Oci_Artefact_Api.rpc_get_or_release_proc
       (fun d requested ->
          let update_cpuset got =
@@ -544,13 +559,17 @@ let add_artefact_api init =
            >>= fun () ->
            return got
          in
-         if 0 < requested then begin
-           let l = get_proc d.used_procs requested in
+         if 0 = requested then return 0
+         else if 0 < requested then begin
+           get_proc d.used_procs requested
+           >>= fun (used_procs,l) ->
+           d.used_procs <- used_procs;
            let got = List.length l in
            update_cpuset got
          end
          else begin
-           let l = release_proc d.used_procs (-requested) in
+           let used_procs,l = release_proc d.used_procs (-requested) in
+           d.used_procs <- used_procs;
            let got = List.length l in
            update_cpuset (-got)
          end
@@ -566,7 +585,7 @@ let start_runner ~binary_name =
   let rootfs = Oci_Filename.concat (get_conf ()).runners
       (Oci_Filename.mk (string_of_int runner_id)) in
   let cgroup = sprintf "runner%i" runner_id in
-  let initial_state = {rootfs;used_procs;cgroup} in
+  let initial_state = {rootfs;used_procs;cgroup;closed=false} in
   Unix.mkdir ~p:() (Oci_Filename.concat rootfs "oci")
   >>= fun () ->
   let etc = (Oci_Filename.concat rootfs "etc") in
@@ -611,7 +630,8 @@ let start_runner ~binary_name =
     >>> fun (result,_) ->
     result
     >>> fun _ -> begin
-      release_all_proc initial_state.used_procs;
+      initial_state.closed <- true;
+      initial_state.used_procs <- release_all_proc initial_state.used_procs;
       if conf.conf_monitor.cleanup_rootfs
       then Async_shell.run "rm" ["-rf";"--";rootfs]
       else return ()
@@ -728,6 +748,8 @@ let run () =
       ~initial_connection_state:(fun _ _ -> {rootfs="external socket";
                                              used_procs=dumb_used_procs;
                                              cgroup="external socket";
+                                             (** not an open runner *)
+                                             closed=true;
                                             })
       ~implementations:!masters
       ()

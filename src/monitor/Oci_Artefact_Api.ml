@@ -36,6 +36,7 @@ type artefact_api = {
   cleanup_rootfs: Bool.t;
   identity_file: string option;
   proc: Int.t List.t List.t;
+  master_proc: Int.t List.t;
 } with sexp, bin_io
 
 let get_configuration = Rpc.Rpc.create
