@@ -373,7 +373,7 @@ module Configuration = struct
       cmd = "make";
       args = [
         (mk_proc "--jobs=%i");
-        (mk_proc "PTESTS_OPTS=-error-code --jobs=%i");
+        (mk_proc "PTESTS_OPTS=-error-code -j %i");
         `S "-k";
         `S "tests"];
       env = `Extend [];
