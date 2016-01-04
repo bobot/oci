@@ -374,6 +374,7 @@ module Configuration = struct
       args = [
         (mk_proc "-j=%i");
         (mk_proc "PTESTS_OPTS=-error-code -j=%i");
+        `S "-k";
         `S "tests"];
       env = `Extend [];
       proc_requested = j;
