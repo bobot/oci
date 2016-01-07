@@ -524,10 +524,20 @@ let add_artefact_api init =
     (** git_clone *)
     implement_when_open
       Oci_Artefact_Api.rpc_git_clone
-      (fun {rootfs} {Oci_Artefact_Api.url;dst;user;commit} ->
+      (fun {rootfs}
+        ({url;dst;user;commit}:Oci_Artefact_Api.rpc_git_clone_query) ->
         let dst = Oci_Filename.make_relative "/" dst in
         let dst = Oci_Filename.make_absolute rootfs dst in
         Oci_Git.clone ~user ~url ~dst ~commit
+      );
+    (** git_show_file *)
+    implement_when_open
+      Oci_Artefact_Api.rpc_git_show_file
+      (fun {rootfs}
+        ({url;src;dst;user;commit}:Oci_Artefact_Api.rpc_git_show_file_query) ->
+        let dst = Oci_Filename.make_relative "/" dst in
+        let dst = Oci_Filename.make_absolute rootfs dst in
+        Oci_Git.show_file ~user ~url ~src ~dst ~commit
       );
     (** give_external_access *)
     implement_when_open

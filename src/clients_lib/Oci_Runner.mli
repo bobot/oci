@@ -69,6 +69,13 @@ val git_clone: 'r t ->
   dst:Oci_Filename.t ->
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
+val git_show_file: 'r t ->
+  ?user:Oci_Common.user_kind ->
+  url:string ->
+  src:Oci_Filename.t ->
+  dst:Oci_Filename.t ->
+  commit:Oci_Common.Commit.t ->
+  unit Deferred.t
 val give_external_access: 'r t -> Oci_Filename.t -> Oci_Filename.t Deferred.t
 
 val get_proc: 'r t -> int -> int Deferred.t
@@ -100,6 +107,16 @@ val print_cmd: string -> string list -> string
 val run: 'r t ->
   Core.Std.Unix.Exit_or_signal.t Deferred.t Process.with_create_args
 
+val run_timed: 'r t ->
+ [ `Error of
+     ('c, Core.Std.Unix.Exit_or_signal.error) Core_kernel.Std.Result.t
+ | `Ok of Oci_Common.Timed.t
+ | `Timed_Error of Core.Std.Error.t ]
+  Async.Std.Deferred.t Process.with_create_args
+
 exception CommandFailed
 val run_exn: 'r t -> unit Deferred.t Process.with_create_args
 (** Same as {!run} but raise CommandFailed in case of error *)
+
+val run_timed_exn:
+  'r t -> Oci_Common.Timed.t Deferred.t Process.with_create_args

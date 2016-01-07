@@ -126,27 +126,31 @@ let rec chown_not_shared ({Oci_Common.User.uid;gid} as user) src =
     )
 
 
+let check_commit_availability commit src =
+  let commit = Oci_Common.Commit.to_string commit in
+  Async_shell.test
+    "git" ["-C";src;"rev-parse";"--verify";"-q";commit^"^{commit}"]
+  >>= fun b -> begin
+    if b then return () (* already in the repository *)
+    else
+      (** update the local cache.
+          It is not possible to fetch a particular commit. *)
+      Async_shell.run
+        ~env:(get_env ())
+        "git" ["-C";src;"fetch";"origin"]
+      >>= fun () ->
+      Async_shell.test
+        "git" ["-C";src;"rev-parse";"--verify";"-q";commit^"^{commit}"]
+      >>= fun b ->
+      if b then return () (** well fetched *)
+      else failwith "Commit number not found on server"
+  end
+
+
 let clone ~user ~url ~dst ~commit =
   lookup_path url
     (fun src ->
-       let commit = Oci_Common.Commit.to_string commit in
-       Async_shell.test
-         "git" ["-C";src;"rev-parse";"--verify";"-q";commit^"^{commit}"]
-       >>= fun b -> begin
-         if b then return () (* already in the repository *)
-         else
-           (** update the local cache.
-               It is not possible to fetch a particular commit. *)
-           Async_shell.run
-             ~env:(get_env ())
-             "git" ["-C";src;"fetch";"origin"]
-           >>= fun () ->
-           Async_shell.test
-             "git" ["-C";src;"rev-parse";"--verify";"-q";commit^"^{commit}"]
-           >>= fun b ->
-           if b then return () (** well fetched *)
-           else failwith "Commit number not found on server"
-       end
+       check_commit_availability commit src
        >>= fun () ->
        Async_shell.run
          "git" ["clone";"--local";"--no-checkout";
@@ -156,6 +160,31 @@ let clone ~user ~url ~dst ~commit =
   chown_not_shared (Oci_Common.master_user user) dst
   >>= fun () ->
   return ()
+
+
+let show_file ~user ~url ~src:file_src ~dst ~commit =
+  lookup_path url
+    (fun src ->
+       check_commit_availability commit src
+       >>= fun () ->
+       let commit = Oci_Common.Commit.to_string commit in
+       Process.create
+         ~prog:"git" ~args:["show";commit^":"^file_src;"--";src;dst] ()
+       >>= function
+       | Error exn -> Error.raise exn
+       | Ok git_show ->
+         don't_wait_for (Writer.close (Process.stdin git_show));
+         Writer.open_file dst
+         >>= fun dst ->
+         don't_wait_for (Reader.drain (Process.stderr git_show));
+         Reader.transfer (Process.stdout git_show) (Writer.pipe dst)
+    )
+  >>= fun () ->
+  chown_not_shared (Oci_Common.master_user user) dst
+  >>= fun () ->
+  return ()
+
+
 
 let get_remote_branch_commit ~url ~revspec =
   let slow_path src =

@@ -49,6 +49,17 @@ let run_cmds t kind working_dir = function
         ~url:clone.url
         ~dst:(Oci_Filename.make_absolute working_dir clone.directory)
         ~commit:clone.commit
+    | GitShowFile show_file ->
+      Oci_Runner.cha_log t "Show file %s at %s to %s"
+        show_file.src
+        (Oci_Common.Commit.to_string show_file.commit)
+        show_file.dst;
+      Oci_Runner.git_show_file t
+        ~user:Root
+        ~url:show_file.url
+        ~src:show_file.src
+        ~dst:(Oci_Filename.make_absolute working_dir show_file.dst)
+        ~commit:show_file.commit
     | Exec cmd ->
       Oci_Runner.get_release_proc t cmd.proc_requested
         (fun got ->
@@ -61,16 +72,22 @@ let run_cmds t kind working_dir = function
                                   CompileGitRepoRunner.Formatted_proc.get s) in
                      Printf.sprintf fmt got)
            in
-           Oci_Runner.run t ~working_dir ~prog:cmd.cmd ~args
+           Oci_Runner.run_timed t ~working_dir ~prog:cmd.cmd ~args
              ~env:(cmd.env :> Async.Std.Process.env) ()
            >>= fun r ->
            match kind, r with
-           | `Required, Core_kernel.Std.Result.Ok () -> return ()
-           | `Test, Core_kernel.Std.Result.Ok () ->
-             Oci_Runner.data_log t
-                  (`Test (`Ok,(Oci_Runner.print_cmd cmd.cmd args)));
+           | `Required, `Ok timed ->
+             Oci_Runner.create_artefact t
+               ~dir:"/"
+               ~prune:[working_dir]
+             >>= fun artefact ->
+             Oci_Runner.data_log t (`Compilation (`Ok (artefact,timed)));
              return ()
-           | `Required, Core_kernel.Std.Result.Error _ ->
+           | `Test, `Ok timed  ->
+             Oci_Runner.data_log t
+                  (`Test (`Ok timed,(Oci_Runner.print_cmd cmd.cmd args)));
+             return ()
+           | `Required, _ ->
              Oci_Runner.data_log t
                   (`Compilation (`Failed (Oci_Runner.print_cmd cmd.cmd args)));
              raise Oci_Runner.StopQuery
@@ -86,11 +103,6 @@ let compile_git_repo_runner t q =
   >>= fun working_dir ->
   Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
   >>= fun () ->
-  Oci_Runner.create_artefact t
-    ~dir:"/"
-    ~prune:[working_dir]
-  >>= fun artefact ->
-  Oci_Runner.data_log t (`Compilation (`Ok artefact));
   Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests
 
 (*

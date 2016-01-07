@@ -160,6 +160,21 @@ let rpc_git_clone =
     ~bin_query:bin_rpc_git_clone_query
     ~bin_response:Unit.bin_t
 
+type rpc_git_show_file_query = {
+  url : String.t;
+  src: Oci_Filename.t;
+  dst: Oci_Filename.t;
+  user: Oci_Common.user_kind;
+  commit: Oci_Common.Commit.t;
+} with bin_io
+
+let rpc_git_show_file =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.git_show_file"
+    ~version:1
+    ~bin_query:bin_rpc_git_show_file_query
+    ~bin_response:Unit.bin_t
+
 let rpc_stop_runner =
   Rpc.Rpc.create
     ~name:"Oci_Runner.stop_runner"

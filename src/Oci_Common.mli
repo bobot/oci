@@ -64,3 +64,13 @@ module Formatted (X:sig
   val mk : (string X.arg, unit, string) format -> t
   val get: t -> (string X.arg, unit, string) format
 end
+
+
+module Timed : sig
+  type t = {
+    cpu_kernel: Core.Time.Span.t; (* S *)
+    cpu_user:   Core.Time.Span.t; (* U *)
+    wall_clock: Core.Time.Span.t; (* e *)
+  } with sexp, bin_io, compare
+
+end

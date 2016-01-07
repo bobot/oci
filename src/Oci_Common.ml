@@ -90,3 +90,14 @@ module Formatted (X:sig
   let mk x = string_of_format x
   let get x = Scanf.format_from_string x X.template
 end
+
+module Timed = struct
+  type t = {
+    cpu_kernel: Time.Span.t; (* S *)
+    cpu_user:   Time.Span.t; (* U *)
+    wall_clock: Time.Span.t; (* e *)
+  } with sexp, bin_io, compare
+
+  
+
+end

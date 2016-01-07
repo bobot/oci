@@ -30,6 +30,14 @@ val clone:
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
 
+val show_file:
+  user:Oci_Common.user_kind ->
+  url:String.t ->
+  src:Oci_Filename.t ->
+  dst:Oci_Filename.t ->
+  commit:Oci_Common.Commit.t ->
+  unit Deferred.t
+
 val get_remote_branch_commit:
   url:String.t ->
   revspec:String.t ->

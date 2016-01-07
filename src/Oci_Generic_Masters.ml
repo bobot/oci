@@ -44,10 +44,10 @@ let run_dependency dep dep_name =
             (`Compilation (`Ok r))) ->
     Oci_Master.cha_log "Dependency %s done" dep_name;
     return (Some r)
-          | _ ->
-            Oci_Master.err_log
-              "Dependency %s failed (or one of its dependency)" dep_name;
-            return None
+  | _ ->
+    Oci_Master.err_log
+      "Dependency %s failed (or one of its dependency)" dep_name;
+    return None
 
 
 let compile_deps =
@@ -62,7 +62,7 @@ let compile_deps =
         )
     >>= fun artefacts ->
     return (List.map artefacts ~f:(function
-        | Some r -> r
+        | Some (r,_) -> r
         | None -> raise Dependency_error
       ))
 

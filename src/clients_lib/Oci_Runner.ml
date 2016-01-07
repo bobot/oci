@@ -246,6 +246,43 @@ let run_exn t ?working_dir ?env ~prog ~args () =
   | Core_kernel.Std.Result.Error _ ->
     raise CommandFailed
 
+let run_timed t ?working_dir ?env ~prog ~args () =
+  let tmpfile = Filename.temp_file "time" ".sexp" in
+  let args = "--output"::tmpfile::"--format"::
+             "((cpu_kernel %Ss)(cpu_user %Us)(wall_clock %es))"::
+             prog::args
+  in
+  process_create t ?working_dir ?env ~prog:"/usr/bin/time" ~args ()
+  >>= fun p ->
+  let p = Or_error.ok_exn p in
+  Process.wait p
+  >>= fun r ->
+  Reader.file_contents tmpfile
+  >>= fun content ->
+  Sys.remove tmpfile
+  >>= fun () ->
+  let timed = Sexp.of_string_conv
+      (String.strip content)
+      Oci_Common.Timed.t_of_sexp in
+  match r, timed with
+  | Core_kernel.Std.Result.Ok (),`Result timed -> return (`Ok timed)
+  | Core_kernel.Std.Result.Error _ as error, _ ->
+    err_log t "Command %s failed: %s"
+      (print_cmd prog args)
+      (Unix.Exit_or_signal.to_string_hum error);
+    return (`Error error)
+  | _, `Error (exn,_) ->
+    let error = Error.of_exn exn in
+    err_log t "time output parsing failed executing %s: %s"
+      (print_cmd prog args)
+      (Error.to_string_hum error);
+    return (`Timed_Error error)
+
+let run_timed_exn t ?working_dir ?env ~prog ~args () =
+  run_timed t ?working_dir ?env ~prog ~args ()
+  >>= function
+  | `Ok timed -> return timed
+  | _ -> raise CommandFailed
 
 let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
   cmd_log t "Git clone %s in %s" url dst;
@@ -257,3 +294,8 @@ let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
     ~prog:"git"
     ~args:["-C";dst;"-c";"advice.detachedHead=false";"checkout";"--detach";
            Oci_Common.Commit.to_string commit] ()
+
+let git_show_file t ?(user=Oci_Common.Root) ~url ~src ~dst ~commit =
+  cmd_log t "Git show_file %s from %s in %s" src url dst;
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_git_show_file
+    t.connection {url;src;dst;user;commit}

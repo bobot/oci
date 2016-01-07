@@ -22,6 +22,8 @@
 
 open Core.Std
 
+let version = 7
+
 module CompileGitRepoRunner = struct
 
   module Formatted_proc = Oci_Common.Formatted(struct
@@ -47,9 +49,18 @@ module CompileGitRepoRunner = struct
     commit: Oci_Common.Commit.t;
   } with sexp, bin_io, compare
 
+
+  type gitshowfile = {
+    src: Oci_Filename.t; (** Relative path in git repository *)
+    dst: Oci_Filename.t; (** Relative path *)
+    url: string;
+    commit: Oci_Common.Commit.t;
+  } with sexp, bin_io, compare
+
   type cmd =
     | Exec of exec
     | GitClone of gitclone
+    | GitShowFile of gitshowfile
   with sexp, bin_io, compare
 
   type cmds = cmd list
@@ -68,8 +79,9 @@ module CompileGitRepoRunner = struct
 
   module Result = struct
     type t = [
-      | `Compilation of [`Ok of Oci_Common.Artefact.t | `Failed of string]
-      | `Test of [ `Ok | `Failed ] * string
+      | `Compilation of [`Ok of Oci_Common.Artefact.t * Oci_Common.Timed.t |
+                         `Failed of string]
+      | `Test of [ `Ok of Oci_Common.Timed.t | `Failed ] * string
     ]
     with sexp, bin_io, compare
   end
@@ -77,7 +89,7 @@ module CompileGitRepoRunner = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo_runner"
-      ~version:4
+      ~version
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -96,7 +108,7 @@ module XpraRunner = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.xpra_runner"
-      ~version:3
+      ~version
       ~bin_query:CompileGitRepoRunner.Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -152,7 +164,7 @@ module CompileGitRepo = struct
   let rpc =
     Oci_Data.register
       ~name:"Oci_Generic_Masters.compile_git_repo"
-      ~version:6
+      ~version
       ~bin_query:Query.bin_t
       ~bin_result:Result.bin_t
 end
@@ -162,7 +174,7 @@ module XpraGitRepo = struct
   let rpc =
     Oci_Data.register
       ~name:"XpraGitRepo.compile_git_repo"
-      ~version:3
+      ~version
       ~bin_query:CompileGitRepo.Query.bin_t
       ~bin_result:XpraRunner.Result.bin_t
 

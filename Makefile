@@ -22,13 +22,17 @@ BINARY= src/wrapper/Oci_Wrapper.native				\
 	tests/tests_runner.native tests/launch_test.native	\
 	tests/bf_client.native src/monitor/Oci_Monitor.native	\
 	src/Oci_Cmd_Runner.native				\
-	src/Oci_Generic_Masters_Runner.native
+	src/Oci_Generic_Masters_Runner.native tests/soprano_client.native
 
 all: .merlin
 	@mkdir -m 777 -p bin
 	@rm -f bin/*.native
 	$(OCAMLBUILD) src/clients_lib/Oci_Master.cmxa src/clients_lib/Oci_Runner.cmxa $(BINARY)
 	@cp $(addprefix _build/,$(BINARY)) bin
+
+byte: .merlin
+	$(OCAMLBUILD) $(subst .native,.byte,$(BINARY))
+
 
 #force allows to always run the rules that depends on it
 .PHONY: force
