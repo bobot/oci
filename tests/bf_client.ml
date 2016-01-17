@@ -421,6 +421,11 @@ module Configuration = struct
     Queue.enqueue plugins (plugin,deps);
     plugin
 
+  let _pathcrawler = mk_framac_plugin_repo
+      "PathCrawler"
+      ~url:"git@git.frama-c.com:pathcrawler/pathcrawler.git"
+      ~deps:[xmllight]
+      ~has_tests:true
 
   let _genassigns = mk_framac_plugin_repo
       "Genassigns"
@@ -451,12 +456,6 @@ module Configuration = struct
       ~url:"git@git.frama-c.com:frama-c/mthread.git"
       ~deps:[]
       ~noconfigure:()
-      ~has_tests:true
-
-  let _pathcrawler = mk_framac_plugin_repo
-      "PathCrawler"
-      ~url:"git@git.frama-c.com:pathcrawler/pathcrawler.git"
-      ~deps:[xmllight]
       ~has_tests:true
 
   let _framac_internal =
