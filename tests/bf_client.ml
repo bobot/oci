@@ -383,7 +383,7 @@ module Configuration = struct
 
   let framac_tests = [
     make ~j:1 ["check-headers"];
-    make ~j:1 ["doc"];
+    make ~j:8 ["doc"];
     make ~j:1 ["check-logic-parser-wildcard"];
     make_tests 8;
   ]
