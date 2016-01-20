@@ -30,7 +30,7 @@ val clone:
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
 
-val show_file:
+val copy_file:
   user:Oci_Common.user_kind ->
   url:String.t ->
   src:Oci_Filename.t ->

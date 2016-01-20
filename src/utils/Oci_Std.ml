@@ -1,6 +1,8 @@
 open Core.Std
 open Async.Std
 
+
+module Pp = Oci_pp
 include Log.Global
 
 let unlink_no_fail filename =

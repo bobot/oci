@@ -27,6 +27,8 @@ include FilePath
 
 type t = string with sexp, bin_io, compare
 
+let pp = String.pp
+
 let equal = String.equal
 
 (* let t_of_sexp x = filename_of_string (String.t_of_sexp x) *)

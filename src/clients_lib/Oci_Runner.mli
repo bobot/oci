@@ -69,7 +69,7 @@ val git_clone: 'r t ->
   dst:Oci_Filename.t ->
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
-val git_show_file: 'r t ->
+val git_copy_file: 'r t ->
   ?user:Oci_Common.user_kind ->
   url:string ->
   src:Oci_Filename.t ->

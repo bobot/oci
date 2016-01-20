@@ -21,6 +21,7 @@
 (**************************************************************************)
 
 open Core.Std
+open Oci_Std
 
 let version = 7
 
@@ -43,6 +44,31 @@ module CompileGitRepoRunner = struct
   } with sexp, bin_io, compare
   (** `Proc replaced by number of processus *)
 
+  let pp_exec fmt e =
+    Format.fprintf fmt
+      "@[<hv>%s @[%a@]@ %a%a@]"
+      e.cmd
+      (Pp.print_list Pp.space (fun fmt -> function
+           | `S s -> Format.fprintf fmt "[%s]" s
+           | `Proc p -> Format.fprintf fmt "[%a]" Formatted_proc.pp p)
+      ) e.args
+      (fun fmt ->
+         let print_env = Pp.print_list Pp.semi
+             (Pp.print_pair_delim Pp.nothing Pp.equal Pp.nothing
+                String.pp String.pp)
+         in
+         function
+         | `Extend [] -> ()
+         | `Replace l ->
+           Format.fprintf fmt "@[Replace env: @[%a@]@]@ " print_env l
+         | `Extend l ->
+           Format.fprintf fmt "@[Extend env: @[%a@]@]@ " print_env l
+      ) e.env
+      (fun fmt f ->
+         if not (Oci_Filename.equal f Oci_Filename.current_dir) then
+           Format.fprintf fmt "@[working_dir: @[%a@]@]" Oci_Filename.pp f
+      ) e.working_dir
+
   type gitclone = {
     directory: Oci_Filename.t; (** Relative path *)
     url: string;
@@ -50,7 +76,7 @@ module CompileGitRepoRunner = struct
   } with sexp, bin_io, compare
 
 
-  type gitshowfile = {
+  type gitcopyfile = {
     src: Oci_Filename.t; (** Relative path in git repository *)
     dst: Oci_Filename.t; (** Relative path *)
     url: string;
@@ -60,7 +86,7 @@ module CompileGitRepoRunner = struct
   type cmd =
     | Exec of exec
     | GitClone of gitclone
-    | GitShowFile of gitshowfile
+    | GitCopyFile of gitcopyfile
   with sexp, bin_io, compare
 
   type cmds = cmd list
@@ -79,11 +105,19 @@ module CompileGitRepoRunner = struct
 
   module Result = struct
     type t = [
-      | `Compilation of [`Ok of Oci_Common.Artefact.t * Oci_Common.Timed.t |
-                         `Failed of string]
-      | `Test of [ `Ok of Oci_Common.Timed.t | `Failed ] * string
+      | `Cmd of exec * [ `Ok of Oci_Common.Timed.t | `Failed ]
+      | `Artefact of Oci_Common.Artefact.t
     ]
     with sexp, bin_io, compare
+
+    let pp fmt : t -> unit = function
+      | `Artefact artefact ->
+        Format.fprintf fmt "New artefact %a created"
+          Oci_Common.Artefact.pp artefact
+      | `Cmd (_,`Ok time) ->
+        Format.fprintf fmt "Ok in %a" Oci_Common.Timed.pp time
+      | `Cmd(cmd,`Failed) ->
+        Format.fprintf fmt "@[Failed: %a@]" pp_exec cmd
   end
 
   let rpc =
@@ -103,6 +137,11 @@ module XpraRunner = struct
       | `XpraDir of Oci_Filename.t
     ]
     with sexp, bin_io, compare
+
+    let pp fmt = function
+      | #CompileGitRepoRunner.Result.t as x ->
+        CompileGitRepoRunner.Result.pp fmt x
+      | `XpraDir x -> Format.fprintf fmt "xpra-dir %a" Oci_Filename.pp x
   end
 
   let rpc =

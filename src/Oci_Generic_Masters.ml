@@ -38,12 +38,13 @@ let run_dependency dep dep_name =
   let open Oci_Generic_Masters_Api.CompileGitRepo in
   let r = Oci_Master.dispatch_master_log ~msg:dep_name rpc dep in
   Oci_Log.reader_get_first r
-    ~f:(fun _ -> true) (** always the first result *)
+    ~f:(function
+        | (Core_kernel.Result.Ok (`Artefact _)) -> true
+        | _ -> false ) (** always the first result *)
   >>= function
-  | Some (Core_kernel.Result.Ok
-            (`Compilation (`Ok r))) ->
+  | Some (Core_kernel.Result.Ok (`Artefact artefact)) ->
     Oci_Master.cha_log "Dependency %s done" dep_name;
-    return (Some r)
+    return (Some artefact)
   | _ ->
     Oci_Master.err_log
       "Dependency %s failed (or one of its dependency)" dep_name;
@@ -62,7 +63,7 @@ let compile_deps =
         )
     >>= fun artefacts ->
     return (List.map artefacts ~f:(function
-        | Some (r,_) -> r
+        | Some artefact -> artefact
         | None -> raise Dependency_error
       ))
 

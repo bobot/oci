@@ -37,7 +37,7 @@ let print_time fmt t =
   if Log.Global.level () = `Debug then Time.pp fmt t
   else Format.pp_print_string fmt (Time.format t "%H:%M:%S")
 
-let exec_one test input ~init ~fold sexp_input sexp_output conn =
+let exec_one test input ~init ~fold sexp_input output_printer conn =
   debug "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log test) conn input
   >>= fun (p,_) ->
@@ -62,9 +62,14 @@ let exec_one test input ~init ~fold sexp_input sexp_output conn =
           line;
         return acc
       | {Oci_Log.data=Oci_Log.Extra r} ->
-        Format.fprintf fmt
-          "[Result] %s@."
-          (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
+        begin match r with
+          | Ok r ->
+            Format.fprintf fmt "[Result] %a@." output_printer r
+          | Error e ->
+            Format.fprintf fmt
+              "[Anomaly] please report: %s"
+              (Sexp.to_string_hum (Error.sexp_of_t e))
+        end;
         return (fold acc r)
     )
   >>= fun res ->
@@ -144,10 +149,10 @@ let create_query _ccopt rootfs revspecs repo socket =
                 >>= fun commit ->
                 return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
                           {x with commit})
-              | Oci_Generic_Masters_Api.CompileGitRepoRunner.GitShowFile x ->
+              | Oci_Generic_Masters_Api.CompileGitRepoRunner.GitCopyFile x ->
                 get_commit x.url
                 >>= fun commit ->
-                return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitShowFile
+                return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitCopyFile
                           {x with commit})
 
             )
@@ -162,15 +167,14 @@ let run ccopt rootfs revspecs (repo:string) socket =
   create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
   let fold acc = function
-    | Result.Ok (`Compilation (`Ok _)) -> acc
-    | Result.Ok (`Compilation (`Failed _)) -> `Error
-    | Result.Ok (`Test (`Ok _,_)) -> acc
-    | Result.Ok (`Test (`Failed,_)) -> `Error
+    | Result.Ok (`Cmd (_,`Ok _)) -> acc
+    | Result.Ok (`Cmd (_,`Failed)) -> `Error
+    | Result.Ok (`Artefact _) -> acc
     | Result.Error _ -> `Error
   in
   exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query ~fold
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-    Oci_Generic_Masters_Api.CompileGitRepo.Result.sexp_of_t socket
+    Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.pp socket
 
 let xpra ccopt rootfs revspecs repo socket =
   create_query ccopt rootfs revspecs repo socket
@@ -184,7 +188,7 @@ let xpra ccopt rootfs revspecs repo socket =
                            | Oci_Generic_Masters_Api.
                                CompileGitRepoRunner.GitClone _ -> true
                            | Oci_Generic_Masters_Api.
-                               CompileGitRepoRunner.GitShowFile _ -> true
+                               CompileGitRepoRunner.GitCopyFile _ -> true
                            | Oci_Generic_Masters_Api.
                                CompileGitRepoRunner.Exec _ -> false) data.cmds
                          })
@@ -192,7 +196,7 @@ let xpra ccopt rootfs revspecs repo socket =
   in
   exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-    Oci_Generic_Masters_Api.XpraRunner.Result.sexp_of_t socket
+    Oci_Generic_Masters_Api.XpraRunner.Result.pp socket
 
 let list_rootfs _copts rootfs socket =
   let open Oci_Rootfs_Api in
@@ -202,7 +206,7 @@ let list_rootfs _copts rootfs socket =
         exec find_rootfs rootfs
           ~init:acc
           Rootfs_Id.sexp_of_t
-          Rootfs.sexp_of_t socket
+          (Oci_pp.to_sexp Rootfs.sexp_of_t) socket
       )
 
 let add_packages rootfs packages =
@@ -212,7 +216,7 @@ let add_packages rootfs packages =
       packages = packages;
     }
     sexp_of_add_packages_query
-    Rootfs.sexp_of_t
+    (Oci_pp.to_sexp Rootfs.sexp_of_t)
 
 let connect ccopt cmd =
   Tcp.connect (Tcp.to_file ccopt.socket)

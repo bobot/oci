@@ -24,6 +24,7 @@ module Artefact : sig
   type t with sexp, bin_io, compare
   val to_string: t -> string
   val of_int: int -> t
+  val pp: t Oci_pp.printer
 end
 
 module Commit : sig
@@ -63,6 +64,7 @@ module Formatted (X:sig
   type t with sexp, bin_io, compare
   val mk : (string X.arg, unit, string) format -> t
   val get: t -> (string X.arg, unit, string) format
+  val pp: t Oci_pp.printer
 end
 
 
@@ -73,4 +75,5 @@ module Timed : sig
     wall_clock: Core.Time.Span.t; (* e *)
   } with sexp, bin_io, compare
 
+  val pp: t Oci_pp.printer
 end

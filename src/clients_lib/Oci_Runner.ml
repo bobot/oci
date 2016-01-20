@@ -212,7 +212,7 @@ let process_log t p =
 
 
 let print_cmd prog args =
-  prog ^ " \"" ^ (String.concat ~sep:"\" \"" args) ^ "\""
+  prog ^ " " ^ (String.concat ~sep:", " args)
 
 let process_create t ?working_dir ?env ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
@@ -248,11 +248,12 @@ let run_exn t ?working_dir ?env ~prog ~args () =
 
 let run_timed t ?working_dir ?env ~prog ~args () =
   let tmpfile = Filename.temp_file "time" ".sexp" in
-  let args = "--output"::tmpfile::"--format"::
+  let args = "--output"::tmpfile::"--quiet"::"--format"::
              "((cpu_kernel %Ss)(cpu_user %Us)(wall_clock %es))"::
              prog::args
   in
-  process_create t ?working_dir ?env ~prog:"/usr/bin/time" ~args ()
+  let prog = "/usr/bin/time" in
+  process_create t ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
   Process.wait p
@@ -295,7 +296,7 @@ let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
     ~args:["-C";dst;"-c";"advice.detachedHead=false";"checkout";"--detach";
            Oci_Common.Commit.to_string commit] ()
 
-let git_show_file t ?(user=Oci_Common.Root) ~url ~src ~dst ~commit =
+let git_copy_file t ?(user=Oci_Common.Root) ~url ~src ~dst ~commit =
   cmd_log t "Git show_file %s from %s in %s" src url dst;
-  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_git_show_file
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_git_copy_file
     t.connection {url;src;dst;user;commit}

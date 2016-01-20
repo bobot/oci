@@ -144,10 +144,10 @@ let create_query _ccopt rootfs revspecs repo socket =
                 >>= fun commit ->
                 return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
                           {x with commit})
-              | Oci_Generic_Masters_Api.CompileGitRepoRunner.GitShowFile x ->
+              | Oci_Generic_Masters_Api.CompileGitRepoRunner.GitCopyFile x ->
                 get_commit x.url
                 >>= fun commit ->
-                return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitShowFile
+                return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitCopyFile
                           {x with commit})
             )
         >>= fun cmds ->
@@ -160,11 +160,10 @@ let create_query _ccopt rootfs revspecs repo socket =
 let run ccopt rootfs revspecs (repo:string) socket =
   create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
-  let fold acc = function
-    | Result.Ok (`Compilation (`Ok _)) -> acc
-    | Result.Ok (`Compilation (`Failed _)) -> `Error
-    | Result.Ok (`Test (`Ok _,_)) -> acc
-    | Result.Ok (`Test (`Failed,_)) -> `Error
+    let fold acc = function
+    | Result.Ok (`Cmd (_,`Ok _)) -> acc
+    | Result.Ok (`Cmd (_,`Failed)) -> `Error
+    | Result.Ok (`Artefact _) -> acc
     | Result.Error _ -> `Error
   in
   exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query ~fold
@@ -183,7 +182,7 @@ let xpra ccopt rootfs revspecs repo socket =
                            | Oci_Generic_Masters_Api.
                                CompileGitRepoRunner.GitClone _
                            | Oci_Generic_Masters_Api.
-                               CompileGitRepoRunner.GitShowFile _
+                               CompileGitRepoRunner.GitCopyFile _
                              -> true
                            | Oci_Generic_Masters_Api.
                                CompileGitRepoRunner.Exec _ -> false) data.cmds

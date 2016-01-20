@@ -162,7 +162,7 @@ let clone ~user ~url ~dst ~commit =
   return ()
 
 
-let show_file ~user ~url ~src:file_src ~dst ~commit =
+let copy_file ~user ~url ~src:file_src ~dst ~commit =
   lookup_path url
     (fun src ->
        check_commit_availability commit src

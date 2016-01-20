@@ -26,6 +26,7 @@ module Artefact = struct
   type t = Int.t with sexp, compare, bin_io
   (* let bin_t = Int.bin_t *)
   let to_string = Int.to_string
+  let pp = Int.pp
   let of_int = Fn.id
 end
 
@@ -89,6 +90,7 @@ module Formatted (X:sig
 
   let mk x = string_of_format x
   let get x = Scanf.format_from_string x X.template
+  let pp = String.pp
 end
 
 module Timed = struct
@@ -98,6 +100,10 @@ module Timed = struct
     wall_clock: Time.Span.t; (* e *)
   } with sexp, bin_io, compare
 
-  
+  let pp fmt e =
+    Format.fprintf fmt "{kernel:%a; user:%a; wall:%a}"
+      Time.Span.pp e.cpu_kernel
+      Time.Span.pp e.cpu_user
+      Time.Span.pp e.wall_clock
 
 end

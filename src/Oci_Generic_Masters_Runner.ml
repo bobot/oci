@@ -49,12 +49,12 @@ let run_cmds t kind working_dir = function
         ~url:clone.url
         ~dst:(Oci_Filename.make_absolute working_dir clone.directory)
         ~commit:clone.commit
-    | GitShowFile show_file ->
+    | GitCopyFile show_file ->
       Oci_Runner.cha_log t "Show file %s at %s to %s"
         show_file.src
         (Oci_Common.Commit.to_string show_file.commit)
         show_file.dst;
-      Oci_Runner.git_show_file t
+      Oci_Runner.git_copy_file t
         ~user:Root
         ~url:show_file.url
         ~src:show_file.src
@@ -76,24 +76,14 @@ let run_cmds t kind working_dir = function
              ~env:(cmd.env :> Async.Std.Process.env) ()
            >>= fun r ->
            match kind, r with
-           | `Required, `Ok timed ->
-             Oci_Runner.create_artefact t
-               ~dir:"/"
-               ~prune:[working_dir]
-             >>= fun artefact ->
-             Oci_Runner.data_log t (`Compilation (`Ok (artefact,timed)));
-             return ()
-           | `Test, `Ok timed  ->
-             Oci_Runner.data_log t
-                  (`Test (`Ok timed,(Oci_Runner.print_cmd cmd.cmd args)));
+           | (`Required | `Test), `Ok timed ->
+             Oci_Runner.data_log t (`Cmd (cmd,`Ok timed));
              return ()
            | `Required, _ ->
-             Oci_Runner.data_log t
-                  (`Compilation (`Failed (Oci_Runner.print_cmd cmd.cmd args)));
+             Oci_Runner.data_log t (`Cmd (cmd,`Failed));
              raise Oci_Runner.StopQuery
            | `Test, _ ->
-             Oci_Runner.data_log t
-                  (`Test (`Failed,(Oci_Runner.print_cmd cmd.cmd args)));
+             Oci_Runner.data_log t (`Cmd (cmd,`Failed));
              return ()
         )
 
@@ -103,6 +93,11 @@ let compile_git_repo_runner t q =
   >>= fun working_dir ->
   Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
   >>= fun () ->
+  Oci_Runner.create_artefact t
+    ~dir:"/"
+    ~prune:[working_dir]
+  >>= fun artefact ->
+  Oci_Runner.data_log t (`Artefact artefact);
   Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests
 
 (*
