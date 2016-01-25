@@ -68,7 +68,7 @@ let create () =
   t
 
 
-let read t =
+let reader t =
   Pipe.init (fun writer ->
       let rec get q =
         q
@@ -86,6 +86,7 @@ let read t =
 let transfer_id t p = Pipe.transfer_id p t.source
 let add t v = Pipe.write t.source v
 let add_without_pushback t v = Pipe.write_without_pushback t.source v
+let writer t = t.source
 
 let close t =
   Pipe.downstream_flushed t.source

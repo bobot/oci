@@ -44,17 +44,23 @@ let line kind line =
 let data data =
   {data=Extra data;time=Time.now ()}
 
+let map_line f = function
+  | { data = Extra(Ok x); time } -> {data = Extra(Ok (f x)); time }
+  | { data = Extra(Error x); time } -> {data = Extra(Error x); time }
+  | { data = Std(k,s); time } -> { data = Std(k,s); time }
+
 let color_of_kind = function
   | Standard -> `Black
   | Error -> `Red
   | Chapter -> `Underscore
   | Command -> `Blue
 
+type 'result writer = 'result line Pipe.Writer.t
 type 'result reader = {mutable state: (unit -> 'result line Pipe.Reader.t)}
 
-type 'result writer = 'result line Oci_Queue.t
+type 'result t = 'result line Oci_Queue.t
 
-let reader t = {state = fun () -> Oci_Queue.read t}
+let reader t = {state = fun () -> Oci_Queue.reader t}
 let read t = t.state ()
 let create () = Oci_Queue.create ()
 let close = Oci_Queue.close
@@ -62,7 +68,10 @@ let init f =
   let log = create () in
   don't_wait_for (f log >>= fun () -> close log);
   reader log
-let read_writer = Oci_Queue.read
+let init_writer f =
+  init (fun log -> f (Oci_Queue.writer log))
+let read_writer = Oci_Queue.reader
+let write_writer = Oci_Queue.writer
 let add_without_pushback = Oci_Queue.add_without_pushback
 let add = Oci_Queue.add
 let transfer = Oci_Queue.transfer_id
@@ -97,6 +106,8 @@ let reader_get_first ~f t =
     aux (t.state ())
 
 exception Closed_Log
+
+type 'a log = 'a t
 
 module Make(S: sig
     val dir: Oci_Filename.t Deferred.t
@@ -143,7 +154,7 @@ module Make(S: sig
   let read id =
      match Table.find db_log id with
     | None -> read_from_file id
-    | Some (q,_) -> Oci_Queue.read q
+    | Some (q,_) -> Oci_Queue.reader q
 
   let reader id =
     match Table.find db_log id with
@@ -153,14 +164,14 @@ module Make(S: sig
   let writer id =
     match Table.find db_log id with
     | None -> raise Closed_Log
-    | Some (q,_) -> q
+    | Some (q,_) -> write_writer q
 
   let create () =
     incr next_id;
     let id = !next_id in
     (** create the queue storage *)
     let q = Oci_Queue.create () in
-    let r = { state = fun () -> Oci_Queue.read q } in
+    let r = { state = fun () -> Oci_Queue.reader q } in
     Table.add_exn db_log ~key:id ~data:(q,r);
     (** write to disk *)
     don't_wait_for begin
@@ -171,7 +182,7 @@ module Make(S: sig
       >>= fun writer ->
       (** When the log end, new readers will read from the file *)
       Writer.transfer writer
-        (Oci_Queue.read q)
+        (Oci_Queue.reader q)
         (Writer.write_bin_prot writer
            (bin_writer_line S.bin_writer_t))
       >>= fun () ->

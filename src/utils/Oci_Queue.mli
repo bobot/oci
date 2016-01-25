@@ -30,7 +30,8 @@ open Async.Std
 type 'a t
 
 val create: unit -> 'a t
-val read: 'a t -> 'a Pipe.Reader.t
+val reader: 'a t -> 'a Pipe.Reader.t
+val writer: 'a t -> 'a Pipe.Writer.t
 val add: 'a t -> 'a -> unit Deferred.t
 val add_without_pushback: 'a t -> 'a -> unit
 (** add an element *)

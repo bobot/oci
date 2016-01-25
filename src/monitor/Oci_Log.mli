@@ -42,18 +42,24 @@ type 'a line = {
 val line: kind -> string -> 'a line
 val data: 'a Or_error.t -> 'a line
 
-type 'result writer
+val map_line: ('a -> 'b) -> 'a line -> 'b line
+
+type 'result writer = 'result line Pipe.Writer.t
+
+type 'result t
 (** alive log *)
-val create: unit -> 'result writer
-val transfer: 'result writer -> 'result line Pipe.Reader.t -> unit Deferred.t
-val add_without_pushback: 'result writer -> 'result line -> unit
-val add: 'result writer -> 'result line -> unit Deferred.t
-val close: 'result writer -> unit Deferred.t
-val read_writer: 'result writer -> 'result line Pipe.Reader.t
+val create: unit -> 'result t
+val transfer: 'result t -> 'result line Pipe.Reader.t -> unit Deferred.t
+val add_without_pushback: 'result t -> 'result line -> unit
+val add: 'result t -> 'result line -> unit Deferred.t
+val close: 'result t -> unit Deferred.t
+val read_writer: 'result t -> 'result line Pipe.Reader.t
+val write_writer: 'result t -> 'result writer
 
 type 'result reader
 val read: 'result reader -> 'result line Pipe.Reader.t
-val init: ('result writer -> unit Deferred.t) -> 'result reader
+val init: ('result t -> unit Deferred.t) -> 'result reader
+val init_writer: ('result writer -> unit Deferred.t) -> 'result reader
 
 val reader_stop_after:
   f:('result Core.Std.Or_error.t -> bool) -> 'result reader -> 'result reader
@@ -62,6 +68,8 @@ val reader_get_first:
   'result Core.Std.Or_error.t Deferred.Option.t
 
 exception Closed_Log
+
+type 'a log = 'a t
 
 module Make(S: sig
     val dir: Oci_Filename.t Deferred.t

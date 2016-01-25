@@ -198,12 +198,12 @@ let add_packages (d:add_packages_query) =
 let init () =
   let register d f =
     Oci_Master.register d
-      (fun s -> Oci_Log.init (fun log ->
+      (fun s -> Oci_Log.init_writer (fun log ->
            Deferred.Or_error.try_with_join
              (fun () -> Oci_Master.attach_log log
                  (fun () -> f s))
            >>= fun res ->
-           Oci_Log.add log (Oci_Log.data res)
+           Pipe.write log (Oci_Log.data res)
          ))
   in
   register Oci_Rootfs_Api.create_rootfs create_new_rootfs;

@@ -40,15 +40,20 @@ let run_dependency dep dep_name =
   Oci_Log.reader_get_first r
     ~f:(function
         | (Core_kernel.Result.Ok (`Artefact _)) -> true
+        | (Core_kernel.Result.Ok (`Dependency_error _)) -> true
         | _ -> false ) (** always the first result *)
   >>= function
   | Some (Core_kernel.Result.Ok (`Artefact artefact)) ->
     Oci_Master.cha_log "Dependency %s done" dep_name;
-    return (Some artefact)
+    return (`Artefact artefact)
+  | Some (Core_kernel.Result.Ok (`Dependency_error s)) ->
+    Oci_Master.err_log
+      "Some dependencies of %s failed" dep_name;
+    return (`Dependency_error s)
   | _ ->
     Oci_Master.err_log
-      "Dependency %s failed (or one of its dependency)" dep_name;
-    return None
+      "Dependency %s failed" dep_name;
+    return (`Dependency_error (String.Set.singleton dep_name))
 
 
 let compile_deps =
@@ -61,49 +66,52 @@ let compile_deps =
           let dep = Query.filter_deps_for {q with name = dep_name} in
           run_dependency dep dep_name
         )
+    (** The order of the application of the artefact is not relevant *)
     >>= fun artefacts ->
-    return (List.map artefacts ~f:(function
-        | Some artefact -> artefact
-        | None -> raise Dependency_error
-      ))
+    let result =
+      List.fold artefacts ~init:(`Artefact []) ~f:(fun acc x ->
+          match x, acc with
+          | `Artefact x, `Artefact acc -> `Artefact (x::acc)
+          | `Dependency_error x, `Artefact _ -> `Dependency_error x
+          | `Dependency_error x, `Dependency_error acc ->
+            `Dependency_error (String.Set.union x acc)
+          | `Artefact _, `Dependency_error _ -> acc)
+    in
+    return result
+
+let run_git_repo rpc map_type q log =
+  compile_deps q
+  >>= function
+  | `Artefact results ->
+    let repo = String.Map.find_exn q.repos q.name in
+    Oci_Master.simple_runner ~binary_name ~error:(fun _ -> raise Exit) begin
+      fun conn ->
+        let log' = Pipe.init (fun log' ->
+            Oci_Master.dispatch_runner_log log' rpc conn {
+              Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.rootfs =
+                q.rootfs;
+              cmds=repo.cmds;
+              tests=repo.tests;
+              artefacts = results;
+            })
+        in
+        Pipe.transfer log' log
+          ~f:(Oci_Log.map_line map_type)
+    end
+  | `Dependency_error s ->
+    Pipe.write log (Oci_Log.data (Or_error.return (`Dependency_error s)))
 
 let compile_git_repo q log =
-  compile_deps q
-  >>= fun results ->
-  let repo = String.Map.find_exn q.repos q.name in
-  Oci_Master.simple_runner ~binary_name ~error:(fun _ -> raise Exit) begin
-    fun conn ->
-      Oci_Master.dispatch_runner_log log
-        Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc conn {
-        rootfs = q.rootfs;
-        cmds=repo.cmds;
-        tests=repo.tests;
-        artefacts = results;
-      }
-  end
+  run_git_repo Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc
+    (fun (x : Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.t) ->
+       (x :> Oci_Generic_Masters_Api.CompileGitRepo.Result.t))
+    q log
 
 let xpra_git_repo q log =
-  compile_deps q
-  >>= fun results ->
-  let repo = String.Map.find_exn q.repos q.name in
-  Oci_Master.start_runner ~binary_name
-  >>= fun (err,conn) ->
-  choose [
-    choice (err >>= function
-      | Oci_Master.Exec_Ok -> never ()
-      | Oci_Master.Exec_Error s -> return s) (fun _ -> raise Exit);
-    choice begin
-      conn >>= fun conn ->
-      Oci_Master.dispatch_runner_log log
-        Oci_Generic_Masters_Api.XpraRunner.rpc conn
-        {
-          rootfs = q.rootfs;
-          cmds = repo.cmds;
-          tests = repo.tests;
-          artefacts = results;
-        }
-    end (fun x -> x);
-  ]
+  run_git_repo Oci_Generic_Masters_Api.XpraRunner.rpc
+    (fun (x : Oci_Generic_Masters_Api.XpraRunner.Result.t) ->
+       (x :> Oci_Generic_Masters_Api.XpraGitRepo.Result.t))
+    q log
 
 let init_compile_git_repo () =
   MasterCompileGitRepoArtefact.create_master_unit

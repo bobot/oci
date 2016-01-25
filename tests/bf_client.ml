@@ -169,12 +169,13 @@ let run ccopt rootfs revspecs (repo:string) socket =
   let fold acc = function
     | Result.Ok (`Cmd (_,`Ok _)) -> acc
     | Result.Ok (`Cmd (_,`Failed)) -> `Error
+    | Result.Ok (`Dependency_error _) -> `Error
     | Result.Ok (`Artefact _) -> acc
     | Result.Error _ -> `Error
   in
   exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query ~fold
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.pp socket
+    Oci_Generic_Masters_Api.CompileGitRepo.Result.pp socket
 
 let xpra ccopt rootfs revspecs repo socket =
   create_query ccopt rootfs revspecs repo socket
@@ -196,7 +197,7 @@ let xpra ccopt rootfs revspecs repo socket =
   in
   exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-    Oci_Generic_Masters_Api.XpraRunner.Result.pp socket
+    Oci_Generic_Masters_Api.XpraGitRepo.Result.pp socket
 
 let list_rootfs _copts rootfs socket =
   let open Oci_Rootfs_Api in

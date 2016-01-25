@@ -23,7 +23,7 @@
 open Core.Std
 open Oci_Std
 
-let version = 7
+let version = 8
 
 module CompileGitRepoRunner = struct
 
@@ -198,7 +198,21 @@ module CompileGitRepo = struct
     let hash = Hashtbl.hash
   end
 
-  module Result = CompileGitRepoRunner.Result
+  module Result = struct
+    type t = [
+      | CompileGitRepoRunner.Result.t
+      | `Dependency_error of String.Set.t
+    ]
+    with sexp, bin_io, compare
+
+    let pp fmt = function
+      | #CompileGitRepoRunner.Result.t as x ->
+        CompileGitRepoRunner.Result.pp fmt x
+      | `Dependency_error s ->
+        Format.fprintf fmt "The following dependencies failed: %a"
+          (Pp.print_iter1 (fun f x -> String.Set.iter ~f x) Pp.semi String.pp)
+          s
+  end
 
   let rpc =
     Oci_Data.register
@@ -210,12 +224,28 @@ end
 
 module XpraGitRepo = struct
 
+  module Result = struct
+    type t = [
+      | XpraRunner.Result.t
+      | `Dependency_error of String.Set.t
+    ]
+    with sexp, bin_io, compare
+
+    let pp fmt = function
+      | #XpraRunner.Result.t as x ->
+        XpraRunner.Result.pp fmt x
+      | `Dependency_error s ->
+        Format.fprintf fmt "xpra-dir %a"
+          (Pp.print_iter1 (fun f x -> String.Set.iter ~f x) Pp.semi String.pp)
+          s
+  end
+
   let rpc =
     Oci_Data.register
       ~name:"XpraGitRepo.compile_git_repo"
       ~version
       ~bin_query:CompileGitRepo.Query.bin_t
-      ~bin_result:XpraRunner.Result.bin_t
+      ~bin_result:Result.bin_t
 
 end
 

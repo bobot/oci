@@ -92,23 +92,23 @@ let simple_runner ~binary_name ~error f =
   ]
 
 let simple_master f q =
-  Oci_Log.init (fun log ->
+  Oci_Log.init_writer (fun log ->
       Monitor.try_with_or_error
         ~name:"Oci_Master.simple_master"
         (fun () -> attach_log log (fun () -> f q))
       >>= fun res ->
-      Oci_Log.add log (Oci_Log.data res)
+      Pipe.write log (Oci_Log.data res)
     )
 
 let simple_master_unit f q =
-  Oci_Log.init (fun log ->
+  Oci_Log.init_writer (fun log ->
       Monitor.try_with_or_error
         ~name:"Oci_Master.simple_master"
         (fun () -> attach_log log (fun () -> f q log))
       >>= function
       | Ok () -> return ()
       | Error error ->
-          Oci_Log.add log (Oci_Log.data (Error error))
+          Pipe.write log (Oci_Log.data (Error error))
     )
 
 
@@ -201,7 +201,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
       (fun q log ->
          f q
          >>= fun r ->
-         Oci_Log.add_without_pushback log (Oci_Log.data (Ok r));
+         Pipe.write_without_pushback log (Oci_Log.data (Ok r));
          return ())
 
   let create_master_and_runner data ?(binary_name=Oci_Data.name data) ~error f =
@@ -217,7 +217,7 @@ let write_log kind fmt =
         s
         |> String.split_lines
         |> List.iter ~f:(fun line ->
-            Oci_Log.add_without_pushback log (Oci_Log.line kind line)
+            Pipe.write_without_pushback log (Oci_Log.line kind line)
           )
     ) fmt
 
@@ -259,7 +259,7 @@ let dispatch_runner ?msg d t q =
         in
         upon (Pipe.closed p)
           (fun () -> Ivar.fill_if_empty r (Or_error.of_exn NoResult));
-        Oci_Log.transfer log p
+        Pipe.transfer_id p log
     end
     >>= fun () ->
     Ivar.read r
@@ -277,14 +277,14 @@ let dispatch_runner_exn ?msg d t q =
           Ivar.fill_if_empty r res;
           Oci_Log.line Oci_Log.Standard "result received"
         | {Oci_Log.data=Oci_Log.Extra (Core_kernel.Result.Error err)} ->
-          Oci_Log.add_without_pushback log
+          Pipe.write_without_pushback log
             (Oci_Log.line Oci_Log.Error "error received");
           Error.raise err
       )
     in
     upon (Pipe.closed p)
       (fun () -> if Ivar.is_empty r then raise NoResult);
-    Oci_Log.transfer log p
+    Pipe.transfer_id p log
     >>= fun () ->
     Ivar.read r
 
@@ -292,7 +292,7 @@ let dispatch_runner_log ?msg log d t q =
   cmd_log "dispatch runner %s%s" (Oci_Data.name d) (print_msg msg);
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log d) t q
   >>= fun (p,_) ->
-  Oci_Log.transfer log p
+  Pipe.transfer_id p log
 
 
 let dispatch_master ?msg d q =
