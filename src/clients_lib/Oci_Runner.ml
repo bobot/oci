@@ -215,7 +215,6 @@ let print_cmd prog args =
   prog ^ " " ^ (String.concat ~sep:", " args)
 
 let process_create t ?working_dir ?env ~prog ~args () =
-  cmd_log t "%s" (print_cmd prog args);
   Deferred.Or_error.bind
     (Process.create ?working_dir ?env ~prog ~args ())
     (fun p ->
@@ -226,6 +225,7 @@ let process_create t ?working_dir ?env ~prog ~args () =
 exception CommandFailed
 
 let run t ?working_dir ?env ~prog ~args () =
+  cmd_log t "%s" (print_cmd prog args);
   process_create t ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
@@ -247,6 +247,7 @@ let run_exn t ?working_dir ?env ~prog ~args () =
     raise CommandFailed
 
 let run_timed t ?working_dir ?env ~prog ~args () =
+  cmd_log t "%s" (print_cmd prog args);
   let tmpfile = Filename.temp_file "time" ".sexp" in
   let args = "--output"::tmpfile::"--quiet"::"--format"::
              "((cpu_kernel %Ss)(cpu_user %Us)(wall_clock %es))"::
