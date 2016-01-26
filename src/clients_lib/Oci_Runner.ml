@@ -285,10 +285,26 @@ let run_timed_exn t ?working_dir ?env ~prog ~args () =
   | `Ok timed -> return timed
   | _ -> raise CommandFailed
 
+let git_clone_id = ref (-1)
+let git_clone_dir = "/oci/git_clone/"
+(** We put the clone in a safe repository (on the same filesystem)
+    so that dst can be on a tmpfs
+ *)
 let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
-  cmd_log t "Git clone %s in %s" url dst;
+  incr git_clone_id;
+  let id = !git_clone_id in
+  let safe_dir = Oci_Filename.make_absolute git_clone_dir (string_of_int id) in
+  Unix.mkdir ~p:() dst
+  >>= fun () ->
+  Unix.mkdir ~p:() safe_dir
+  >>= fun () ->
+  cmd_log t "Git clone %s in %s" url safe_dir;
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_git_clone
-    t.connection {url;dst;user;commit}
+    t.connection {url;dst=safe_dir;user;commit}
+  >>= fun () ->
+  Unix.symlink
+    ~src:(Oci_Filename.make_absolute safe_dir ".git")
+    ~dst:(Oci_Filename.make_absolute dst ".git")
   >>= fun () ->
   run_exn t
     (* ~setuid:(Oci_Common.runner_user user).uid *)

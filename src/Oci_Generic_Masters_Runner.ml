@@ -38,6 +38,10 @@ let create_dir t (q:Query.t) =
   >>= fun () ->
   Unix.mkdir ~p:() working_dir
   >>= fun () ->
+  Oci_Runner.run_exn t
+    ~prog:"mount"
+    ~args:["-t";"tmpfs";"tmpfs";working_dir] ()
+  >>= fun () ->
   return working_dir
 
 let run_cmds t kind working_dir = function

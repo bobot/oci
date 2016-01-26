@@ -484,6 +484,7 @@ let add_artefact_api init =
          let reparent = Oci_Filename.reparent ~oldd:"/" ~newd:rootfs in
          create
            ~prune:(
+             Oci_Filename.make_absolute rootfs "oci"::
              Oci_Filename.make_absolute rootfs "dev"::
              Oci_Filename.make_absolute rootfs "proc"::
              Oci_Filename.make_absolute rootfs "sys"::
