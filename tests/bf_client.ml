@@ -647,7 +647,7 @@ let run_cmd,xpra_cmd =
   let doc = "run the integration of a repository" in
   let man = [
     `S "DESCRIPTION";
-    `P "Run the integration of the given repository with the given rootfs
+    `P "Run the integration of the given repository with the given rootfs \
         using the specified commits."] @ help_secs
   in
   (Term.(const run $ copts_t $ rootfs $ revspecs $ repo),
