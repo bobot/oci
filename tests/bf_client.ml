@@ -264,6 +264,189 @@ let create_rootfs ccopt rootfs_tar meta_tar distribution release arch comment =
   connect ccopt (create_rootfs rootfs_tar meta_tar
                    distribution release arch comment)
 
+
+module Download_Rootfs = struct
+  (** {2 GPG} *)
+
+  let download_keyid = "0xBAEFF88C22F6E216"
+  let download_keyserver = "hkp://pool.sks-keyservers.net"
+
+
+  let gpg_setup ~dir =
+    Async_shell.test "which" ["gpg"]
+    >>= function
+    | false ->
+      error "The program gpg is not present: can't validate download";
+      return `GPGNotAvailable
+    | true ->
+      let gpg_dir = Filename.concat dir "gpg" in
+      Unix.mkdir ~p:()  ~perm:0o700 gpg_dir
+      >>= fun () ->
+      Async_shell.test
+        "gpg" ["--keyserver";download_keyserver;"--recv-keys";download_keyid]
+        ~env:(`Extend ["GNUPGHOME",gpg_dir])
+      >>= function
+      | false ->
+        error "Can't download gpg key data: can't validate download";
+        return `GPGNotAvailable
+      | true ->
+        return (`GPGAvailable gpg_dir)
+
+  let gpg_check file = function
+    | `GPGNotAvailable -> return ()
+    | `GPGAvailable gpg_dir ->
+      Async_shell.test
+        "gpg" ["--verify";(file^".asc")]
+        ~env:(`Extend ["GNUPGHOME",gpg_dir])
+      >>= function
+      | false ->
+        error "The downloaded file are not authenticated";
+        exit 1
+      | true -> return ()
+
+  (** {2 Download image} *)
+  (** use lxc download template facilities *)
+
+  let download_compat_level=2
+  let download_server = "images.linuxcontainers.org"
+
+  let download fmt =
+    Printf.ksprintf (fun src ->
+        Printf.ksprintf (fun dst ->
+            Async_shell.test
+              ~true_v:[0]
+              ~false_v:[1;4;8;2;3;5;6;7]
+              "wget"
+              ["-T";"30";
+               "-q";
+               sprintf "https://%s/%s" download_server src;
+               "-O";dst]
+          )
+      ) fmt
+
+  let download_index ~dir ~gpg =
+    let index = Filename.concat dir "index" in
+    let url_index = "meta/1.0/index-user" in
+    info "Download the index.";
+    download
+      "%s.%i" url_index download_compat_level
+      "%s" index
+    >>= fun b1 ->
+    download
+      "%s.%i.asc" url_index download_compat_level
+      "%s.asc" index
+    >>= fun b2 -> begin
+      if b1 && b2 then
+        return ()
+      else begin
+        download
+          "%s" url_index
+          "%s" index
+        >>= fun b1 ->
+        download
+          "%s.asc" url_index
+          "%s.asc" index
+        >>= fun b2 ->
+        if b1 && b2 then
+          return ()
+        else begin
+          error "Can't download rootfs index";
+          exit 1
+        end
+      end
+    end
+    >>= fun () ->
+    gpg_check index gpg;
+    >>= fun () ->
+    info "Index downloading done.\n%!";
+    return index
+
+  type rootfs_spec =
+    {distrib: string; release: string;
+     arch: string; comment: string}
+  with bin_io, sexp
+
+  (** return download build and directory url *)
+  let parse_index index =
+    Reader.file_lines index
+    >>= fun lines ->
+    let fold acc l =
+      match String.split ~on:';' l with
+      | [distrib;release;arch;comment;build_id;url] ->
+        ({distrib;release;arch;comment},(build_id,url))::acc
+      | _ -> acc in
+    let l = List.fold ~init:[] ~f:fold lines in
+    return (List.rev l)
+
+  let download_rootfs_meta ~dir ~gpg (build_id,url) =
+    let build_id_file = Filename.concat dir "build_id" in
+    let rootfs_tar = Filename.concat dir "rootfs.tar.xz" in
+    let meta_tar = Filename.concat dir "meta.tar.xz" in
+    (* if not (Sys.file_exists_exn build_id_file) *)
+    (* || read_in_file "%s" build_id_file <> build_id then begin *)
+    (*   if Sys.file_exists build_id_file then Unix.unlink build_id_file; *)
+    info "Downloading rootfs.\n%!";
+    Deferred.all [
+      download "%s/rootfs.tar.xz" url "%s/rootfs.tar.xz" dir;
+      download "%s/rootfs.tar.xz.asc" url "%s/rootfs.tar.xz.asc" dir;
+      download "%s/meta.tar.xz" url "%s/meta.tar.xz" dir;
+      download "%s/meta.tar.xz.asc" url "%s/meta.tar.xz.asc" dir
+    ]
+    >>= fun l ->
+    if List.for_all ~f:(fun x -> x) l
+    then
+      Deferred.all_ignore [
+        gpg_check rootfs_tar gpg;
+        gpg_check meta_tar gpg
+      ]
+      >>= fun () ->
+      (* write_in_file "%s" build_id_file "%s" build_id *)
+      return (rootfs_tar, meta_tar)
+    else begin error "Can't download rootfs"; exit 1 end
+
+  let list_download_rootfs () =
+    let testdir = ".oci_tmp" in
+    Unix.mkdir ~p:() testdir
+    >>= fun () ->
+    gpg_setup ~dir:testdir
+    >>= fun gpg ->
+    download_index ~dir:testdir ~gpg
+    >>= fun index ->
+    parse_index index
+    >>= fun archives ->
+    let stdout = (Lazy.force Writer.stdout) in
+    let fmt = Writer.to_formatter stdout in
+    let print = Format.fprintf fmt "%s, %s, %s@." in
+    print "distribution" "release" "arch";
+    List.iter archives
+      ~f:(fun (key,_) -> print key.distrib key.release key.arch);
+    Deferred.return `Ok
+
+  let download_rootfs ccopt distrib release arch comment =
+    let testdir = ".oci_tmp" in
+    Unix.mkdir ~p:() testdir
+    >>= fun () ->
+    gpg_setup ~dir:testdir
+    >>= fun gpg ->
+    download_index ~dir:testdir ~gpg
+    >>= fun index ->
+    parse_index index
+    >>= fun archives ->
+    let d = {distrib;release;arch;comment} in
+    match List.find_map
+            ~f:(fun (x,b) -> if x=d then Some b else None) archives
+    with
+    | None ->
+      error "Specified rootfs not found in index";
+      exit 1
+    | Some build_id_url ->
+      download_rootfs_meta ~dir:testdir ~gpg build_id_url
+      >>= fun (rootfs_tar, meta_tar) ->
+      create_rootfs ccopt rootfs_tar (Some meta_tar)
+        distrib release arch comment
+
+end
+
 open Cmdliner;;
 
 (** Configuration *)
@@ -659,6 +842,48 @@ let create_rootfs_cmd =
         distribution $ release $ arch $ comment),
   Term.info "create-rootfs" ~sdocs:copts_sect ~doc ~man
 
+let download_rootfs_cmd =
+  let distribution =
+    Arg.(value & opt string "debian" & info ["distribution"]
+           ~docv:"name"
+           ~doc:"Indicate the name of the distribution in the given rootfs")
+  in
+  let release =
+    Arg.(value & opt string "jessie" & info ["release"]
+           ~docv:"name"
+           ~doc:"Indicate the release name of the distribution \
+                 in the given rootfs")
+  in
+  let arch =
+    Arg.(value & opt string "amd64" & info ["arch"]
+           ~docv:"name"
+           ~doc:"Indicate the target architecture in the given rootfs")
+  in
+  let comment =
+    Arg.(value & opt string "default" & info ["comment"]
+           ~docv:"text"
+           ~doc:"Specify some comment about in the given rootfs")
+  in
+  let doc = "Create a new rootfs from an archive" in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Create a rootfs from an archive downloaded from lxc download mirrors."]
+    @ help_secs
+  in
+  Term.(const Download_Rootfs.download_rootfs $ copts_t $
+        distribution $ release $ arch $ comment),
+  Term.info "download-rootfs" ~sdocs:copts_sect ~doc ~man
+
+let list_download_rootfs_cmd =
+  let doc = "list the rootfs available from lxc download mirror" in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Return the list the rootfs available from lxc download mirror"]
+    @ help_secs
+  in
+  Term.(const Download_Rootfs.list_download_rootfs $ (const ())),
+  Term.info "list-download-rootfs" ~sdocs:copts_sect ~doc ~man
+
 let add_package_cmd =
   let rootfs =
     Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
@@ -723,7 +948,8 @@ let default_cmd =
   Term.info "bf_client" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
 
 let cmds = [list_rootfs_cmd; create_rootfs_cmd;
-            add_package_cmd; run_cmd; xpra_cmd]
+            add_package_cmd; run_cmd; xpra_cmd;
+            list_download_rootfs_cmd; download_rootfs_cmd]
 
 let () =
   don't_wait_for begin
