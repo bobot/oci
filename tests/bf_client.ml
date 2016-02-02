@@ -219,6 +219,21 @@ let add_packages rootfs packages =
     sexp_of_add_packages_query
     (Oci_pp.to_sexp Rootfs.sexp_of_t)
 
+let create_rootfs rootfs_tar meta_tar distribution release arch comment =
+  let open Oci_Rootfs_Api in
+  exec create_rootfs
+    { meta_tar = Option.map ~f:absolutize meta_tar;
+      rootfs_tar = absolutize rootfs_tar;
+      rootfs_info = { distribution;
+                      release;
+                      arch;
+                      packages = [];
+                      comment;
+                    }
+    }
+    sexp_of_create_rootfs_query
+    (Oci_pp.to_sexp Rootfs.sexp_of_t)
+
 let connect ccopt cmd =
   Tcp.connect (Tcp.to_file ccopt.socket)
   >>= fun (_,reader,writer) ->
@@ -244,6 +259,10 @@ let list_rootfs ccopt rootfs =
 
 let add_packages ccopt rootfs packages =
   connect ccopt (add_packages rootfs packages)
+
+let create_rootfs ccopt rootfs_tar meta_tar distribution release arch comment =
+  connect ccopt (create_rootfs rootfs_tar meta_tar
+                   distribution release arch comment)
 
 open Cmdliner;;
 
@@ -303,7 +322,7 @@ module Configuration = struct
       ~deps:[]
       ~cmds:[
         run "./configure" [];
-        make ["world.opt"];
+        make ~j:4 ["world.opt"];
         make ["install"];
         run "mkdir" ["-p";"/usr/local/lib/ocaml/site-lib/stublibs/"];
         run "touch" ["/usr/local/lib/ocaml/site-lib/stublibs/.placeholder"];
@@ -598,6 +617,48 @@ let list_rootfs_cmd =
   Term.(const list_rootfs $ copts_t $ rootfs),
   Term.info "list-rootfs" ~sdocs:copts_sect ~doc ~man
 
+let create_rootfs_cmd =
+  let rootfs_tar =
+    Arg.(required & opt (some file) None & info ["rootfs"]
+           ~docv:"TAR"
+           ~doc:"Give the rootfs archive to use")
+  in
+  let meta_tar =
+    Arg.(value & opt (some file) None & info ["meta"]
+           ~docv:"TAR"
+           ~doc:"Give the meta archive to use")
+  in
+  let distribution =
+    Arg.(value & opt string "unknown" & info ["distribution"]
+           ~docv:"name"
+           ~doc:"Indicate the name of the distribution in the given rootfs")
+  in
+  let release =
+    Arg.(value & opt string "" & info ["release"]
+           ~docv:"name"
+           ~doc:"Indicate the release name of the distribution \
+                 in the given rootfs")
+  in
+  let arch =
+    Arg.(value & opt string "" & info ["arch"]
+           ~docv:"name"
+           ~doc:"Indicate the target architecture in the given rootfs")
+  in
+  let comment =
+    Arg.(value & opt string "" & info ["comment"]
+           ~docv:"text"
+           ~doc:"Specify some comment about in the given rootfs")
+  in
+  let doc = "Create a new rootfs from an archive" in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Create a rootfs from an archive downloaded from lxc download mirrors."]
+    @ help_secs
+  in
+  Term.(const create_rootfs $ copts_t $ rootfs_tar $ meta_tar $
+        distribution $ release $ arch $ comment),
+  Term.info "create-rootfs" ~sdocs:copts_sect ~doc ~man
+
 let add_package_cmd =
   let rootfs =
     Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
@@ -661,7 +722,8 @@ let default_cmd =
   Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
   Term.info "bf_client" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
 
-let cmds = [list_rootfs_cmd; add_package_cmd; run_cmd; xpra_cmd]
+let cmds = [list_rootfs_cmd; create_rootfs_cmd;
+            add_package_cmd; run_cmd; xpra_cmd]
 
 let () =
   don't_wait_for begin
