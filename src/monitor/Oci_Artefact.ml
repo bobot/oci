@@ -77,6 +77,7 @@ let dir_of_artefact id =
   let dir = Oci_Filename.mk (Artefact.to_string id) in
   Oci_Filename.make_absolute (get_conf ()).storage dir
 
+(*
 let rec copydir
     ~hardlink ~prune_file ~prune_user
     ~chown:({User.uid;gid} as chown) src dst =
@@ -142,6 +143,25 @@ let rec copydir
           raise (Can't_copy_this_file src')
       end
     )
+*)
+
+let copydir ~hardlink ~prune_file ~prune_user
+    ~chown:({User.uid;gid} as chown) src dst =
+  let prog =
+    Oci_Filename.concat (get_conf ()).binaries
+      (Oci_Filename.add_extension "Oci_Copyhard" "native") in
+  Async_shell.run
+    prog
+    begin
+      let add_options c l =
+        List.concat (List.map ~f:(fun e -> [c;e]) l)
+      in
+      (if hardlink then ["--hardlink"] else [])@
+      (add_options "--prune-file" prune_file)@
+      (add_options "--prune-user" (List.map ~f:User.pp_chown prune_user))@
+      ["--src";src;"--dst";dst;"--chown";
+       User.pp_chown chown]
+    end
 
 let create ~prune ~rooted_at ~only_new ~src =
   assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:src);

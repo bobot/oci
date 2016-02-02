@@ -22,7 +22,8 @@ BINARY= src/wrapper/Oci_Wrapper.native				\
 	tests/tests_runner.native tests/launch_test.native	\
 	tests/bf_client.native src/monitor/Oci_Monitor.native	\
 	src/Oci_Cmd_Runner.native				\
-	src/Oci_Generic_Masters_Runner.native tests/soprano_client.native
+	src/Oci_Generic_Masters_Runner.native tests/soprano_client.native \
+	src/wrapper/Oci_Copyhard.native
 
 all: .merlin
 	@mkdir -m 777 -p bin
