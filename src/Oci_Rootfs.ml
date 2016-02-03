@@ -164,7 +164,8 @@ let add_packages (d:add_packages_query) =
              args = ["update";
                      (** We disable privilege dropping because it work not well
                          with the current hardlink overlay technique *)
-                     "--option";"APT::Sandbox::User=root";
+                     "--option";"APT::Sandbox::User=rot";
+                     "--option";"Acquire::Retries=3";
                     ];
              env = `Extend [];
              runas = Root;
@@ -178,7 +179,18 @@ let add_packages (d:add_packages_query) =
                     "--yes"::
                     "--option"::"Apt::Install-Recommends=false"::
                     "--option"::"APT::Sandbox::User=root"::
+                    "--option"::"Acquire::Retries=3"::
                     d.packages;
+             env = `Extend ["DEBIAN_FRONTEND","noninteractive"];
+             runas = Root;
+           }
+           >>= fun () ->
+           Oci_Master.cha_log "Clean Package Data";
+           Oci_Master.dispatch_runner_exn
+             Oci_Cmd_Runner_Api.run conn {
+             prog = "apt-get";
+             args = ["clean";
+                    "--option";"APT::Sandbox::User=root"];
              env = `Extend ["DEBIAN_FRONTEND","noninteractive"];
              runas = Root;
            }
