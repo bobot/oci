@@ -540,6 +540,10 @@ let add_artefact_api init =
          let resolv = "etc/resolv.conf" in
          let src = Oci_Filename.make_absolute "/" resolv in
          let dst = Oci_Filename.make_absolute rootfs resolv in
+         (** some distribution symlink /etc/resolv.conf to
+             /run/resolve/resolv.conf *)
+         Oci_Std.unlink_no_fail dst
+         >>= fun () ->
          Async_shell.run "cp" ["--";src;dst]
       );
     (** git_clone *)
