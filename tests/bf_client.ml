@@ -378,8 +378,8 @@ module Download_Rootfs = struct
     let l = List.fold ~init:[] ~f:fold lines in
     return (List.rev l)
 
-  let download_rootfs_meta ~dir ~gpg (build_id,url) =
-    let build_id_file = Filename.concat dir "build_id" in
+  let download_rootfs_meta ~dir ~gpg (_build_id,url) =
+    (* let build_id_file = Filename.concat dir "build_id" in *)
     let rootfs_tar = Filename.concat dir "rootfs.tar.xz" in
     let meta_tar = Filename.concat dir "meta.tar.xz" in
     (* if not (Sys.file_exists_exn build_id_file) *)
@@ -484,12 +484,14 @@ module Configuration = struct
       {url;commit=dumb_commit;
        directory=dir}
 
-  let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name
-    : string * string =
-    let id = (name,url) in
+  type repo = {name:string;url:string}
+
+  let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name =
+    let id = {name;url} in
     let data = {
-      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps = List.map ~f:fst deps;
-      cmds = (gitclone (snd id))::cmds;
+      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
+        List.map ~f:(fun x -> x.name) deps;
+      cmds = (gitclone url)::cmds;
       tests;
     }
     in
@@ -682,27 +684,27 @@ module Configuration = struct
       |> Queue.to_list
     in
     let plugins_name = String.Set.of_list
-        (List.map ~f:(fun ((name,_),_) -> name)
+        (List.map ~f:(fun (x,_) -> x.name)
            plugins)
     in
     let plugins_deps =
       plugins
       |> List.map ~f:(fun (_,deps) ->
           List.filter deps
-            ~f:(fun (dep,_) -> not (String.Set.mem plugins_name dep)))
+            ~f:(fun dep -> not (String.Set.mem plugins_name dep.name)))
       |> List.concat
     in
     let cloneplugins =
       plugins
-      |> List.map ~f:(fun ((name,_) as pkg,_) ->
-          gitclone ~dir:(Oci_Filename.concat "src/plugins" name) (snd pkg)
+      |> List.map ~f:(fun (pkg,_) ->
+          gitclone ~dir:(Oci_Filename.concat "src/plugins" name) pkg.name
         )
     in
     let data = {
       Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
-        List.dedup (List.map ~f:fst (framac_deps@plugins_deps));
+        List.dedup (List.map ~f:(fun x -> x.name) (framac_deps@plugins_deps));
       cmds =
-        [gitclone (snd framac)] @
+        [gitclone framac.url] @
         cloneplugins @
         framac_cmds;
       tests =
@@ -717,7 +719,7 @@ module Configuration = struct
     let name = "frama-c-external" in
     let data = {
       Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
-        List.map ~f:(fun ((name,_),_) -> name) (Queue.to_list plugins);
+        List.map ~f:(fun (dep,_) -> dep.name) (Queue.to_list plugins);
       cmds = [];
       tests = [
         run "frama-c" ["-plugins"];
