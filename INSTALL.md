@@ -33,6 +33,14 @@ package. OCI loves to use bleeding edge stuff.
   the corresponding `--help` for more information.
 - Be sure that your kernel can provide unprivileged usernamespaces:
 `echo 1 > /proc/sys/kernel/unprivileged_userns_clone` as root if needed
+- Optional: configure cgroups, needed for cpu partitionning. In the current shell:
+
+```
+sudo cgm create all oci
+sudo cgm chown all oci ($id -u) $(id -g)
+cgm movepid all oci $$
+```
+
 - Get the ssh key necessary to access Frama-C's gitlab repository (ask
   @bobot, @byako or @virgile)
 - launch a new monitor
