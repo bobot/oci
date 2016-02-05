@@ -36,13 +36,17 @@ package. OCI loves to use bleeding edge stuff.
 - Get the ssh key necessary to access Frama-C's gitlab repository (ask
   @bobot, @byako or @virgile)
 - launch a new monitor
-    `bin/Oci_Monitor.native \
+
+```shell
+  bin/Oci_Monitor.native \
       --oci-data=/path/to/data \
       --binaries=$(pwd)/bin \
       --master=bin/myoci.native \
-      --identity-file=oci-ssh-key`
+      --identity-file=oci-ssh-key
+```
+
 - Get a list of available rootfs from lxc, and download an appropriate one
-  (defaults to the one corresponding to your distribution if it exists)
+  (defaults to debian jessie amd64)
   - `bin/bf_client.native list-download-rootfs`
   - `bin/bf_client.native download-rootfs --socket OCI_DATA [rootfs-opts]`
   where `rootfs-opts` can be chosen among `--arch`, `--distribution` and
@@ -53,8 +57,11 @@ package. OCI loves to use bleeding edge stuff.
   `ID` is the ID you have retrieved at previous step. Note that if you do not
   provide an ID, nothing will be output.
 - launch a specific test, e.g. the ones for frama-c:
-  `bin/bf_client.native \
+
+```shell
+  bin/bf_client.native \
      run \
      --rootfs ID \
      --socket OCI_DATA/oci.socket \
-     frama-c`
+     frama-c
+```
