@@ -161,8 +161,8 @@ let run ccopt rootfs revspecs (repo:string) socket =
   create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
     let fold acc = function
-    | Result.Ok (`Cmd (_,`Ok _)) -> acc
-    | Result.Ok (`Cmd (_,`Failed)) -> `Error
+    | Result.Ok (`Cmd (_,Ok (),_)) -> acc
+    | Result.Ok (`Cmd (_,_,_)) -> `Error
     | Result.Ok (`Dependency_error _) -> `Error
     | Result.Ok (`Artefact _) -> acc
     | Result.Error _ -> `Error

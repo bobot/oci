@@ -80,15 +80,15 @@ let run_cmds t kind working_dir = function
              ~env:(cmd.env :> Async.Std.Process.env) ()
            >>= fun r ->
            match kind, r with
-           | (`Required | `Test), `Ok timed ->
-             Oci_Runner.data_log t (`Cmd (cmd,`Ok timed));
+           | `Test, (r,i) ->
+             Oci_Runner.data_log t (`Cmd (cmd,r,i));
              return ()
-           | `Required, _ ->
-             Oci_Runner.data_log t (`Cmd (cmd,`Failed));
+           | `Required, (Ok () as r,i) ->
+             Oci_Runner.data_log t (`Cmd (cmd,r,i));
+             return ()
+           | `Required, (r,i) ->
+             Oci_Runner.data_log t (`Cmd (cmd,r,i));
              raise Oci_Runner.StopQuery
-           | `Test, _ ->
-             Oci_Runner.data_log t (`Cmd (cmd,`Failed));
-             return ()
         )
 
 

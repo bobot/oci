@@ -107,11 +107,10 @@ val print_cmd: string -> string list -> string
 val run: 'r t ->
   Core.Std.Unix.Exit_or_signal.t Deferred.t Process.with_create_args
 
+exception TimeError
+
 val run_timed: 'r t ->
- [ `Error of
-     ('c, Core.Std.Unix.Exit_or_signal.error) Core_kernel.Std.Result.t
- | `Ok of Oci_Common.Timed.t
- | `Timed_Error of Core.Std.Error.t ]
+ (Core.Std.Unix.Exit_or_signal.t * Oci_Common.Timed.t)
   Async.Std.Deferred.t Process.with_create_args
 
 exception CommandFailed

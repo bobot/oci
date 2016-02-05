@@ -246,6 +246,8 @@ let run_exn t ?working_dir ?env ~prog ~args () =
   | Core_kernel.Std.Result.Error _ ->
     raise CommandFailed
 
+exception TimeError
+
 let run_timed t ?working_dir ?env ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
   let tmpfile = Filename.temp_file "time" ".sexp" in
@@ -267,23 +269,25 @@ let run_timed t ?working_dir ?env ~prog ~args () =
       (String.strip content)
       Oci_Common.Timed.t_of_sexp in
   match r, timed with
-  | Core_kernel.Std.Result.Ok (),`Result timed -> return (`Ok timed)
-  | Core_kernel.Std.Result.Error _ as error, _ ->
-    err_log t "Command %s failed: %s"
-      (print_cmd prog args)
-      (Unix.Exit_or_signal.to_string_hum error);
-    return (`Error error)
-  | _, `Error (exn,_) ->
+    | _, `Error (exn,_) ->
     let error = Error.of_exn exn in
     err_log t "time output parsing failed executing %s: %s"
       (print_cmd prog args)
       (Error.to_string_hum error);
-    return (`Timed_Error error)
+    raise TimeError
+  | Result.Ok (), `Result timed -> return (r,timed)
+  | (Core_kernel.Std.Result.Error (`Exit_non_zero i) as r,`Result timed)
+    when i < 128 -> return (r,timed)
+  | (Core_kernel.Std.Result.Error (`Exit_non_zero i),`Result timed)
+    -> return (Core_kernel.Std.Result.Error
+                 (`Signal (Signal.of_system_int (i-128))),
+               timed)
+  | (Core_kernel.Std.Result.Error (`Signal _),_) -> raise TimeError
 
 let run_timed_exn t ?working_dir ?env ~prog ~args () =
   run_timed t ?working_dir ?env ~prog ~args ()
   >>= function
-  | `Ok timed -> return timed
+  | (Result.Ok (), timed) -> return timed
   | _ -> raise CommandFailed
 
 let git_clone_id = ref (-1)

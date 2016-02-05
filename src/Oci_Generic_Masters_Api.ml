@@ -104,8 +104,10 @@ module CompileGitRepoRunner = struct
   end
 
   module Result = struct
+    type exit_or_signal = (* Exit_or_signal.error with bin_io, compare *)
+      [ `Exit_non_zero of int | `Signal of Signal.t ] with sexp, bin_io, compare
     type t = [
-      | `Cmd of exec * [ `Ok of Oci_Common.Timed.t | `Failed ]
+      | `Cmd of exec * (unit,exit_or_signal) Result.t * Oci_Common.Timed.t
       | `Artefact of Oci_Common.Artefact.t
     ]
     with sexp, bin_io, compare
@@ -114,10 +116,13 @@ module CompileGitRepoRunner = struct
       | `Artefact artefact ->
         Format.fprintf fmt "New artefact %a created"
           Oci_Common.Artefact.pp artefact
-      | `Cmd (_,`Ok time) ->
+      | `Cmd (_,Result.Ok (),time) ->
         Format.fprintf fmt "Ok in %a" Oci_Common.Timed.pp time
-      | `Cmd(cmd,`Failed) ->
-        Format.fprintf fmt "@[Failed: %a@]" pp_exec cmd
+      | `Cmd(cmd,fail,time) ->
+        Format.fprintf fmt "@[Failed with %s in %a: %a@]"
+          (Unix.Exit_or_signal.to_string_hum fail)
+          Oci_Common.Timed.pp time
+          pp_exec cmd
   end
 
   let rpc =
