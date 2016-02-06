@@ -176,7 +176,16 @@ module Cmdline: sig
     val cryptokit: repo
   end
 
-  val default_cmdline: unit -> unit Deferred.t
+  type create_query_hook =
+    (query:Oci_Generic_Masters_Api.CompileGitRepo.Query.t ->
+     revspecs:string option String.Map.t ->
+     Oci_Generic_Masters_Api.CompileGitRepo.Query.t *
+     string option Core.Std.String.Map.t)
+      Cmdliner.Term.t
+
+  val default_cmdline:
+    ?create_query_hook:create_query_hook (* experts only *) ->
+    unit -> unit Deferred.t
   (** parse cmdline, run, and quit *)
 
   (** {2 Experts only} *)

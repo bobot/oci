@@ -248,7 +248,9 @@ module Cmdline = struct
     String.Table.add_exn url_to_default_revspec
       ~key:url ~data:{name;revspec}
 
-  let create_query _ccopt rootfs revspecs repo socket =
+  let default_create_query_hook ~query ~revspecs = query, revspecs
+
+  let create_query _ccopt create_query_hook rootfs revspecs repo socket =
     Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket rootfs
     >>= fun rootfs ->
     info "Check the revspecs:";
@@ -257,13 +259,17 @@ module Cmdline = struct
         ~rootfs:(Or_error.ok_exn rootfs)
         ~repos:!db_repos
     in
+    let query, revspecs = create_query_hook ~query ~revspecs in
     let used_repos = Git.used_repos query in
     let cache = String.Table.create () in
     let commits_cmdline = Buffer.create 100 in
     let get_commit url = String.Table.find_or_add cache url
         ~default:(fun () ->
             let def = String.Table.find_exn url_to_default_revspec url in
-            let revspec = String.Map.find_exn revspecs def.name in
+            let revspec =
+              Option.value ~default:def.revspec
+                (String.Map.find_exn revspecs def.name)
+            in
             Git.commit_of_revspec ~url ~revspec socket
             >>= function
             | None ->
@@ -307,8 +313,8 @@ module Cmdline = struct
     info "commits:%s" (Buffer.contents commits_cmdline);
     return { query with repos}
 
-  let run ccopt rootfs revspecs (repo:string) socket =
-    create_query ccopt rootfs revspecs repo socket
+  let run ccopt cq_hook rootfs revspecs (repo:string) socket =
+    create_query ccopt cq_hook rootfs revspecs repo socket
     >>= fun query ->
     let fold acc = function
       | Result.Ok (`Cmd (_,Ok _,_)) -> acc
@@ -321,8 +327,8 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp socket
 
-  let xpra ccopt rootfs revspecs repo socket =
-    create_query ccopt rootfs revspecs repo socket
+  let xpra ccopt cq_hook rootfs revspecs repo socket =
+    create_query ccopt cq_hook rootfs revspecs repo socket
     >>= fun query ->
     let repos =
       String.Map.change query.repos repo (function
@@ -392,11 +398,11 @@ module Cmdline = struct
     >>= fun () ->
     return res
 
-  let run ccopt rootfs revspecs repo =
-    connect ccopt (run ccopt rootfs revspecs repo)
+  let run ccopt cq_hook rootfs revspecs repo =
+    connect ccopt (run ccopt cq_hook rootfs revspecs repo)
 
-  let xpra ccopt rootfs revspecs repo =
-    connect ccopt (xpra ccopt rootfs revspecs repo)
+  let xpra ccopt cq_hook rootfs revspecs repo =
+    connect ccopt (xpra ccopt cq_hook rootfs revspecs repo)
 
   let list_rootfs ccopt rootfs =
     connect ccopt (list_rootfs ccopt rootfs)
@@ -755,7 +761,7 @@ module Cmdline = struct
     Term.(const add_packages $ copts_t $ rootfs $ packages),
     Term.info "add-package" ~sdocs:copts_sect ~doc ~man
 
-  let run_cmd,xpra_cmd =
+  let run_xpra_cmd create_query_hook =
     let rootfs =
       Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
              ~docv:"ID"
@@ -765,9 +771,14 @@ module Cmdline = struct
       String.Table.fold url_to_default_revspec
         ~init:Term.(const String.Map.empty)
         ~f:(fun ~key:_ ~data acc ->
+            let spec = (fun s -> `Ok (Some s)),
+                       (fun fmt -> function
+                         | None -> Format.pp_print_string fmt data.revspec
+                         | Some s -> Format.pp_print_string fmt s)
+            in
             Term.(const (fun revspec acc ->
                 String.Map.add ~key:data.name ~data:revspec acc) $
-                  Arg.(value & opt string data.revspec & info [data.name]
+                  Arg.(value & opt spec None & info [data.name]
                          ~docv:"REVSPEC"
                          ~doc:(sprintf "indicate which revspec of %s to use."
                                  data.name)
@@ -789,10 +800,10 @@ module Cmdline = struct
       `P "Run the integration of the given repository with the given rootfs \
           using the specified commits."] @ help_secs
     in
-    (Term.(const run $ copts_t $ rootfs $ revspecs $ repo),
-     Term.info "run" ~doc ~sdocs:copts_sect ~man),
-    (Term.(const xpra $ copts_t $ rootfs $ revspecs $ repo),
-     Term.info "xpra" ~doc ~sdocs:copts_sect ~man)
+    [Term.(const run $ copts_t $ create_query_hook $ rootfs $ revspecs $ repo),
+     Term.info "run" ~doc ~sdocs:copts_sect ~man;
+     Term.(const xpra $ copts_t $ create_query_hook $ rootfs $ revspecs $ repo),
+     Term.info "xpra" ~doc ~sdocs:copts_sect ~man]
 
   let default_cmd =
     let doc = "OCI client for Frama-C and Frama-C plugins" in
@@ -800,12 +811,22 @@ module Cmdline = struct
     Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
     Term.info "bf_client" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
 
-  let cmds = [list_rootfs_cmd; create_rootfs_cmd;
-              add_package_cmd; run_cmd; xpra_cmd;
-              list_download_rootfs_cmd; download_rootfs_cmd]
+  let cmds create_query_hook =
+    [list_rootfs_cmd; create_rootfs_cmd;
+     add_package_cmd;
+     list_download_rootfs_cmd; download_rootfs_cmd]@
+    (run_xpra_cmd create_query_hook)
 
-  let default_cmdline () =
-    match Term.eval_choice default_cmd cmds with
+  type create_query_hook =
+    (query:Oci_Generic_Masters_Api.CompileGitRepo.Query.t ->
+     revspecs:string option String.Map.t ->
+     Oci_Generic_Masters_Api.CompileGitRepo.Query.t *
+     string option Core.Std.String.Map.t)
+      Cmdliner.Term.t
+
+  let default_cmdline
+      ?(create_query_hook=Term.const default_create_query_hook) () =
+    match Term.eval_choice default_cmd (cmds create_query_hook) with
     | `Error _ -> exit 1
     | `Ok r -> begin r >>= function
       | `Ok -> Shutdown.exit 0
