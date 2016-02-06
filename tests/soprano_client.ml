@@ -37,7 +37,7 @@ let print_time fmt t =
   if Log.Global.level () = `Debug then Time.pp fmt t
   else Format.pp_print_string fmt (Time.format t "%H:%M:%S")
 
-let exec_one test input ~init ~fold sexp_input sexp_output conn =
+let exec_one test input ~init ~fold sexp_input output_printer conn =
   debug "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log test) conn input
   >>= fun (p,_) ->
@@ -62,9 +62,14 @@ let exec_one test input ~init ~fold sexp_input sexp_output conn =
           line;
         return acc
       | {Oci_Log.data=Oci_Log.Extra r} ->
-        Format.fprintf fmt
-          "[Result] %s@."
-          (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
+        begin match r with
+          | Ok r ->
+            Format.fprintf fmt "[Result] %a@." output_printer r
+          | Error e ->
+            Format.fprintf fmt
+              "[Anomaly] please report: %s"
+              (Sexp.to_string_hum (Error.sexp_of_t e))
+        end;
         return (fold acc r)
     )
   >>= fun res ->
@@ -97,16 +102,15 @@ let db_repos = ref String.Map.empty
 let url_to_default_revspec = String.Table.create ()
 
 let create_query _ccopt rootfs revspecs repo socket =
-  let open Oci_Generic_Masters_Api.CompileGitRepo in
   Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket rootfs
   >>= fun rootfs ->
   info "Check the revspecs:";
-  let query : Query.t = {
-    name = repo;
-    rootfs = Or_error.ok_exn rootfs;
-    repos = !db_repos;
-  } in
-  let used_repos = Query.used_repos query in
+  let query = Oci_Generic_Masters_Client.repos
+      ~name:repo
+      ~rootfs:(Or_error.ok_exn rootfs)
+      ~repos:!db_repos
+  in
+  let used_repos = Oci_Generic_Masters_Client.used_repos query in
   let cache = String.Table.create () in
   let commits_cmdline = Buffer.create 100 in
   let get_commit url = String.Table.find_or_add cache url
@@ -132,7 +136,7 @@ let create_query _ccopt rootfs revspecs repo socket =
     ~how:`Parallel
     ~f:(fun repo ->
         Deferred.List.map
-          repo.cmds
+          repo.Oci_Generic_Masters_Api.CompileGitRepo.Query.cmds
           ~f:(function
               | Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec _ as x ->
                 return x
@@ -146,6 +150,7 @@ let create_query _ccopt rootfs revspecs repo socket =
                 >>= fun commit ->
                 return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitCopyFile
                           {x with commit})
+
             )
         >>= fun cmds ->
         return {repo with cmds}
@@ -157,8 +162,8 @@ let create_query _ccopt rootfs revspecs repo socket =
 let run ccopt rootfs revspecs (repo:string) socket =
   create_query ccopt rootfs revspecs repo socket
   >>= fun query ->
-    let fold acc = function
-    | Result.Ok (`Cmd (_,Ok (),_)) -> acc
+  let fold acc = function
+    | Result.Ok (`Cmd (_,Ok _,_)) -> acc
     | Result.Ok (`Cmd (_,_,_)) -> `Error
     | Result.Ok (`Dependency_error _) -> `Error
     | Result.Ok (`Artefact _) -> acc
@@ -166,7 +171,7 @@ let run ccopt rootfs revspecs (repo:string) socket =
   in
   exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query ~fold
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-    Oci_Generic_Masters_Api.CompileGitRepo.Result.sexp_of_t socket
+    Oci_Generic_Masters_Api.CompileGitRepo.Result.pp socket
 
 let xpra ccopt rootfs revspecs repo socket =
   create_query ccopt rootfs revspecs repo socket
@@ -178,10 +183,9 @@ let xpra ccopt rootfs revspecs repo socket =
                      | Some data ->
                      Some {data with cmds = List.filter ~f:(function
                            | Oci_Generic_Masters_Api.
-                               CompileGitRepoRunner.GitClone _
+                               CompileGitRepoRunner.GitClone _ -> true
                            | Oci_Generic_Masters_Api.
-                               CompileGitRepoRunner.GitCopyFile _
-                             -> true
+                               CompileGitRepoRunner.GitCopyFile _ -> true
                            | Oci_Generic_Masters_Api.
                                CompileGitRepoRunner.Exec _ -> false) data.cmds
                          })
@@ -189,7 +193,7 @@ let xpra ccopt rootfs revspecs repo socket =
   in
   exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
     Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-    Oci_Generic_Masters_Api.XpraGitRepo.Result.sexp_of_t socket
+    Oci_Generic_Masters_Api.XpraGitRepo.Result.pp socket
 
 let list_rootfs _copts rootfs socket =
   let open Oci_Rootfs_Api in
@@ -199,7 +203,7 @@ let list_rootfs _copts rootfs socket =
         exec find_rootfs rootfs
           ~init:acc
           Rootfs_Id.sexp_of_t
-          Rootfs.sexp_of_t socket
+          (Oci_pp.to_sexp Rootfs.sexp_of_t) socket
       )
 
 let add_packages rootfs packages =
@@ -209,7 +213,22 @@ let add_packages rootfs packages =
       packages = packages;
     }
     sexp_of_add_packages_query
-    Rootfs.sexp_of_t
+    (Oci_pp.to_sexp Rootfs.sexp_of_t)
+
+let create_rootfs rootfs_tar meta_tar distribution release arch comment =
+  let open Oci_Rootfs_Api in
+  exec create_rootfs
+    { meta_tar = Option.map ~f:absolutize meta_tar;
+      rootfs_tar = absolutize rootfs_tar;
+      rootfs_info = { distribution;
+                      release;
+                      arch;
+                      packages = [];
+                      comment;
+                    }
+    }
+    sexp_of_create_rootfs_query
+    (Oci_pp.to_sexp Rootfs.sexp_of_t)
 
 let connect ccopt cmd =
   Tcp.connect (Tcp.to_file ccopt.socket)
@@ -237,51 +256,230 @@ let list_rootfs ccopt rootfs =
 let add_packages ccopt rootfs packages =
   connect ccopt (add_packages rootfs packages)
 
+let create_rootfs ccopt rootfs_tar meta_tar distribution release arch comment =
+  connect ccopt (create_rootfs rootfs_tar meta_tar
+                   distribution release arch comment)
+
+
+module Download_Rootfs = struct
+  (** {2 GPG} *)
+
+  let download_keyid = "0xBAEFF88C22F6E216"
+  let download_keyserver = "hkp://pool.sks-keyservers.net"
+
+
+  let gpg_setup ~dir =
+    Async_shell.test "which" ["gpg"]
+    >>= function
+    | false ->
+      error "The program gpg is not present: can't validate download";
+      return `GPGNotAvailable
+    | true ->
+      let gpg_dir = Filename.concat dir "gpg" in
+      Unix.mkdir ~p:()  ~perm:0o700 gpg_dir
+      >>= fun () ->
+      Async_shell.test
+        "gpg" ["--keyserver";download_keyserver;"--recv-keys";download_keyid]
+        ~env:(`Extend ["GNUPGHOME",gpg_dir])
+      >>= function
+      | false ->
+        error "Can't download gpg key data: can't validate download";
+        return `GPGNotAvailable
+      | true ->
+        return (`GPGAvailable gpg_dir)
+
+  let gpg_check file = function
+    | `GPGNotAvailable -> return ()
+    | `GPGAvailable gpg_dir ->
+      Async_shell.test
+        "gpg" ["--verify";(file^".asc")]
+        ~env:(`Extend ["GNUPGHOME",gpg_dir])
+      >>= function
+      | false ->
+        error "The downloaded file are not authenticated";
+        exit 1
+      | true -> return ()
+
+  (** {2 Download image} *)
+  (** use lxc download template facilities *)
+
+  let download_compat_level=2
+  let download_server = "images.linuxcontainers.org"
+
+  let download fmt =
+    Printf.ksprintf (fun src ->
+        Printf.ksprintf (fun dst ->
+            Async_shell.test
+              ~true_v:[0]
+              ~false_v:[1;4;8;2;3;5;6;7]
+              "wget"
+              ["-T";"30";
+               "-q";
+               sprintf "https://%s/%s" download_server src;
+               "-O";dst]
+          )
+      ) fmt
+
+  let download_index ~dir ~gpg =
+    let index = Filename.concat dir "index" in
+    let url_index = "meta/1.0/index-user" in
+    info "Download the index.";
+    download
+      "%s.%i" url_index download_compat_level
+      "%s" index
+    >>= fun b1 ->
+    download
+      "%s.%i.asc" url_index download_compat_level
+      "%s.asc" index
+    >>= fun b2 -> begin
+      if b1 && b2 then
+        return ()
+      else begin
+        download
+          "%s" url_index
+          "%s" index
+        >>= fun b1 ->
+        download
+          "%s.asc" url_index
+          "%s.asc" index
+        >>= fun b2 ->
+        if b1 && b2 then
+          return ()
+        else begin
+          error "Can't download rootfs index";
+          exit 1
+        end
+      end
+    end
+    >>= fun () ->
+    gpg_check index gpg;
+    >>= fun () ->
+    info "Index downloading done.\n%!";
+    return index
+
+  type rootfs_spec =
+    {distrib: string; release: string;
+     arch: string; comment: string}
+  with bin_io, sexp
+
+  (** return download build and directory url *)
+  let parse_index index =
+    Reader.file_lines index
+    >>= fun lines ->
+    let fold acc l =
+      match String.split ~on:';' l with
+      | [distrib;release;arch;comment;build_id;url] ->
+        ({distrib;release;arch;comment},(build_id,url))::acc
+      | _ -> acc in
+    let l = List.fold ~init:[] ~f:fold lines in
+    return (List.rev l)
+
+  let download_rootfs_meta ~dir ~gpg (_build_id,url) =
+    (* let build_id_file = Filename.concat dir "build_id" in *)
+    let rootfs_tar = Filename.concat dir "rootfs.tar.xz" in
+    let meta_tar = Filename.concat dir "meta.tar.xz" in
+    (* if not (Sys.file_exists_exn build_id_file) *)
+    (* || read_in_file "%s" build_id_file <> build_id then begin *)
+    (*   if Sys.file_exists build_id_file then Unix.unlink build_id_file; *)
+    info "Downloading rootfs.\n%!";
+    Deferred.all [
+      download "%s/rootfs.tar.xz" url "%s/rootfs.tar.xz" dir;
+      download "%s/rootfs.tar.xz.asc" url "%s/rootfs.tar.xz.asc" dir;
+      download "%s/meta.tar.xz" url "%s/meta.tar.xz" dir;
+      download "%s/meta.tar.xz.asc" url "%s/meta.tar.xz.asc" dir
+    ]
+    >>= fun l ->
+    if List.for_all ~f:(fun x -> x) l
+    then
+      Deferred.all_ignore [
+        gpg_check rootfs_tar gpg;
+        gpg_check meta_tar gpg
+      ]
+      >>= fun () ->
+      (* write_in_file "%s" build_id_file "%s" build_id *)
+      return (rootfs_tar, meta_tar)
+    else begin error "Can't download rootfs"; exit 1 end
+
+  let list_download_rootfs () =
+    let testdir = ".oci_tmp" in
+    Unix.mkdir ~p:() testdir
+    >>= fun () ->
+    gpg_setup ~dir:testdir
+    >>= fun gpg ->
+    download_index ~dir:testdir ~gpg
+    >>= fun index ->
+    parse_index index
+    >>= fun archives ->
+    let stdout = (Lazy.force Writer.stdout) in
+    let fmt = Writer.to_formatter stdout in
+    let print = Format.fprintf fmt "%s, %s, %s@." in
+    print "distribution" "release" "arch";
+    List.iter archives
+      ~f:(fun (key,_) -> print key.distrib key.release key.arch);
+    Deferred.return `Ok
+
+  let download_rootfs ccopt distrib release arch comment =
+    let testdir = ".oci_tmp" in
+    Unix.mkdir ~p:() testdir
+    >>= fun () ->
+    gpg_setup ~dir:testdir
+    >>= fun gpg ->
+    download_index ~dir:testdir ~gpg
+    >>= fun index ->
+    parse_index index
+    >>= fun archives ->
+    let d = {distrib;release;arch;comment} in
+    match List.find_map
+            ~f:(fun (x,b) -> if x=d then Some b else None) archives
+    with
+    | None ->
+      error "Specified rootfs not found in index";
+      exit 1
+    | Some build_id_url ->
+      download_rootfs_meta ~dir:testdir ~gpg build_id_url
+      >>= fun (rootfs_tar, meta_tar) ->
+      create_rootfs ccopt rootfs_tar (Some meta_tar)
+        distrib release arch comment
+
+end
+
 open Cmdliner;;
 
 (** Configuration *)
 
 module Configuration = struct
 
-  let run ?(env=`Extend []) cmd args =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
-      cmd;
-      args = List.map args ~f:(fun s -> `S s);
-      env;
-      proc_requested = 1;
-      working_dir = Oci_Filename.current_dir;
-    }
+  let run ?env cmd args =
+    Oci_Generic_Masters_Client.exec ?env cmd
+      ~args:(List.map args ~f:(fun s -> `S s))
 
   let mk_proc s =
-    `Proc (Oci_Generic_Masters_Api.CompileGitRepoRunner.Formatted_proc.mk s)
+    `Proc (Oci_Generic_Masters_Client.formatted_proc s)
 
-  let make ?(j=1) ?(vars=[]) ?(env=`Extend []) targets =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
-      cmd = "make";
-      args =
-        (mk_proc "--jobs=%i") ::
-        List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
-        List.map targets ~f:(fun s -> `S s);
-      env;
-      proc_requested = j;
-      working_dir = Oci_Filename.current_dir;
-    }
+  let make ?(j=1) ?(vars=[]) ?env targets =
+    Oci_Generic_Masters_Client.exec
+      "make"
+      ~args:((mk_proc "--jobs=%i") ::
+             List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
+             List.map targets ~f:(fun s -> `S s))
+      ?env
+      ~proc_requested:j
+      ~working_dir:Oci_Filename.current_dir
 
   let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
 
-  let gitclone ?(dir=Oci_Filename.current_dir) url =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
-      {url;commit=dumb_commit;
-       directory=dir}
+  let gitclone ?dir url =
+    Oci_Generic_Masters_Client.git_clone ?dir ~url dumb_commit
 
-  let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name
-    : string * string =
-    let id = (name,url) in
-    let data = {
-      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps = List.map ~f:fst deps;
-      cmds = (gitclone (snd id))::cmds;
-      tests;
-    }
+  type repo = {name:string;url:string}
+
+  let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name =
+    let id = {name;url} in
+    let data =
+      Oci_Generic_Masters_Client.repo
+        ~deps:(List.map ~f:(fun x -> x.name) deps)
+        ~cmds:((gitclone url)::cmds)
+        ~tests
     in
     String.Table.add_exn url_to_default_revspec
       ~key:url ~data:{name;revspec};
@@ -295,7 +493,7 @@ module Configuration = struct
       ~deps:[]
       ~cmds:[
         run "./configure" [];
-        make ["world.opt"];
+        make ~j:4 ["world.opt"];
         make ["install"];
         run "mkdir" ["-p";"/usr/local/lib/ocaml/site-lib/stublibs/"];
         run "touch" ["/usr/local/lib/ocaml/site-lib/stublibs/.placeholder"];
@@ -471,6 +669,90 @@ let list_rootfs_cmd =
   Term.(const list_rootfs $ copts_t $ rootfs),
   Term.info "list-rootfs" ~sdocs:copts_sect ~doc ~man
 
+let create_rootfs_cmd =
+  let rootfs_tar =
+    Arg.(required & opt (some file) None & info ["rootfs"]
+           ~docv:"TAR"
+           ~doc:"Give the rootfs archive to use")
+  in
+  let meta_tar =
+    Arg.(value & opt (some file) None & info ["meta"]
+           ~docv:"TAR"
+           ~doc:"Give the meta archive to use")
+  in
+  let distribution =
+    Arg.(value & opt string "unknown" & info ["distribution"]
+           ~docv:"name"
+           ~doc:"Indicate the name of the distribution in the given rootfs")
+  in
+  let release =
+    Arg.(value & opt string "" & info ["release"]
+           ~docv:"name"
+           ~doc:"Indicate the release name of the distribution \
+                 in the given rootfs")
+  in
+  let arch =
+    Arg.(value & opt string "" & info ["arch"]
+           ~docv:"name"
+           ~doc:"Indicate the target architecture in the given rootfs")
+  in
+  let comment =
+    Arg.(value & opt string "" & info ["comment"]
+           ~docv:"text"
+           ~doc:"Specify some comment about in the given rootfs")
+  in
+  let doc = "Create a new rootfs from an archive" in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Create a rootfs from an archive downloaded from lxc download mirrors."]
+    @ help_secs
+  in
+  Term.(const create_rootfs $ copts_t $ rootfs_tar $ meta_tar $
+        distribution $ release $ arch $ comment),
+  Term.info "create-rootfs" ~sdocs:copts_sect ~doc ~man
+
+let download_rootfs_cmd =
+  let distribution =
+    Arg.(value & opt string "debian" & info ["distribution"]
+           ~docv:"name"
+           ~doc:"Indicate the name of the distribution in the given rootfs")
+  in
+  let release =
+    Arg.(value & opt string "jessie" & info ["release"]
+           ~docv:"name"
+           ~doc:"Indicate the release name of the distribution \
+                 in the given rootfs")
+  in
+  let arch =
+    Arg.(value & opt string "amd64" & info ["arch"]
+           ~docv:"name"
+           ~doc:"Indicate the target architecture in the given rootfs")
+  in
+  let comment =
+    Arg.(value & opt string "default" & info ["comment"]
+           ~docv:"text"
+           ~doc:"Specify some comment about in the given rootfs")
+  in
+  let doc = "Create a new rootfs from an archive" in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Create a rootfs from an archive downloaded from lxc download mirrors."]
+    @ help_secs
+  in
+  Term.(const Download_Rootfs.download_rootfs $ copts_t $
+        distribution $ release $ arch $ comment),
+  Term.info "download-rootfs" ~sdocs:copts_sect ~doc ~man
+
+let list_download_rootfs_cmd =
+  let doc = "list the rootfs available from lxc download mirror" in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Return the list the rootfs available from lxc download mirror"]
+    @ help_secs
+  in
+  Term.(const Download_Rootfs.list_download_rootfs $ (const ())),
+  Term.info "list-download-rootfs" ~sdocs:copts_sect ~doc ~man
+
 let add_package_cmd =
   let rootfs =
     Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
@@ -520,7 +802,7 @@ let run_cmd,xpra_cmd =
   let doc = "run the integration of a repository" in
   let man = [
     `S "DESCRIPTION";
-    `P "Run the integration of the given repository with the given rootfs
+    `P "Run the integration of the given repository with the given rootfs \
         using the specified commits."] @ help_secs
   in
   (Term.(const run $ copts_t $ rootfs $ revspecs $ repo),
@@ -534,7 +816,9 @@ let default_cmd =
   Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
   Term.info "bf_client" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
 
-let cmds = [list_rootfs_cmd; add_package_cmd; run_cmd; xpra_cmd]
+let cmds = [list_rootfs_cmd; create_rootfs_cmd;
+            add_package_cmd; run_cmd; xpra_cmd;
+            list_download_rootfs_cmd; download_rootfs_cmd]
 
 let () =
   don't_wait_for begin

@@ -26,7 +26,7 @@ open Oci_Common
 
 type formatted_proc
 
-val mk : (int -> string, unit, string) format -> formatted_proc
+val formatted_proc : (int -> string, unit, string) format -> formatted_proc
 
 type cmd
 
@@ -38,7 +38,20 @@ val exec:
   ?working_dir:Oci_Filename.filename ->
   string -> cmd
 
-type repo
+val git_clone:
+  url:string ->
+  ?dir:Oci_Filename.t ->
+  Commit.t ->
+  cmd
+
+val git_copy_file:
+  url:string ->
+  src:Oci_Filename.t ->
+  dst:Oci_Filename.t ->
+  Commit.t ->
+  cmd
+
+type repo = Oci_Generic_Masters_Api.CompileGitRepo.Query.repo
 
 val repo:
   deps:Core.Std.String.t list ->
@@ -46,7 +59,7 @@ val repo:
   tests:cmd list ->
   repo
 
-type t
+type t = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
 
 val used_repos: t -> repo String.Map.t
 val filter_deps_for: t -> t

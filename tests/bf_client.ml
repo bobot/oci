@@ -102,16 +102,15 @@ let db_repos = ref String.Map.empty
 let url_to_default_revspec = String.Table.create ()
 
 let create_query _ccopt rootfs revspecs repo socket =
-  let open Oci_Generic_Masters_Api.CompileGitRepo in
   Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket rootfs
   >>= fun rootfs ->
   info "Check the revspecs:";
-  let query : Query.t = {
-    name = repo;
-    rootfs = Or_error.ok_exn rootfs;
-    repos = !db_repos;
-  } in
-  let used_repos = Query.used_repos query in
+  let query = Oci_Generic_Masters_Client.repos
+      ~name:repo
+      ~rootfs:(Or_error.ok_exn rootfs)
+      ~repos:!db_repos
+  in
+  let used_repos = Oci_Generic_Masters_Client.used_repos query in
   let cache = String.Table.create () in
   let commits_cmdline = Buffer.create 100 in
   let get_commit url = String.Table.find_or_add cache url
@@ -137,7 +136,7 @@ let create_query _ccopt rootfs revspecs repo socket =
     ~how:`Parallel
     ~f:(fun repo ->
         Deferred.List.map
-          repo.cmds
+          repo.Oci_Generic_Masters_Api.CompileGitRepo.Query.cmds
           ~f:(function
               | Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec _ as x ->
                 return x
@@ -450,47 +449,37 @@ open Cmdliner;;
 
 module Configuration = struct
 
-  let run ?(env=`Extend []) cmd args =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
-      cmd;
-      args = List.map args ~f:(fun s -> `S s);
-      env;
-      proc_requested = 1;
-      working_dir = Oci_Filename.current_dir;
-    }
+  let run ?env cmd args =
+    Oci_Generic_Masters_Client.exec ?env cmd
+      ~args:(List.map args ~f:(fun s -> `S s))
 
   let mk_proc s =
-    `Proc (Oci_Generic_Masters_Api.CompileGitRepoRunner.Formatted_proc.mk s)
+    `Proc (Oci_Generic_Masters_Client.formatted_proc s)
 
-  let make ?(j=1) ?(vars=[]) ?(env=`Extend []) targets =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
-      cmd = "make";
-      args =
-        (mk_proc "--jobs=%i") ::
-        List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
-        List.map targets ~f:(fun s -> `S s);
-      env;
-      proc_requested = j;
-      working_dir = Oci_Filename.current_dir;
-    }
+  let make ?(j=1) ?(vars=[]) ?env targets =
+    Oci_Generic_Masters_Client.exec
+      "make"
+      ~args:((mk_proc "--jobs=%i") ::
+             List.map vars ~f:(fun (var,v) -> `S (var^"="^v)) @
+             List.map targets ~f:(fun s -> `S s))
+      ?env
+      ~proc_requested:j
+      ~working_dir:Oci_Filename.current_dir
 
   let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
 
-  let gitclone ?(dir=Oci_Filename.current_dir) url =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
-      {url;commit=dumb_commit;
-       directory=dir}
+  let gitclone ?dir url =
+    Oci_Generic_Masters_Client.git_clone ?dir ~url dumb_commit
 
   type repo = {name:string;url:string}
 
   let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name =
     let id = {name;url} in
-    let data = {
-      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
-        List.map ~f:(fun x -> x.name) deps;
-      cmds = (gitclone url)::cmds;
-      tests;
-    }
+    let data =
+      Oci_Generic_Masters_Client.repo
+        ~deps:(List.map ~f:(fun x -> x.name) deps)
+        ~cmds:((gitclone url)::cmds)
+        ~tests
     in
     String.Table.add_exn url_to_default_revspec
       ~key:url ~data:{name;revspec};
@@ -583,17 +572,14 @@ module Configuration = struct
     make ["install"];
   ]
   let make_tests j =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec {
-      cmd = "make";
-      args = [
+    Oci_Generic_Masters_Client.exec
+      "make"
+      ~args:[
         (mk_proc "--jobs=%i");
         (mk_proc "PTESTS_OPTS=-error-code -j %i");
         `S "-k";
-        `S "tests"];
-      env = `Extend [];
-      proc_requested = j;
-      working_dir = Oci_Filename.current_dir;
-    }
+        `S "tests"]
+      ~proc_requested:j
 
   let framac_tests = [
     make ~j:1 ["check-headers"];
@@ -697,31 +683,25 @@ module Configuration = struct
           gitclone ~dir:(Oci_Filename.concat "src/plugins" name) pkg.name
         )
     in
-    let data = {
-      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
-        List.dedup (List.map ~f:(fun x -> x.name) (framac_deps@plugins_deps));
-      cmds =
-        [gitclone framac.url] @
-        cloneplugins @
-        framac_cmds;
-      tests =
-        [run "frama-c" ["-plugins"]] @
-          framac_tests
-    }
+    let data =
+      Oci_Generic_Masters_Client.repo
+      ~deps:
+        (List.dedup (List.map ~f:(fun x -> x.name) (framac_deps@plugins_deps)))
+      ~cmds:([gitclone framac.url] @
+             cloneplugins @
+             framac_cmds)
+      ~tests:([run "frama-c" ["-plugins"]] @ framac_tests)
     in
       db_repos := String.Map.add !db_repos ~key:name ~data;
       (name,"")
 
   let _framac_external =
     let name = "frama-c-external" in
-    let data = {
-      Oci_Generic_Masters_Api.CompileGitRepo.Query.deps =
-        List.map ~f:(fun (dep,_) -> dep.name) (Queue.to_list plugins);
-      cmds = [];
-      tests = [
-        run "frama-c" ["-plugins"];
-      ];
-    }
+    let data =
+      Oci_Generic_Masters_Client.repo
+        ~deps:(List.map ~f:(fun (dep,_) -> dep.name) (Queue.to_list plugins))
+        ~cmds:[]
+        ~tests:[run "frama-c" ["-plugins"]]
     in
     db_repos := String.Map.add !db_repos ~key:name ~data;
     (name,"")

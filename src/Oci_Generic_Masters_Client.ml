@@ -26,7 +26,8 @@ open Async.Std
 type formatted_proc =
   Oci_Generic_Masters_Api.CompileGitRepoRunner.Formatted_proc.t
 
-let mk = Oci_Generic_Masters_Api.CompileGitRepoRunner.Formatted_proc.mk
+let formatted_proc =
+  Oci_Generic_Masters_Api.CompileGitRepoRunner.Formatted_proc.mk
 
 let exec
     ?(args=[])
@@ -35,8 +36,15 @@ let exec
     ?(working_dir=Oci_Filename.current_dir)
     cmd =
   Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec
-    {Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd;
-     args;proc_requested;working_dir;env}
+    {cmd; args;proc_requested;working_dir;env}
+
+let git_clone ~url ?(dir=Oci_Filename.current_dir) commit =
+  Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
+    {url;directory=dir;commit}
+
+let git_copy_file ~url ~src ~dst commit =
+  Oci_Generic_Masters_Api.CompileGitRepoRunner.GitCopyFile
+    {url;src;dst;commit}
 
 type cmd = Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd
 type repo = Oci_Generic_Masters_Api.CompileGitRepo.Query.repo
