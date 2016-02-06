@@ -23,8 +23,12 @@
 module Artefact : sig
   type t with sexp, bin_io, compare
   val to_string: t -> string
-  val of_int: int -> t
   val pp: t Oci_pp.printer
+  val empty: t
+
+  (* For Oci_Artefact.ml *)
+  val of_int_exn: int -> t
+
 end
 
 module Commit : sig

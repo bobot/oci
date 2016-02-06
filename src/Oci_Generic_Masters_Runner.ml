@@ -94,12 +94,16 @@ let run_cmds t kind working_dir = function
 
 let compile_git_repo_runner t q =
   create_dir t q
-  >>= fun working_dir ->
-  Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
-  >>= fun () ->
-  Oci_Runner.create_artefact t
-    ~dir:"/"
-    ~prune:[working_dir]
+  >>= fun working_dir -> begin
+  match q.cmds with
+  | [] -> Deferred.return Oci_Common.Artefact.empty
+  | _ ->
+    Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
+    >>= fun () ->
+    Oci_Runner.create_artefact t
+      ~dir:"/"
+      ~prune:[working_dir]
+  end
   >>= fun artefact ->
   Oci_Runner.data_log t (`Artefact artefact);
   Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests

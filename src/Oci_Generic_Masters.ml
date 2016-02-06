@@ -122,13 +122,43 @@ let init_compile_git_repo () =
   Oci_Master.register Oci_Generic_Masters_Api.XpraGitRepo.rpc
     (Oci_Master.simple_master_unit xpra_git_repo);
 
-  (** RemoteBranch *)
-  Oci_Master.register
-    Oci_Generic_Masters_Api.GitRemoteBranch.rpc
+  let register_simple_rpc rpc f=
+    Oci_Master.register rpc
+      (fun q ->
+         Oci_Log.init (fun log ->
+             Monitor.try_with_or_error (fun () -> f q)
+             >>= fun res ->
+             Oci_Log.add log (Oci_Log.data res)
+           ))
+  in
+
+  (** Commit of revspec *)
+  register_simple_rpc
+    Oci_Generic_Masters_Api.GitCommitOfRevSpec.rpc
     (fun q ->
-       Oci_Log.init (fun log ->
-           Monitor.try_with_or_error (fun () ->
-               Oci_Git.get_remote_branch_commit ~url:q.url ~revspec:q.revspec)
-           >>= fun res ->
-           Oci_Log.add log (Oci_Log.data res)
-         ))
+       Oci_Git.commit_of_revspec ~url:q.url ~revspec:q.revspec);
+
+  (** Commit of branch *)
+  register_simple_rpc
+    Oci_Generic_Masters_Api.GitCommitOfBranch.rpc
+    (fun q ->
+       Oci_Git.commit_of_branch ~url:q.url ~branch:q.branch);
+
+  (** merge base *)
+  register_simple_rpc
+    Oci_Generic_Masters_Api.GitMergeBase.rpc
+    (fun q ->
+       Oci_Git.merge_base ~url:q.url q.commit1 q.commit1);
+
+  (** last commit before *)
+  register_simple_rpc
+    Oci_Generic_Masters_Api.GitLastCommitBefore.rpc
+    (fun q ->
+       Oci_Git.last_commit_before ~url:q.url ~branch:q.branch
+         ~time:q.time);
+
+  (** time of commit *)
+  register_simple_rpc
+    Oci_Generic_Masters_Api.GitTimeOfCommit.rpc
+    (fun q ->
+       Oci_Git.time_of_commit ~url:q.url ~commit:q.commit)

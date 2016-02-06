@@ -75,7 +75,9 @@ let get_conf () =
 
 let dir_of_artefact id =
   let dir = Oci_Filename.mk (Artefact.to_string id) in
-  Oci_Filename.make_absolute (get_conf ()).storage dir
+  if Artefact.compare Artefact.empty id = 0
+  then None
+  else Some (Oci_Filename.make_absolute (get_conf ()).storage dir)
 
 (*
 let rec copydir
@@ -145,8 +147,7 @@ let rec copydir
     )
 *)
 
-let copydir ~hardlink ~prune_file ~prune_user
-    ~chown:({User.uid;gid} as chown) src dst =
+let copydir ~hardlink ~prune_file ~prune_user ~chown src dst =
   let prog =
     Oci_Filename.concat (get_conf ()).binaries
       (Oci_Filename.add_extension "Oci_Copyhard" "native") in
@@ -167,23 +168,26 @@ let create ~prune ~rooted_at ~only_new ~src =
   assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:src);
   let conf = get_conf () in
   conf.last_artefact_id <- conf.last_artefact_id + 1;
-  let id = Artefact.of_int conf.last_artefact_id in
-  let dst = dir_of_artefact id in
-  Sys.file_exists_exn (Oci_Filename.get dst)
-  >>= fun b ->
-  if b then raise (Directory_should_not_exists dst);
-  let dst = Oci_Filename.reparent ~oldd:rooted_at ~newd:dst src in
-  copydir
-    ~hardlink:false
-    ~prune_file:prune
-    ~prune_user:(if only_new then [master_user Superroot] else [])
-    ~chown:(master_user Superroot)
-    src dst
-  >>= fun () -> return id
+  let id = Artefact.of_int_exn conf.last_artefact_id in
+  match dir_of_artefact id with
+  | None -> assert false (** absurd: it can't be Artefact.empty *)
+  | Some dst ->
+    Sys.file_exists_exn (Oci_Filename.get dst)
+    >>= fun b ->
+    if b then raise (Directory_should_not_exists dst);
+    let dst = Oci_Filename.reparent ~oldd:rooted_at ~newd:dst src in
+    copydir
+      ~hardlink:false
+      ~prune_file:prune
+      ~prune_user:(if only_new then [master_user Superroot] else [])
+      ~chown:(master_user Superroot)
+      src dst
+    >>= fun () -> return id
 
 let link_copy_to ~hardlink chown id dst =
-  let src = dir_of_artefact id in
-  copydir ~hardlink ~prune_file:[] ~prune_user:[] ~chown src dst
+  match dir_of_artefact id with
+  | Some src -> copydir ~hardlink ~prune_file:[] ~prune_user:[] ~chown src dst
+  | None -> Deferred.unit
 
 let link_to_gen = link_copy_to ~hardlink:true
 let copy_to_gen = link_copy_to ~hardlink:false
@@ -192,8 +196,9 @@ let link_to user = link_to_gen (Oci_Common.master_user user)
 let copy_to user = copy_to_gen (Oci_Common.master_user user)
 
 let is_available id =
-  let src = dir_of_artefact id in
-  Sys.file_exists_exn (Oci_Filename.get src)
+  match dir_of_artefact id with
+  | Some src -> Sys.file_exists_exn (Oci_Filename.get src)
+  | None -> Deferred.return true
 
 let remove_dir dir =
   Async_shell.run "rm" ["-rf";"--"; Oci_Filename.get dir]

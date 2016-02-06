@@ -126,12 +126,12 @@ let rec chown_not_shared ({Oci_Common.User.uid;gid} as user) src =
     )
 
 
-let check_commit_availability commit src =
+let check_commit_availability ~src commit =
   let commit = Oci_Common.Commit.to_string commit in
   Async_shell.test
     "git" ["-C";src;"rev-parse";"--verify";"-q";commit^"^{commit}"]
   >>= fun b -> begin
-    if b then return () (* already in the repository *)
+    if b then return true (* already in the repository *)
     else
       (** update the local cache.
           It is not possible to fetch a particular commit. *)
@@ -139,18 +139,23 @@ let check_commit_availability commit src =
         ~env:(get_env ())
         "git" ["-C";src;"fetch";"origin"]
       >>= fun () ->
+      (** test if the fetch find it *)  (** well fetched *)
       Async_shell.test
         "git" ["-C";src;"rev-parse";"--verify";"-q";commit^"^{commit}"]
-      >>= fun b ->
-      if b then return () (** well fetched *)
-      else failwith "Commit number not found on server"
   end
+
+let check_commit_availability_exn ~src commit =
+  check_commit_availability ~src commit
+  >>= fun b ->
+  if b then return ()
+  else failwithf "Commit number %s not found on server"
+      (Oci_Common.Commit.to_string commit) ()
 
 
 let clone ~user ~url ~dst ~commit =
   lookup_path url
     (fun src ->
-       check_commit_availability commit src
+       check_commit_availability_exn ~src commit
        >>= fun () ->
        Async_shell.run
          "git" ["clone";"--local";"--no-checkout";
@@ -165,59 +170,116 @@ let clone ~user ~url ~dst ~commit =
 let copy_file ~user ~url ~src:file_src ~dst ~commit =
   lookup_path url
     (fun src ->
-       check_commit_availability commit src
+       check_commit_availability_exn ~src commit
        >>= fun () ->
        let commit = Oci_Common.Commit.to_string commit in
        Process.create
-         ~prog:"git" ~args:["show";commit^":"^file_src;"--";src;dst] ()
+         ~prog:"git" ~args:["show";commit^":"^file_src] ()
        >>= function
        | Error exn -> Error.raise exn
        | Ok git_show ->
          don't_wait_for (Writer.close (Process.stdin git_show));
+         don't_wait_for (Reader.drain (Process.stderr git_show));
          Writer.open_file dst
          >>= fun dst ->
-         don't_wait_for (Reader.drain (Process.stderr git_show));
          Reader.transfer (Process.stdout git_show) (Writer.pipe dst)
+         >>= fun () ->
+         Unix.waitpid (Process.pid git_show)
+         >>= function
+         | Result.Ok () -> Deferred.unit
+         | Result.Error _ ->
+           invalid_argf "Can't find %s at commit %s" file_src commit ()
     )
   >>= fun () ->
   chown_not_shared (Oci_Common.master_user user) dst
   >>= fun () ->
   return ()
 
-
-
-let get_remote_branch_commit ~url ~revspec =
-  let slow_path src =
-    let fetch_head = Oci_Filename.make_absolute src "FETCH_HEAD" in
-    Sys.file_exists_exn fetch_head
-    >>= fun b -> begin
-      if not b
-      then return true (** must fetch *)
-      else begin
-        Unix.lstat fetch_head
-        >>= fun stat ->
-        return (Time.is_earlier stat.Unix.Stats.mtime
-                  ~than:(Time.add
-                           (Time.now ())
-                           (Time.Span.create ~sec:2 ())))
-      end
-    end
-    >>= fun b -> begin
-      if b
-      then
-        Async_shell.run
-          ~env:(get_env ())
-          "git" ["-C";src;"fetch";"origin"]
-      else return ()
-    end
-    >>= fun () ->
-    Async_shell.run_one
-      ~expect:[0;1]
-      "git" ["-C";src;"rev-parse";"--verify";"-q";revspec^"^{commit}"]
-    >>= fun s -> return (Option.map ~f:Oci_Common.Commit.of_string_exn s)
-  in
+let read_file ~url ~src:file_src ~commit =
   lookup_path url
     (fun src ->
+       check_commit_availability_exn ~src commit
+       >>= fun () ->
+       let commit = Oci_Common.Commit.to_string commit in
+       Process.create
+         ~prog:"git" ~args:["show";commit^":"^file_src] ()
+       >>= function
+       | Error exn -> Error.raise exn
+       | Ok git_show ->
+         don't_wait_for (Writer.close (Process.stdin git_show));
+         don't_wait_for (Reader.drain (Process.stderr git_show));
+         Reader.contents (Process.stdout git_show)
+         >>= fun content ->
+         Unix.waitpid (Process.pid git_show)
+         >>= function
+         | Result.Ok () -> return content
+         | Result.Error _ ->
+           invalid_argf "Can't find %s at commit %s" file_src commit ()
+    )
+
+let merge_base ~url commit1 commit2 =
+  lookup_path url
+    (fun src ->
+       check_commit_availability_exn ~src commit1
+       >>= fun () ->
+       check_commit_availability_exn ~src commit2
+       >>= fun () ->
+       let commit1 = Oci_Common.Commit.to_string commit1 in
+       let commit2 = Oci_Common.Commit.to_string commit2 in
+       Process.create
+         ~prog:"git"
+         ~args:["merge-base";commit1;commit2] ()
+       >>= function
+       | Error exn -> Error.raise exn
+       | Ok proc ->
+         don't_wait_for (Writer.close (Process.stdin proc));
+         don't_wait_for (Reader.drain (Process.stderr proc));
+         Reader.contents (Process.stdout proc)
+         >>= fun content ->
+         Unix.waitpid (Process.pid proc)
+         >>= function
+         | Result.Ok () -> return (Oci_Common.Commit.of_string_exn content)
+         | Result.Error _ ->
+           invalid_argf "Can't find merge-base for %s %s" commit1 commit2 ()
+    )
+
+let time_between_fetch = Time.Span.create ~sec:2 ()
+
+let fetch_only_if_old src =
+  let fetch_head = Oci_Filename.make_absolute src "FETCH_HEAD" in
+  Sys.file_exists_exn fetch_head
+  >>= fun b -> begin
+    if not b
+    then return true (** must fetch *)
+    else begin
+      Unix.lstat fetch_head
+      >>= fun stat ->
+      return (Time.is_earlier stat.Unix.Stats.mtime
+                ~than:(Time.add (Time.now ()) time_between_fetch))
+    end
+  end
+  >>= fun b -> begin
+    if b
+    then
+      Async_shell.run
+        ~env:(get_env ())
+        "git" ["-C";src;"fetch";"origin"]
+    else return ()
+  end
+
+
+let commit_of_revspec ~url ~revspec =
+  lookup_path url
+    (fun src ->
+       let slow_path src =
+         fetch_only_if_old src
+         >>= fun () ->
+         Async_shell.run_one
+           ~expect:[0;1] (** perhapse it should be expect:[0] and use the
+                             none output *)
+           "git" ["-C";src;"rev-parse";"--verify";"-q";revspec^"^{commit}"]
+         >>= fun s -> return (Option.map ~f:Oci_Common.Commit.of_string_exn s)
+       in
        match Oci_Common.Commit.of_string revspec with
        | None -> slow_path src
        | Some  _ as commit ->
@@ -228,6 +290,51 @@ let get_remote_branch_commit ~url ~revspec =
          | Some c when c = revspec -> return commit
          | _ -> slow_path src
     )
+
+let commit_of_branch ~url ~branch =
+  lookup_path url
+    (fun src ->
+       fetch_only_if_old src
+       >>= fun () ->
+       Async_shell.run_one
+         "git" ["-C";src;"show-ref";"--verify";"refs/heads/"^branch]
+       >>= function
+       | None -> return None
+       | Some s ->
+         match String.lsplit2 ~on:' ' s with
+         | None -> invalid_argf "invalid output of git show-ref: %s" s ()
+         | Some(commit,_) ->
+           return (Some (Oci_Common.Commit.of_string_exn commit))
+    )
+
+
+let last_commit_before ~url ~branch ~time =
+  lookup_path url
+    (fun src ->
+       fetch_only_if_old src
+       >>= fun () ->
+       Async_shell.run_one
+         "git" ["-C";src;"log";"--before";Time.to_string time; "-n"; "1";
+                branch; "--"]
+       >>= function
+       | None -> return None
+       | Some "" -> return None
+       | Some s -> return (Some (Oci_Common.Commit.of_string_exn s))
+    )
+
+let time_of_commit ~url ~commit =
+    lookup_path url
+      (fun src ->
+         check_commit_availability_exn ~src commit
+         >>= fun () ->
+         let commit = Oci_Common.Commit.to_string commit in
+         Async_shell.run_one
+           "git" ["-C";src;"show";"-s";"--format=%ci";commit;"--"]
+         >>= function
+       | None -> invalid_argf "Can't get date of commit %s." commit ()
+       | Some s -> return (Time.of_string s)
+    )
+
 
 let init ~dir ~register_saver ~identity_file:i =
   permanent_dir := dir;

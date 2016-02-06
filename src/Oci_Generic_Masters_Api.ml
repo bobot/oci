@@ -254,7 +254,24 @@ module XpraGitRepo = struct
 
 end
 
-module GitRemoteBranch = struct
+module GitMergeBase = struct
+  module Query = struct
+    type t = {
+      url : string;
+      commit1: Oci_Common.Commit.t;
+      commit2: Oci_Common.Commit.t;
+    } with sexp, bin_io, compare
+  end
+
+  let rpc =
+    Oci_Data.register
+      ~name:"Oci_Generic_Masters.git_merge_base"
+      ~version:1
+      ~bin_query:Query.bin_t
+      ~bin_result:Oci_Common.Commit.bin_t
+end
+
+module GitCommitOfRevSpec = struct
   module Query = struct
     type t = {
       url : string;
@@ -264,8 +281,59 @@ module GitRemoteBranch = struct
 
   let rpc =
     Oci_Data.register
-      ~name:"Oci_Generic_Masters.git_remote_branch"
-      ~version:2
+      ~name:"Oci_Generic_Masters.git_commit_of_revspec"
+      ~version:1
       ~bin_query:Query.bin_t
       ~bin_result:(Option.bin_t Oci_Common.Commit.bin_t)
+end
+
+
+module GitCommitOfBranch = struct
+  module Query = struct
+    type t = {
+      url : string;
+      branch: String.t;
+    } with sexp, bin_io, compare
+  end
+
+  let rpc =
+    Oci_Data.register
+      ~name:"Oci_Generic_Masters.git_commit_of_branch"
+      ~version:1
+      ~bin_query:Query.bin_t
+      ~bin_result:(Option.bin_t Oci_Common.Commit.bin_t)
+end
+
+
+module GitLastCommitBefore = struct
+  module Query = struct
+    type t = {
+      url : string;
+      branch: String.t;
+      time: Time.t;
+    } with sexp, bin_io, compare
+  end
+
+  let rpc =
+    Oci_Data.register
+      ~name:"Oci_Generic_Masters.git_last_commit_before"
+      ~version:1
+      ~bin_query:Query.bin_t
+      ~bin_result:(Option.bin_t Oci_Common.Commit.bin_t)
+end
+
+module GitTimeOfCommit = struct
+  module Query = struct
+    type t = {
+      url : string;
+      commit: Oci_Common.Commit.t;
+    } with sexp, bin_io, compare
+  end
+
+  let rpc =
+    Oci_Data.register
+      ~name:"Oci_Generic_Masters.git_time_of_commit"
+      ~version:1
+      ~bin_query:Query.bin_t
+      ~bin_result:Time.bin_t
 end

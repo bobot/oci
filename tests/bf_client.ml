@@ -118,11 +118,8 @@ let create_query _ccopt rootfs revspecs repo socket =
       ~default:(fun () ->
           let def = String.Table.find_exn url_to_default_revspec url in
           let revspec = String.Map.find_exn revspecs def.name in
-          Rpc.Rpc.dispatch_exn
-            (Oci_Data.rpc Oci_Generic_Masters_Api.GitRemoteBranch.rpc)
-            socket {url;revspec}
-          >>= fun r ->
-          match Or_error.ok_exn r with
+          Oci_Generic_Masters_Client.commit_of_revspec ~url ~revspec socket
+          >>= function
           | None ->
             error "%s correspond to no known ref" def.name; exit 1
           | Some commit ->

@@ -542,9 +542,9 @@ let cmd =
            ~docv:"[Debug|Error|Info]"
            ~doc:"Specify the verbosity level.")
   in
-  let cleanup_rootfs =
+  let keep_runner_rootfs =
     Arg.(value & vflag true [false,
-                             info ["cleanup-rootfs"]
+                             info ["keep-runner-rootfs"]
                                ~doc:"For debugging keep the rootfs used after \
                                      the end of the runner."])
   in
@@ -603,7 +603,7 @@ let cmd =
     `P "Add the specified packages in the given rootfs"] @ help_secs
   in
   Term.(const run $ master $ binaries $ oci_data $
-        identity_file $ verbosity $ cleanup_rootfs $ cgroup $
+        identity_file $ verbosity $ keep_runner_rootfs $ cgroup $
         (Term.(const parse_proc $ proc $ cpus $ cpuinfo))),
   Term.info "Oci_Monitor" ~doc ~man
 

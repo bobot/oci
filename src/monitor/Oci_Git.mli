@@ -20,6 +20,7 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Core.Std
 open Async.Std
 
 
@@ -38,10 +39,38 @@ val copy_file:
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
 
-val get_remote_branch_commit:
+val read_file:
+  url:String.t ->
+  src:Oci_Filename.t ->
+  commit:Oci_Common.Commit.t ->
+  string Deferred.t
+
+val merge_base:
+  url:String.t ->
+  Oci_Common.Commit.t ->
+  Oci_Common.Commit.t ->
+  Oci_Common.Commit.t Deferred.t
+
+val commit_of_revspec:
   url:String.t ->
   revspec:String.t ->
   Oci_Common.Commit.t option Deferred.t
+
+val commit_of_branch:
+  url:String.t ->
+  branch:String.t ->
+  Oci_Common.Commit.t option Deferred.t
+
+val last_commit_before:
+  url:String.t ->
+  branch:String.t ->
+  time:Time.t ->
+  Oci_Common.Commit.t option Deferred.t
+
+val time_of_commit:
+  url:String.t ->
+  commit:Oci_Common.Commit.t ->
+  Time.t Deferred.t
 
 val init:
   dir:string ->
