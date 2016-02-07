@@ -19,8 +19,8 @@ OCI:
 - textutils
 
 Of course, opam will take care of installing their dependencies as well.
-Please ensure that you truly have the latest version available of each
-package. OCI loves to use bleeding edge stuff.
+Please ensure that you truly have the latest version available of OCaml
+and each package. OCI loves to use bleeding edge stuff.
 
 ### Compilation step
 
@@ -42,7 +42,7 @@ cgm movepid all oci $$
 ```
 
 - Get the ssh key necessary to access Frama-C's gitlab repository (ask
-  @bobot, @byako or @virgile)
+  @bobot or @virgile)
 - launch a new monitor
 
 ```shell
