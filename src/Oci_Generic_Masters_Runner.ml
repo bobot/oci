@@ -148,7 +148,7 @@ let xpra_runner t q =
   >>= fun () ->
   Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests
   >>= fun () ->
-  let xpra_dir = Oci_Filename.make_absolute working_dir "xpra_socket" in
+  let xpra_dir = Oci_Filename.make_absolute "/oci" "xpra_socket" in
   Unix.mkdir ~p:() ~perm:0o777 xpra_dir
   >>= fun () ->
   Unix.mkdir ~p:() ~perm:0o777
