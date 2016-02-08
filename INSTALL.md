@@ -37,7 +37,7 @@ and each package. OCI loves to use bleeding edge stuff.
 
 ```
 sudo cgm create all oci
-sudo cgm chown all oci ($id -u) $(id -g)
+sudo cgm chown all oci $(id -u) $(id -g)
 cgm movepid all oci $$
 ```
 
