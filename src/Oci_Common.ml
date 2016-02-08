@@ -30,7 +30,7 @@ module Artefact = struct
   let empty = -1 (** special value *)
 
 
-  let of_int_exn i = if i <= 0 then invalid_arg "Artefact.of_int" else i
+  let of_int_exn i = if i < 0 then invalid_arg "Artefact.of_int" else i
 
 end
 
