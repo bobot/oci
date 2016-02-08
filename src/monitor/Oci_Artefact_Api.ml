@@ -175,6 +175,19 @@ let rpc_git_copy_file =
     ~bin_query:bin_rpc_git_copy_file_query
     ~bin_response:Unit.bin_t
 
+type rpc_get_file = {
+  kind : [`MD5];
+  checksum: String.t;
+  dst : Oci_Filename.t;
+} with bin_io
+
+let rpc_get_file =
+  Rpc.Rpc.create
+    ~name:"Oci_Artefact.get_file"
+    ~version:1
+    ~bin_query:bin_rpc_get_file
+    ~bin_response:Unit.bin_t
+
 let rpc_stop_runner =
   Rpc.Rpc.create
     ~name:"Oci_Runner.stop_runner"

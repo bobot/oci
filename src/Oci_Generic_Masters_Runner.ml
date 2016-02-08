@@ -44,8 +44,16 @@ let create_dir t (q:Query.t) =
   >>= fun () ->
   return working_dir
 
-let run_cmds t kind working_dir = function
-    | GitClone clone ->
+let run_cmds t kind working_dir
+    (x:Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd) =
+  match x with
+  | `CopyFile copy ->
+    Oci_Runner.cha_log t "Copy file %s" copy.checksum;
+    Oci_Runner.get_file t
+      ~checksum:copy.checksum
+      ~kind:copy.kind
+      ~dst:(Oci_Filename.make_absolute working_dir copy.dst)
+      | `GitClone clone ->
       Oci_Runner.cha_log t "Clone repository at %s"
         (Oci_Common.Commit.to_string clone.commit);
       Oci_Runner.git_clone t
@@ -53,7 +61,7 @@ let run_cmds t kind working_dir = function
         ~url:clone.url
         ~dst:(Oci_Filename.make_absolute working_dir clone.directory)
         ~commit:clone.commit
-    | GitCopyFile show_file ->
+    | `GitCopyFile show_file ->
       Oci_Runner.cha_log t "Show file %s at %s to %s"
         show_file.src
         (Oci_Common.Commit.to_string show_file.commit)
@@ -64,7 +72,7 @@ let run_cmds t kind working_dir = function
         ~src:show_file.src
         ~dst:(Oci_Filename.make_absolute working_dir show_file.dst)
         ~commit:show_file.commit
-    | Exec cmd ->
+    | `Exec cmd ->
       Oci_Runner.get_release_proc t cmd.proc_requested
         (fun got ->
            let args =
@@ -76,7 +84,10 @@ let run_cmds t kind working_dir = function
                                   CompileGitRepoRunner.Formatted_proc.get s) in
                      Printf.sprintf fmt got)
            in
-           Oci_Runner.run_timed t ~working_dir ~prog:cmd.cmd ~args
+           Oci_Runner.run_timed t
+             ~working_dir:(Oci_Filename.make_absolute working_dir
+                             cmd.working_dir)
+             ~prog:cmd.cmd ~args
              ~env:(cmd.env :> Async.Std.Process.env) ()
            >>= fun r ->
            match kind, r with
@@ -95,14 +106,15 @@ let run_cmds t kind working_dir = function
 let compile_git_repo_runner t q =
   create_dir t q
   >>= fun working_dir -> begin
-  match q.cmds with
-  | [] -> Deferred.return Oci_Common.Artefact.empty
-  | _ ->
-    Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
-    >>= fun () ->
-    Oci_Runner.create_artefact t
-      ~dir:"/"
-      ~prune:[working_dir]
+    if q.save_artefact
+    then
+      Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
+      >>= fun () ->
+      Oci_Runner.create_artefact t
+        ~dir:"/"
+        ~prune:[working_dir]
+    else
+      Deferred.return Oci_Common.Artefact.empty
   end
   >>= fun artefact ->
   Oci_Runner.data_log t (`Artefact artefact);

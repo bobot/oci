@@ -317,7 +317,33 @@ let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =
     ~args:["-C";dst;"-c";"advice.detachedHead=false";"checkout";"--detach";
            Oci_Common.Commit.to_string commit] ()
 
+let git_copy_file_id = ref (-1)
+let git_copy_file_dir = "/oci/git_copy_file/"
 let git_copy_file t ?(user=Oci_Common.Root) ~url ~src ~dst ~commit =
-  cmd_log t "Git show_file %s from %s in %s" src url dst;
+  cmd_log t "Git copy file %s from %s in %s" src url dst;
+  incr git_copy_file_id;
+  let id = !git_copy_file_id in
+  let safe_file = Oci_Filename.make_absolute git_copy_file_dir
+      (string_of_int id) in
+  Unix.mkdir ~p:() git_copy_file_dir
+  >>= fun () ->
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_git_copy_file
-    t.connection {url;src;dst;user;commit}
+    t.connection {url;src;dst=safe_file;user;commit}
+  >>= fun () ->
+  Async_shell.run "mv" ["-f";safe_file;dst]
+
+
+let get_file_id = ref (-1)
+let get_file_dir = "/oci/get_file/"
+let get_file t ~kind ~checksum ~dst =
+  cmd_log t "Get file %s in %s" checksum dst;
+  incr get_file_id;
+  let id = !get_file_id in
+  let safe_file = Oci_Filename.make_absolute get_file_dir
+      (string_of_int id) in
+  Unix.mkdir ~p:() get_file_dir
+  >>= fun () ->
+  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_get_file
+    t.connection {checksum;dst=safe_file;kind}
+  >>= fun () ->
+  Unix.symlink ~src:safe_file ~dst

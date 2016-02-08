@@ -76,6 +76,11 @@ val git_copy_file: 'r t ->
   dst:Oci_Filename.t ->
   commit:Oci_Common.Commit.t ->
   unit Deferred.t
+val get_file: 'r t ->
+  kind:[`MD5] ->
+  checksum:string ->
+  dst:Oci_Filename.t ->
+  unit Deferred.t
 val give_external_access: 'r t -> Oci_Filename.t -> Oci_Filename.t Deferred.t
 
 val get_proc: 'r t -> int -> int Deferred.t

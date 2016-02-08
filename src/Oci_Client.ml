@@ -43,16 +43,17 @@ module Git = struct
       ?(proc_requested=1)
       ?(working_dir=Oci_Filename.current_dir)
       cmd =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec
-      {cmd; args;proc_requested;working_dir;env}
+    `Exec {Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd;
+           args;proc_requested;working_dir;env}
 
-  let run ?env cmd args =
-    exec ?env cmd ~args:(List.map args ~f:(fun s -> `S s))
+  let run ?env ?proc_requested ?working_dir cmd args =
+    exec ?env ?working_dir ?proc_requested
+      cmd ~args:(List.map args ~f:(fun s -> `S s))
 
   let mk_proc s =
     `Proc (formatted_proc s)
 
-  let make ?(j=1) ?(vars=[]) ?env targets =
+  let make ?(j=1) ?(vars=[]) ?working_dir ?env targets =
     exec
       "make"
       ~args:((mk_proc "--jobs=%i") ::
@@ -60,21 +61,28 @@ module Git = struct
              List.map targets ~f:(fun s -> `S s))
       ?env
       ~proc_requested:j
-      ~working_dir:Oci_Filename.current_dir
+      ?working_dir
 
   let git_clone ~url ?(dir=Oci_Filename.current_dir) commit =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
-      {url;directory=dir;commit}
+    `GitClone
+      {Oci_Generic_Masters_Api.CompileGitRepoRunner.url;directory=dir;commit}
 
   let git_copy_file ~url ~src ~dst commit =
-    Oci_Generic_Masters_Api.CompileGitRepoRunner.GitCopyFile
-      {url;src;dst;commit}
+    `GitCopyFile
+      {Oci_Generic_Masters_Api.CompileGitRepoRunner.url;src;dst;commit}
+
+  let copy_file ~checksum ~kind dst =
+    `CopyFile
+      {Oci_Generic_Masters_Api.CompileGitRepoRunner.kind;dst;checksum}
 
   type cmd = Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd
+  type gitcopyfile = Oci_Generic_Masters_Api.CompileGitRepoRunner.gitcopyfile
+  type gitclone = Oci_Generic_Masters_Api.CompileGitRepoRunner.gitclone
+  type copyfile = Oci_Generic_Masters_Api.CompileGitRepoRunner.copyfile
   type repo = Oci_Generic_Masters_Api.CompileGitRepo.Query.repo
 
-  let repo ~deps ~cmds ~tests =
-    {Oci_Generic_Masters_Api.CompileGitRepo.Query.deps;cmds;tests}
+  let repo ?(save_artefact=true) ?(deps=[]) ?(cmds=[]) ?(tests=[]) () =
+    {Oci_Generic_Masters_Api.CompileGitRepo.Query.deps;cmds;tests;save_artefact}
 
   type t = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
   let repos ~name ~repos ~rootfs =
@@ -160,6 +168,13 @@ module Git = struct
     >>= fun r ->
     return (Or_error.ok_exn r)
 
+
+  let download_file t ~kind ~url ~checksum =
+   Rpc.Rpc.dispatch_exn
+      (Oci_Data.rpc Oci_Generic_Masters_Api.WgetDownloadFile.rpc)
+      t {Oci_Generic_Masters_Api.WgetDownloadFile.Query.url;kind;checksum}
+    >>= fun r ->
+    return (Or_error.ok_exn r)
 end
 
 (** module to sort *)
@@ -238,6 +253,17 @@ module Cmdline = struct
 
   type copts = { verb : Log.Level.t;  socket: string}
 
+
+  let db_url_copy_file_md5sum = String.Table.create ()
+  let add_copy_file_url kind checksum url =
+    match kind with
+    | `MD5 ->
+      String.Table.add_multi db_url_copy_file_md5sum ~key:checksum ~data:url
+
+  let mk_copy_file ~url ~checksum ~kind dst =
+    List.iter url ~f:(add_copy_file_url kind checksum);
+    Git.copy_file ~checksum ~kind dst
+
   let db_repos = ref String.Map.empty
   let url_to_default_revspec = String.Table.create ()
 
@@ -248,16 +274,35 @@ module Cmdline = struct
     String.Table.add_exn url_to_default_revspec
       ~key:url ~data:{name;revspec}
 
+  type query = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
+  type revspecs = string option String.Map.t
+  type ('x,'y) compare_n =
+    revspecs -> 'x -> 'y -> revspecs * Git.repo * [`Exec of Git.exec ]
+  type exists_compare_n =
+    | CompareN:
+        ('x,'y) compare_n * (Sexp.t -> 'x) * ('x -> Sexp.t) * (Sexp.t -> 'y) *
+        ('y -> Sexp.t) *
+        (Unix.Exit_or_signal.t -> Oci_Common.Timed.t -> float option)
+      -> exists_compare_n
+  let db_compare_n = ref String.Map.empty
+
+  let add_compare_n name compare_n sexp_x x_sexp sexp_y y_sexp analyse =
+    db_compare_n :=
+      String.Map.add !db_compare_n ~key:name
+        ~data:(CompareN(compare_n,sexp_x,x_sexp,sexp_y,y_sexp,analyse))
+
   let default_create_query_hook ~query ~revspecs = query, revspecs
 
-  let create_query _ccopt create_query_hook rootfs revspecs repo socket =
+  let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
+
+  let create_query _ccopt create_query_hook rootfs revspecs repo repos socket =
     Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket rootfs
     >>= fun rootfs ->
     info "Check the revspecs:";
     let query = Git.repos
         ~name:repo
         ~rootfs:(Or_error.ok_exn rootfs)
-        ~repos:!db_repos
+        ~repos
     in
     let query, revspecs = create_query_hook ~query ~revspecs in
     let used_repos = Git.used_repos query in
@@ -291,20 +336,48 @@ module Cmdline = struct
           Deferred.List.map
             repo.Oci_Generic_Masters_Api.CompileGitRepo.Query.cmds
             ~f:(function
-                | Oci_Generic_Masters_Api.CompileGitRepoRunner.Exec _ as x ->
-                  return x
-                | Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone x ->
+                | `GitClone (({commit}:Oci_Generic_Masters_Api.
+                                         CompileGitRepoRunner.gitclone) as x)
+                  when phys_equal commit dumb_commit ->
                   get_commit x.url
                   >>= fun commit ->
-                  return (Oci_Generic_Masters_Api.CompileGitRepoRunner.GitClone
-                            {x with commit})
-                | Oci_Generic_Masters_Api.CompileGitRepoRunner.GitCopyFile x ->
+                  return (`GitClone {x with commit})
+                | `GitCopyFile (({commit}:Oci_Generic_Masters_Api.
+                                            CompileGitRepoRunner.gitcopyfile)
+                                as x)
+                  when phys_equal commit dumb_commit ->
                   get_commit x.url
                   >>= fun commit ->
-                  return (Oci_Generic_Masters_Api.
-                            CompileGitRepoRunner.GitCopyFile
-                            {x with commit})
-
+                  return (`GitCopyFile {x with commit})
+                | `CopyFile {Oci_Generic_Masters_Api.
+                              CompileGitRepoRunner.checksum;kind} as x -> begin
+                  match kind with
+                  | `MD5 ->
+                    match String.Table.find db_url_copy_file_md5sum
+                            checksum with
+                    | None -> Deferred.unit
+                    | Some l ->
+                      Deferred.List.find l
+                        ~f:(fun url ->
+                          Monitor.try_with_or_error (fun () ->
+                              Git.download_file socket ~checksum ~kind ~url)
+                          >>= function
+                          | Ok () -> Deferred.return true
+                          | Error e ->
+                            info "Download error: %s" (Error.to_string_hum e);
+                            Deferred.return false
+                        )
+                      >>= function
+                      | None ->
+                        error
+                          "The file with checksum %s can't be downloaded"
+                          checksum;
+                        exit 1
+                      | Some _ -> Deferred.unit
+                  end
+                  >>= fun () ->
+                  Deferred.return x
+                | x -> return x
               )
           >>= fun cmds ->
           return {repo with cmds}
@@ -314,7 +387,7 @@ module Cmdline = struct
     return { query with repos}
 
   let run ccopt cq_hook rootfs revspecs (repo:string) socket =
-    create_query ccopt cq_hook rootfs revspecs repo socket
+    create_query ccopt cq_hook rootfs revspecs repo !db_repos socket
     >>= fun query ->
     let fold acc = function
       | Result.Ok (`Cmd (_,Ok _,_)) -> acc
@@ -328,26 +401,98 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp socket
 
   let xpra ccopt cq_hook rootfs revspecs repo socket =
-    create_query ccopt cq_hook rootfs revspecs repo socket
+    create_query ccopt cq_hook rootfs revspecs repo !db_repos socket
     >>= fun query ->
     let repos =
       String.Map.change query.repos repo (function
           | None -> assert false (** absurd: the main repo is used *)
           | Some data ->
-            Some {data with cmds = List.filter ~f:(function
-                | Oci_Generic_Masters_Api.
-                    CompileGitRepoRunner.GitClone _ -> true
-                | Oci_Generic_Masters_Api.
-                    CompileGitRepoRunner.GitCopyFile _ -> true
-                | Oci_Generic_Masters_Api.
-                    CompileGitRepoRunner.Exec _ -> false) data.cmds
-              })
+            Some {data with tests=[]; cmds = List.filter ~f:(function
+                | `GitClone _ -> true
+                | `GitCopyFile _ -> true
+                | `CopyFile _ -> true
+                | `Exec _ -> false) data.cmds;
+              };)
     in
     let query = { query with repos }
     in
     exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.XpraGitRepo.Result.pp socket
+
+  let compare_n ccopt cq_hook rootfs revspecs
+      (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
+      output socket =
+    match String.Map.find_exn !db_compare_n bench with
+    | CompareN(for_one,sexp_x,x_sexp,sexp_y,y_sexp,analyse) ->
+      Reader.load_sexps_exn x_input sexp_x
+      >>= fun lx ->
+      Reader.load_sexps_exn y_input sexp_y
+      >>= fun ly ->
+      let exec_one x y =
+        let revspecs, git_repo, `Exec exec = for_one revspecs x y in
+        let repo_compare_n = "Oci_Client.compare_n" in
+        let repos = String.Map.add !db_repos ~key:repo_compare_n
+            ~data:git_repo in
+        create_query ccopt cq_hook rootfs revspecs repo_compare_n
+          repos socket
+        >>= fun query ->
+        Rpc.Pipe_rpc.dispatch_exn
+          (Oci_Data.log Oci_Generic_Masters_Api.CompileGitRepo.rpc)
+          socket query
+        >>= fun (p,_) ->
+        Pipe.fold p ~init:None ~f:(fun acc -> function
+            | {Oci_Log.data=Oci_Log.Std _;_} -> return acc
+            | {Oci_Log.data=Oci_Log.Extra r} ->
+              begin match r with
+                | Ok (`Cmd(exec',result,time) as r) when
+                    Oci_Generic_Masters_Api.CompileGitRepoRunner.
+                      compare_exec exec exec' = 0
+                  ->
+                  debug
+                    "[Result] %s@\n%s@."
+                    (Sexp.to_string_hum (
+                        Oci_Generic_Masters_Api.CompileGitRepo.
+                          Query.sexp_of_t query))
+                    (Oci_pp.string_of
+                       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
+                  return (analyse result time)
+
+                | Ok _ -> return acc
+                | Error e ->
+                  error
+                    "[Anomaly] for %s please report: %s"
+                    (Sexp.to_string_hum (
+                        Oci_Generic_Masters_Api.CompileGitRepo.
+                          Query.sexp_of_t query))
+                    (Sexp.to_string_hum (Error.sexp_of_t e));
+                  return acc
+              end)
+      in
+      Deferred.List.map
+        ~how:`Parallel
+        lx ~f:(fun x ->
+            Deferred.List.map
+              ~how:`Parallel ly
+              ~f:(fun y -> exec_one x y
+                   >>= function
+                   | None ->
+                     error "Bad result for %s %s"
+                       (Sexp.to_string (x_sexp x)) (Sexp.to_string (y_sexp y));
+                     return None
+                   | x -> return x
+                 )
+            >>= fun res ->
+            return (x,res)
+          )
+      >>= fun results ->
+      let results = List.map results ~f:(fun (x,l) -> (x,List.filter_opt l)) in
+      let sexp =
+        List.sexp_of_t
+          (sexp_of_pair x_sexp (List.sexp_of_t Float.sexp_of_t)) in
+      Writer.save_sexp ~hum:true output (sexp results)
+      >>= fun () ->
+      Deferred.return `Ok
 
   let list_rootfs _copts rootfs socket =
     let open Oci_Rootfs_Api in
@@ -403,6 +548,10 @@ module Cmdline = struct
 
   let xpra ccopt cq_hook rootfs revspecs repo =
     connect ccopt (xpra ccopt cq_hook rootfs revspecs repo)
+
+  let compare_n ccopt cq_hook rootfs revspecs x_input y_input bench output =
+    connect ccopt (compare_n ccopt cq_hook rootfs revspecs
+                     x_input y_input bench output)
 
   let list_rootfs ccopt rootfs =
     connect ccopt (list_rootfs ccopt rootfs)
@@ -761,31 +910,31 @@ module Cmdline = struct
     Term.(const add_packages $ copts_t $ rootfs $ packages),
     Term.info "add-package" ~sdocs:copts_sect ~doc ~man
 
+  let cmdliner_revspecs init =
+    String.Table.fold url_to_default_revspec
+      ~init:Term.(const init)
+      ~f:(fun ~key:_ ~data acc ->
+          let spec = (fun s -> `Ok (Some s)),
+                     (fun fmt -> function
+                        | None -> Format.pp_print_string fmt data.revspec
+                        | Some s -> Format.pp_print_string fmt s)
+          in
+          Term.(const (fun revspec acc ->
+              String.Map.add ~key:data.name ~data:revspec acc) $
+                Arg.(value & opt spec None & info [data.name]
+                       ~docv:"REVSPEC"
+                       ~doc:(sprintf "indicate which revspec of %s to use."
+                               data.name)
+                    ) $
+                acc)
+        )
+
+  let rootfs =
+    Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
+           ~docv:"ID"
+           ~doc:"Specify on which rootfs to run")
+
   let run_xpra_cmd create_query_hook =
-    let rootfs =
-      Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
-             ~docv:"ID"
-             ~doc:"Specify on which rootfs to run")
-    in
-    let revspecs =
-      String.Table.fold url_to_default_revspec
-        ~init:Term.(const String.Map.empty)
-        ~f:(fun ~key:_ ~data acc ->
-            let spec = (fun s -> `Ok (Some s)),
-                       (fun fmt -> function
-                         | None -> Format.pp_print_string fmt data.revspec
-                         | Some s -> Format.pp_print_string fmt s)
-            in
-            Term.(const (fun revspec acc ->
-                String.Map.add ~key:data.name ~data:revspec acc) $
-                  Arg.(value & opt spec None & info [data.name]
-                         ~docv:"REVSPEC"
-                         ~doc:(sprintf "indicate which revspec of %s to use."
-                                 data.name)
-                      ) $
-                  acc)
-          )
-    in
     let repo =
       let repos = String.Map.keys !db_repos in
       let repo_enum = List.map ~f:(fun x -> (x,x)) repos in
@@ -800,10 +949,49 @@ module Cmdline = struct
       `P "Run the integration of the given repository with the given rootfs \
           using the specified commits."] @ help_secs
     in
-    [Term.(const run $ copts_t $ create_query_hook $ rootfs $ revspecs $ repo),
+    [Term.(const run $ copts_t $ create_query_hook $ rootfs $
+           (cmdliner_revspecs String.Map.empty) $ repo),
      Term.info "run" ~doc ~sdocs:copts_sect ~man;
-     Term.(const xpra $ copts_t $ create_query_hook $ rootfs $ revspecs $ repo),
+     Term.(const xpra $ copts_t $ create_query_hook $ rootfs $
+           (cmdliner_revspecs String.Map.empty) $ repo),
      Term.info "xpra" ~doc ~sdocs:copts_sect ~man]
+
+  let compare_n_cmd create_query_hook =
+    let bench =
+      let benchs = String.Map.keys !db_compare_n in
+      let benchs_enum = List.map ~f:(fun x -> (x,x)) benchs in
+      Arg.(required & pos 0 (some (enum benchs_enum)) None & info []
+             ~docv:"REPO_NAME"
+             ~doc:("Run the repository $(docv). \
+                    Possible values: " ^
+                   (String.concat ~sep:", " benchs) ^ "."))
+    in
+    let x_input =
+      Arg.(required & opt (some file) None & info ["x-input"]
+             ~docv:"X"
+             ~doc:"Give the list of x variables")
+    in
+    let y_input =
+      Arg.(required & opt (some file) None & info ["y-input"]
+             ~docv:"Y"
+             ~doc:"Give the list of y variables")
+    in
+    let output =
+      Arg.(required & opt (some file) None & info ["output"]
+             ~docv:"OUT"
+             ~doc:"Specify the file to output the computing datas")
+    in
+    let doc = "run a specific benchmark" in
+    let man = [
+      `S "DESCRIPTION";
+      `P "Run the benchmark for comparing the x with the y\
+          (TODO: find a name for x and y)."] @ help_secs
+    in
+    Term.(const compare_n $
+          copts_t $ create_query_hook $ rootfs $
+          (cmdliner_revspecs String.Map.empty) $ x_input $ y_input $ bench
+          $ output),
+    Term.info "compare_n" ~doc ~sdocs:copts_sect ~man
 
   let default_cmd =
     let doc = "OCI client for Frama-C and Frama-C plugins" in
@@ -815,6 +1003,8 @@ module Cmdline = struct
     [list_rootfs_cmd; create_rootfs_cmd;
      add_package_cmd;
      list_download_rootfs_cmd; download_rootfs_cmd]@
+    (if String.Map.is_empty !db_compare_n
+     then [] else [compare_n_cmd create_query_hook])@
     (run_xpra_cmd create_query_hook)
 
   type create_query_hook =
@@ -834,8 +1024,6 @@ module Cmdline = struct
       end
     | `Help | `Version -> exit 0
 
-  let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
-
   let git_clone ?dir url = Git.git_clone ?dir ~url dumb_commit
 
   type repo = {name:string;url:string}
@@ -849,8 +1037,31 @@ module Cmdline = struct
       (Git.repo
          ~deps:(List.map ~f:(fun x -> x.name) deps)
          ~cmds:((git_clone url)::cmds)
-         ~tests);
+         ~tests
+         ());
     id
+
+  let mk_compare_n
+      ~deps
+      ~(cmds:(revspecs -> 'x ->
+              'y ->
+              (revspecs * Git.cmd list * [< `Exec of Git.exec ])))
+      ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y ~analyse
+      name =
+    add_compare_n
+      name
+      (fun revspecs x y ->
+         let revspecs,cmds,test = cmds revspecs x y in
+         revspecs,
+         (Git.repo
+            ~save_artefact:false
+            ~deps:(List.map ~f:(fun x -> x.name) deps)
+            ~cmds
+            ~tests:[(test:> Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd)]
+            ()),
+         test
+      )
+      x_of_sexp sexp_of_x y_of_sexp sexp_of_y analyse
 
   module Predefined = struct
     open Git
@@ -882,7 +1093,7 @@ module Cmdline = struct
 
     let zarith = mk_repo
         "ZArith"
-        ~url:"git@git.frama-c.com:bobot/zarith.git"
+        ~url:"https://github.com/bobot/zarith.git"
         ~deps:[ocaml;ocamlfind]
         ~cmds:[
           run "./configure" [];
@@ -932,15 +1143,44 @@ module Cmdline = struct
           make ["install-findlib"];
         ]
 
-    let ounit = mk_repo
-        "oUnit"
-        ~url:"git@github.com:gildor478/ounit.git"
-        ~revspec:"2.0.0"
+    let cppo = mk_repo
+        "cppo"
+        ~url:"https://github.com/mjambon/cppo.git"
         ~deps:[ocaml;ocamlfind]
         ~cmds:[
+          make [];
+          make ["install"];
+        ]
+
+    let _camomile = mk_repo
+        "camomile"
+        ~url:"https://github.com/yoriyuki/Camomile.git"
+        ~deps:[ocaml;ocamlfind;camlp4;cppo]
+        ~cmds:[
+          run ~working_dir:"Camomile" "autoconf" [];
+          run ~working_dir:"Camomile" "./configure" [];
+          make ~working_dir:"Camomile" [];
+          make ~working_dir:"Camomile" ["install"];
+        ]
+
+    let ounit =
+      let r = Git.repo
+        ~deps:[ocaml.name;ocamlfind.name]
+        ~cmds:[
+          mk_copy_file
+            ~url:["http://forge.ocamlcore.org/frs/download.php/1258/\
+                   ounit-2.0.0.tar.gz"]
+            ~kind:`MD5
+            ~checksum:"2e0a24648c55005978d4923eb4925b28"
+            "ounit.tar.gz" ;
+          run "tar" ["xf";"ounit.tar.gz";"--strip-component";"1"];
           make ["build"];
           make ["install"];
         ]
+        ()
+      in
+      add_repo "ounit" r;
+      {name="ounit";url=""}
 
     let cryptokit = mk_repo
         "cryptokit"

@@ -39,7 +39,7 @@ exception NoResult
 val name: ('query,'result) t -> string
 val version: ('query,'result) t -> int
 val rpc: ('query,'result) t -> ('query,'result Or_error.t) Rpc.Rpc.t
-(** return the first data of the log, or {!NoResult} if none *)
+(** return the first data of the log, or raise {!NoResult} if none *)
 val log: ('query,'result) t ->
   ('query, 'result Oci_Log.line, Error.t) Rpc.Pipe_rpc.t
 val forget: ('query,'result) t -> ('query, unit Or_error.t) Rpc.Rpc.t

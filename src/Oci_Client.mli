@@ -36,23 +36,42 @@ module Git: sig
 
   val mk_proc: (int -> string, unit, string) format -> args
 
-  type cmd
+  type exec = {
+    cmd: string;
+    args: [ `S of string | `Proc of formatted_proc ] list;
+    env : [ `Replace of (string * string) list
+          | `Extend of (string * string) list];
+    proc_requested : int;
+    working_dir: Oci_Filename.t (** Relative path *)
+  }
+  type gitclone type gitcopyfile type copyfile
+  type cmd = [
+    | `Exec of exec
+    | `GitClone of gitclone
+    | `GitCopyFile of gitcopyfile
+    | `CopyFile of copyfile
+  ]
 
   val exec:
     ?args:args list ->
     ?env:env ->
     ?proc_requested:int ->
     ?working_dir:Oci_Filename.filename ->
-    string -> cmd
+    string -> [> `Exec of exec ]
 
-  val run: ?env:env -> string -> string list -> cmd
+  val run:
+    ?env:env ->
+    ?proc_requested:int ->
+    ?working_dir:Oci_Filename.filename ->
+    string -> string list -> [> `Exec of exec ]
 
   val make:
     ?j:int ->
     ?vars:(string * string) list ->
+    ?working_dir:Oci_Filename.filename ->
     ?env :env ->
     string list ->
-    cmd
+    [> `Exec of exec ]
 
   val git_clone:
     url:string ->
@@ -67,12 +86,20 @@ module Git: sig
     Commit.t ->
     cmd
 
+  val copy_file:
+    checksum:string ->
+    kind:[`MD5] ->
+    Oci_Filename.t ->
+    cmd
+
   type repo
 
   val repo:
-    deps:Core.Std.String.t list ->
-    cmds:cmd list ->
-    tests:cmd list ->
+    ?save_artefact:bool ->
+    ?deps:Core.Std.String.t list ->
+    ?cmds:cmd list ->
+    ?tests:cmd list ->
+    unit ->
     repo
 
   type t
@@ -87,16 +114,6 @@ module Git: sig
     t
 
   type connection = Async_extra.Import.Rpc_kernel.Connection.t
-
-
-  type exec = {
-    cmd: string;
-    args: [ `S of string | `Proc of formatted_proc ] list;
-    env : [ `Replace of (string * string) list
-          | `Extend of (string * string) list];
-    proc_requested : int;
-    working_dir: Oci_Filename.t (** Relative path *)
-  }
 
   type compile_and_tests =
     [ `Artefact of Artefact.t
@@ -150,6 +167,12 @@ module Git: sig
     commit:Commit.t ->
     Time.t Deferred.t
 
+  val download_file:
+    connection ->
+    kind:[`MD5] ->
+    url:string ->
+    checksum:string ->
+    unit Deferred.t
 end
 
 module Cmdline: sig
@@ -164,6 +187,36 @@ module Cmdline: sig
     ?tests:Git.cmd list ->
     string (** name *) -> repo
 
+  val mk_copy_file:
+    url:string list ->
+    checksum:string ->
+    kind:[`MD5] ->
+    Oci_Filename.t ->
+    Git.cmd
+
+  type query = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
+  type revspecs = string option String.Map.t
+
+  val cmdliner_revspecs: revspecs -> (revspecs Cmdliner.Term.t)
+
+  type ('x,'y) compare_n =
+    revspecs -> 'x -> 'y -> revspecs * Git.repo * [`Exec of Git.exec ]
+
+  val mk_compare_n:
+    deps:repo List.t ->
+    cmds:(revspecs ->
+          'x -> 'y ->
+          revspecs * Git.cmd list * [ `Exec of Git.exec ]) ->
+    x_of_sexp:(Sexp.t -> 'x) ->
+    sexp_of_x:('x -> Sexp.t) ->
+    y_of_sexp:(Sexp.t -> 'y) ->
+    sexp_of_y:('y -> Sexp.t) ->
+    analyse:(Unix.Exit_or_signal.t ->
+             Oci_Common.Timed.t -> float option) ->
+    string ->
+    unit
+    (** The time of the last command is used *)
+
   module Predefined: sig
     val ocaml: repo
     val ocamlfind: repo
@@ -177,11 +230,7 @@ module Cmdline: sig
   end
 
   type create_query_hook =
-    (query:Oci_Generic_Masters_Api.CompileGitRepo.Query.t ->
-     revspecs:string option String.Map.t ->
-     Oci_Generic_Masters_Api.CompileGitRepo.Query.t *
-     string option Core.Std.String.Map.t)
-      Cmdliner.Term.t
+    (query:query -> revspecs:revspecs -> query * revspecs) Cmdliner.Term.t
 
   val default_cmdline:
     ?create_query_hook:create_query_hook (* experts only *) ->

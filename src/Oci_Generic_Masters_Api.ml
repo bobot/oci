@@ -23,7 +23,7 @@
 open Core.Std
 open Oci_Std
 
-let version = 8
+let version = 9
 
 module CompileGitRepoRunner = struct
 
@@ -83,10 +83,18 @@ module CompileGitRepoRunner = struct
     commit: Oci_Common.Commit.t;
   } with sexp, bin_io, compare
 
-  type cmd =
-    | Exec of exec
-    | GitClone of gitclone
-    | GitCopyFile of gitcopyfile
+  type copyfile = {
+    dst: Oci_Filename.t; (** Relative path *)
+    checksum: string;
+    kind: [`MD5]
+  } with sexp, bin_io, compare
+
+  type cmd = [
+    | `Exec of exec
+    | `GitClone of gitclone
+    | `GitCopyFile of gitcopyfile
+    | `CopyFile of copyfile
+  ]
   with sexp, bin_io, compare
 
   type cmds = cmd list
@@ -98,6 +106,7 @@ module CompileGitRepoRunner = struct
       cmds: cmds;
       tests: cmds;
       artefacts: Oci_Common.Artefact.t list;
+      save_artefact: bool;
     } with sexp, bin_io, compare
 
     let hash = Hashtbl.hash
@@ -167,6 +176,7 @@ module CompileGitRepo = struct
       deps: String.t list;
       cmds: CompileGitRepoRunner.cmds;
       tests: CompileGitRepoRunner.cmds;
+      save_artefact: bool;
     } with sexp, bin_io, compare
 
     type t = {
@@ -336,4 +346,23 @@ module GitTimeOfCommit = struct
       ~version:1
       ~bin_query:Query.bin_t
       ~bin_result:Time.bin_t
+end
+
+module WgetDownloadFile = struct
+
+  module Query = struct
+    type t = {
+      kind : [`MD5];
+      checksum: String.t;
+      url : String.t;
+    } with bin_io
+  end
+
+  let rpc =
+    Oci_Data.register
+      ~name:"Oci_Generic_Masters.download_file"
+      ~version:1
+      ~bin_query:Query.bin_t
+      ~bin_result:Unit.bin_t
+
 end

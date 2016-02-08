@@ -20,43 +20,20 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open Core.Std
 open Async.Std
 
-(** Configuration *)
+val download_file:
+  kind:[`MD5] -> checksum:string -> url:string ->
+  unit Deferred.t
+(** Download a file with the specified checksum. The file is cached
+    using the checksum *)
 
-open Oci_Client.Git
-open Oci_Client.Cmdline
+val get_file:
+    kind:[`MD5] -> checksum:string -> dst:string -> unit Deferred.t
+(** Put the previously downloaded file at the specified destination.
+    The file is retrieved using the checksum *)
 
-let popop = mk_repo
-    "popop"
-    ~url:"git@git.frama-c.com:soprano/popop.git"
-    ~deps:Oci_Client.Cmdline.Predefined.
-            [ocaml;ocamlfind;ounit;cryptokit;zarith;ocamlgraph]
-    ~cmds:[
-      make [];
-      run "cp" ["popop.native";"/usr/local/bin"];
-    ]
-    ~tests:[
-      make ["tests"];
-    ]
 
-let () = mk_compare_n
-    ~deps:[popop]
-    ~x_of_sexp:Oci_Common.Commit.t_of_sexp
-    ~sexp_of_x:Oci_Common.Commit.sexp_of_t
-    ~y_of_sexp:Oci_Filename.t_of_sexp
-    ~sexp_of_y:Oci_Filename.sexp_of_t
-    ~cmds:(fun revspecs x y ->
-        (String.Map.add revspecs ~key:"popop"
-           ~data:(Some (Oci_Common.Commit.to_string x))),
-        [git_copy_file ~url:"git@git.frama-c.com:soprano/popop.git" ~src:y
-           ~dst:(Oci_Filename.basename y) x (**todo change that *)],
-        (run "popop" [Oci_Filename.basename y]))
-    ~analyse:(fun _  timed ->
-        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
-    "popop_compare_n"
-
-let () =
-  don't_wait_for (default_cmdline ());
-  never_returns (Scheduler.go ())
+val init:
+  dir:string ->
+  unit

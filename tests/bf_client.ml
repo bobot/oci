@@ -155,16 +155,18 @@ let _framac_internal =
        ~cmds:([git_clone framac.url] @
               cloneplugins @
               framac_cmds)
-       ~tests:([run "frama-c" ["-plugins"]] @ framac_tests));
+       ~tests:([run "frama-c" ["-plugins"]] @ framac_tests)
+       ());
   (name,"")
 
 let _framac_external =
   let name = "frama-c-external" in
   Oci_Client.Cmdline.add_repo name
     (Oci_Client.Git.repo
+       ~save_artefact:false
        ~deps:(List.map ~f:(fun (dep,_) -> dep.name) (Queue.to_list plugins))
-       ~cmds:[]
-       ~tests:[run "frama-c" ["-plugins"]]);
+       ~tests:[run "frama-c" ["-plugins"]]
+       ());
   (name,"")
 
 (**

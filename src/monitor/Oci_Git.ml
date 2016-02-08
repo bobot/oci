@@ -24,6 +24,7 @@
 open Core.Std
 open Async.Std
 
+
 module Git_Id : Int_intf.S = Int
 
 let permanent_dir = ref ""
@@ -174,12 +175,14 @@ let copy_file ~user ~url ~src:file_src ~dst ~commit =
        >>= fun () ->
        let commit = Oci_Common.Commit.to_string commit in
        Process.create
-         ~prog:"git" ~args:["show";commit^":"^file_src] ()
+         ~prog:"git" ~args:["-C";src;"show";commit^":"^file_src] ()
        >>= function
        | Error exn -> Error.raise exn
        | Ok git_show ->
          don't_wait_for (Writer.close (Process.stdin git_show));
          don't_wait_for (Reader.drain (Process.stderr git_show));
+         Oci_Std.unlink_no_fail dst
+         >>= fun () ->
          Writer.open_file dst
          >>= fun dst ->
          Reader.transfer (Process.stdout git_show) (Writer.pipe dst)
@@ -188,10 +191,13 @@ let copy_file ~user ~url ~src:file_src ~dst ~commit =
          >>= function
          | Result.Ok () -> Deferred.unit
          | Result.Error _ ->
-           invalid_argf "Can't find %s at commit %s" file_src commit ()
+           invalid_argf
+             "Copy_file: Can't find %s at commit %s in %s" file_src commit src
+             ()
     )
   >>= fun () ->
-  chown_not_shared (Oci_Common.master_user user) dst
+  let user = Oci_Common.master_user user in
+  Unix.chown ~uid:user.uid ~gid:user.gid dst
   >>= fun () ->
   return ()
 
@@ -202,6 +208,7 @@ let read_file ~url ~src:file_src ~commit =
        >>= fun () ->
        let commit = Oci_Common.Commit.to_string commit in
        Process.create
+         ~working_dir:src
          ~prog:"git" ~args:["show";commit^":"^file_src] ()
        >>= function
        | Error exn -> Error.raise exn
@@ -214,7 +221,8 @@ let read_file ~url ~src:file_src ~commit =
          >>= function
          | Result.Ok () -> return content
          | Result.Error _ ->
-           invalid_argf "Can't find %s at commit %s" file_src commit ()
+           invalid_argf
+             "Read_file: Can't find %s at commit %s" file_src commit ()
     )
 
 let merge_base ~url commit1 commit2 =
@@ -227,6 +235,7 @@ let merge_base ~url commit1 commit2 =
        let commit1 = Oci_Common.Commit.to_string commit1 in
        let commit2 = Oci_Common.Commit.to_string commit2 in
        Process.create
+         ~working_dir:src
          ~prog:"git"
          ~args:["merge-base";commit1;commit2] ()
        >>= function
@@ -275,9 +284,10 @@ let commit_of_revspec ~url ~revspec =
          fetch_only_if_old src
          >>= fun () ->
          Async_shell.run_one
+           ~working_dir:src
            ~expect:[0;1] (** perhapse it should be expect:[0] and use the
                              none output *)
-           "git" ["-C";src;"rev-parse";"--verify";"-q";revspec^"^{commit}"]
+           "git" ["rev-parse";"--verify";"-q";revspec^"^{commit}"]
          >>= fun s -> return (Option.map ~f:Oci_Common.Commit.of_string_exn s)
        in
        match Oci_Common.Commit.of_string revspec with
@@ -297,7 +307,8 @@ let commit_of_branch ~url ~branch =
        fetch_only_if_old src
        >>= fun () ->
        Async_shell.run_one
-         "git" ["-C";src;"show-ref";"--verify";"refs/heads/"^branch]
+         ~working_dir:src
+         "git" ["show-ref";"--verify";"refs/heads/"^branch]
        >>= function
        | None -> return None
        | Some s ->
@@ -314,7 +325,8 @@ let last_commit_before ~url ~branch ~time =
        fetch_only_if_old src
        >>= fun () ->
        Async_shell.run_one
-         "git" ["-C";src;"log";"--before";Time.to_string time; "-n"; "1";
+         ~working_dir:src
+         "git" ["log";"--before";Time.to_string time; "-n"; "1";
                 branch; "--"]
        >>= function
        | None -> return None
@@ -329,7 +341,8 @@ let time_of_commit ~url ~commit =
          >>= fun () ->
          let commit = Oci_Common.Commit.to_string commit in
          Async_shell.run_one
-           "git" ["-C";src;"show";"-s";"--format=%ci";commit;"--"]
+           ~working_dir:src
+           "git" ["show";"-s";"--format=%ci";commit;"--"]
          >>= function
        | None -> invalid_argf "Can't get date of commit %s." commit ()
        | Some s -> return (Time.of_string s)

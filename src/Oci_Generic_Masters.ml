@@ -92,6 +92,7 @@ let run_git_repo rpc map_type q log =
                 q.rootfs;
               cmds=repo.cmds;
               tests=repo.tests;
+              save_artefact = repo.save_artefact;
               artefacts = results;
             })
         in
@@ -161,4 +162,13 @@ let init_compile_git_repo () =
   register_simple_rpc
     Oci_Generic_Masters_Api.GitTimeOfCommit.rpc
     (fun q ->
-       Oci_Git.time_of_commit ~url:q.url ~commit:q.commit)
+       Oci_Git.time_of_commit ~url:q.url ~commit:q.commit);
+
+  (** download_file *)
+  register_simple_rpc
+    Oci_Generic_Masters_Api.WgetDownloadFile.rpc
+    (fun q ->
+       Oci_Wget.download_file ~url:q.url ~kind:q.kind
+         ~checksum:q.checksum
+    )
+

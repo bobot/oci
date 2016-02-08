@@ -50,6 +50,7 @@ type conf = {
   permanent: Oci_Filename.t;
   log: Oci_Filename.t;
   git: Oci_Filename.t;
+  wget: Oci_Filename.t;
   external_access: Oci_Filename.t;
   mutable last_external_access_id: Int.t;
   (** permanent storage for masters *)
@@ -569,6 +570,15 @@ let add_artefact_api init =
         let dst = Oci_Filename.make_absolute rootfs dst in
         Oci_Git.copy_file ~user ~url ~src ~dst ~commit
       );
+    (** get_file *)
+    implement_when_open
+      Oci_Artefact_Api.rpc_get_file
+      (fun {rootfs}
+        ({dst;kind;checksum}:Oci_Artefact_Api.rpc_get_file) ->
+        let dst = Oci_Filename.make_relative "/" dst in
+        let dst = Oci_Filename.make_absolute rootfs dst in
+        Oci_Wget.get_file ~dst ~kind ~checksum
+      );
     (** give_external_access *)
     implement_when_open
       Oci_Artefact_Api.rpc_give_external_access
@@ -718,6 +728,7 @@ let run () =
       permanent = Oci_Filename.concat conf_monitor.oci_data "permanent";
       log = Oci_Filename.concat conf_monitor.oci_data "log";
       git = Oci_Filename.concat conf_monitor.oci_data "git";
+      wget = Oci_Filename.concat conf_monitor.oci_data "wget";
       external_access =
         Oci_Filename.concat conf_monitor.oci_data "external_access";
       last_external_access_id = -1;
@@ -733,7 +744,7 @@ let run () =
     Deferred.List.iter ~f:(Unix.mkdir ~p:() ?perm:None)
       [conf.runners; conf.binaries; conf.external_access;
        conf.storage; conf.permanent;
-       conf.log; conf.git]
+       conf.log; conf.git; conf.wget]
     >>> fun () ->
     (** Copy binaries *)
     Sys.ls_dir conf_monitor.binaries
@@ -775,6 +786,7 @@ let run () =
       ~loader:loader_artifact_data ~saver:saver_artifact_data;
     Oci_Git.init ~dir:conf.git ~register_saver:(register_saver ~name:"Git")
       ~identity_file;
+    Oci_Wget.init ~dir:conf.wget;
     load ()
     >>> fun () ->
     let save_at = Time.Span.create ~min:10 () in
