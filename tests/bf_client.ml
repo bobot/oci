@@ -26,8 +26,21 @@ open Async.Std
 open Oci_Client.Git
 open Oci_Client.Cmdline
 
+
+let headache = mk_repo
+    "headache"
+    ~url:"git@git.frama-c.com:dev/headache.git"
+    ~revspec:"backlog"
+    ~deps:Oci_Client.Cmdline.Predefined.[ocaml; ocamlfind; camomile]
+    ~cmds:[
+      run "./configure" [];
+      make ["default"];
+      make ["install"];
+    ]
+
 let framac_deps =
-  Oci_Client.Cmdline.Predefined.[ocaml;ocamlfind;ocamlgraph;zarith;lablgtk]
+  Oci_Client.Cmdline.Predefined.[ocaml;ocamlfind;ocamlgraph;zarith;
+                                 lablgtk;headache]
 let framac_cmds = [
   run "autoconf" [];
   run "./configure" [];
