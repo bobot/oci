@@ -6,6 +6,8 @@
 
 - shadow (aka uidmap on Debian)
 - cgmanager (optional)
+- xpra (optional, useful to get access to a shell in the container when things
+  go wrong)
 
 #### OCaml
 The following opam packages are required to compile the various components of
@@ -73,3 +75,25 @@ cgm movepid all oci $$
      --socket OCI_DATA/oci.socket \
      frama-c
 ```
+
+- If things go wrong, you can use the following commands to get an xterm on
+  the corresponding container:
+
+```shell
+  bin/bf_client.native \
+     xpra \
+     --rootfs ID \
+     --socket OCI_DATA/oci.socket \
+     frama-c
+```
+The log will contain something like
+```
+[hh:mm:ss] Run locally: XPRA_SOCKET_HOSTNAME=oci xpra attach :100 --socket-dir "/bla/xpra_socket"
+[hh:mm:ss] Run remotely: xpra attach --remote-xpra "/bla/xpra_socket/remote-xpra.sh" ssh:HOST:100
+```
+copy the appropriate command (on a machine where xpra itself is installed of course)
+
+- If you want to restart a run on the exact same set of commits, 
+first launch the `run` command with `OCIFORGET` environment variable set,
+then launch it as usual. Note that this will only forget the repository asked
+on the command line, not the ones it depends upon.
