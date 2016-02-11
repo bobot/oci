@@ -1152,7 +1152,7 @@ module Cmdline = struct
           make ["install"];
         ]
 
-    let _camomile = mk_repo
+    let camomile = mk_repo
         "camomile"
         ~url:"https://github.com/yoriyuki/Camomile.git"
         ~deps:[ocaml;ocamlfind;camlp4;cppo]

@@ -225,6 +225,8 @@ module Cmdline: sig
     val camlp4: repo
     val lablgtk: repo
     val ocamlgraph: repo
+    val cppo: repo
+    val camomile: repo
     val ounit: repo
     val cryptokit: repo
   end
