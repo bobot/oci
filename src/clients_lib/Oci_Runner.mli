@@ -43,7 +43,7 @@ val implement_unit:
   ('result t -> 'query -> unit Deferred.t) ->
   Async.Std.Rpc.Connection.t Rpc.Implementation.t
 
-type artefact = Oci_Common.Artefact.t with sexp, bin_io
+type artefact = Oci_Common.Artefact.t [@@deriving sexp, bin_io]
 
 val create_artefact:
   ?rooted_at:Oci_Filename.t ->

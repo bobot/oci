@@ -29,7 +29,7 @@ type rootfs_info = {
   packages: string list;
   (** additional packages that have been installed *)
   comment: string;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 module Rootfs_Id = Int
 
@@ -39,7 +39,7 @@ module Rootfs = struct
       id: Rootfs_Id.t;
       info: rootfs_info;
       rootfs: Oci_Common.Artefact.t;
-    } with sexp, bin_io
+    } [@@deriving sexp, bin_io]
 
     let compare x y = Rootfs_Id.compare x.id y.id
     let hash x = Rootfs_Id.hash x.id
@@ -53,7 +53,7 @@ type create_rootfs_query = {
   rootfs_info : rootfs_info;
   rootfs_tar: Oci_Filename.t; (** absolute pathname *)
   meta_tar: Oci_Filename.t option; (** absolute pathname *)
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 let create_rootfs = Oci_Data.register
     ~name:"Oci.Rootfs.create"
@@ -71,7 +71,7 @@ let find_rootfs = Oci_Data.register
 type add_packages_query = {
   id: Rootfs_Id.t;
   packages: string list;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 let add_packages =
   Oci_Data.register

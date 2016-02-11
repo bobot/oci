@@ -27,7 +27,7 @@ let oci_at_shutdown = Oci_Artefact_Api.oci_at_shutdown
 
 type runner_result = Oci_Artefact_Api.exec_in_namespace_response =
   | Exec_Ok
-  | Exec_Error of string with bin_io
+  | Exec_Error of string [@@deriving bin_io]
 
 let register = Oci_Artefact.register_master
 let register_saver = Oci_Artefact.register_saver
@@ -131,7 +131,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
       end)
 
     type save_data = (Query.t * Log.t) list
-    with bin_io
+    [@@deriving bin_io]
 
     let create_master_unit f =
       let db : Log.t H.t =
@@ -226,7 +226,7 @@ let err_log fmt = write_log Oci_Log.Error fmt
 let cmd_log fmt = write_log Oci_Log.Command fmt
 let cha_log fmt = write_log Oci_Log.Chapter fmt
 
-exception Internal_error with sexp
+exception Internal_error [@@deriving sexp]
 
 
 exception NoResult

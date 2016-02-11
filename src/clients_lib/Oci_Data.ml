@@ -30,7 +30,7 @@ type ('query,'result) t = {
   log: ('query, 'result Oci_Log.line, Error.t) Pipe_rpc.t;
   forget: ('query,unit Or_error.t) Rpc.t;
   id : ('query * 'result) Type_equal.Id.t;
-} with fields
+} [@@deriving fields]
 
 exception NoResult
 

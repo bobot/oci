@@ -356,7 +356,7 @@ let init ~dir ~register_saver ~identity_file:i =
   let module M = struct
     type t = {next_id: Git_Id.t;
               db: (String.t * Git_Id.t Or_error.t) list;
-             } with bin_io
+             } [@@deriving bin_io]
   end in
   register_saver
     ~loader:(fun () ->

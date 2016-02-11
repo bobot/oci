@@ -41,7 +41,7 @@ let () =
   let module M = struct
     type t = {rootfs_next_id: Int.t;
               db_rootfs: (Rootfs_Id.t * Rootfs.t) list;
-             } with bin_io
+             } [@@deriving bin_io]
   end in
   Oci_Master.simple_register_saver
     Oci_Rootfs_Api.create_rootfs

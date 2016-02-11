@@ -21,7 +21,7 @@
 (**************************************************************************)
 
 module Artefact : sig
-  type t with sexp, bin_io, compare
+  type t [@@deriving sexp, bin_io, compare]
   val to_string: t -> string
   val pp: t Oci_pp.printer
   val empty: t
@@ -32,7 +32,7 @@ module Artefact : sig
 end
 
 module Commit : sig
-  type t with sexp, bin_io, compare
+  type t [@@deriving sexp, bin_io, compare]
   val invariant: t -> bool
   val to_string: t -> string
   val of_string_exn: string -> t
@@ -40,7 +40,7 @@ module Commit : sig
 end
 
 module User: sig
-  type t = {uid : int; gid : int} with sexp, compare, bin_io
+  type t = {uid : int; gid : int} [@@deriving sexp, compare, bin_io]
 
   val equal: t -> t -> bool
   val pp_t: Format.formatter -> t -> unit
@@ -55,7 +55,7 @@ type user_kind =
   (** root in the usernamespace of the runners *)
   | User
   (** A simple user in the usernamespace of the runners *)
-with sexp, compare, bin_io
+[@@deriving sexp, compare, bin_io]
 
 val master_user: user_kind -> User.t
 val runner_user: user_kind -> User.t
@@ -65,7 +65,7 @@ module Formatted (X:sig
     type 'a arg
     val template: (string arg, unit, string) format
   end) : sig
-  type t with sexp, bin_io, compare
+  type t [@@deriving sexp, bin_io, compare]
   val mk : (string X.arg, unit, string) format -> t
   val get: t -> (string X.arg, unit, string) format
   val pp: t Oci_pp.printer
@@ -77,7 +77,7 @@ module Timed : sig
     cpu_kernel: Core.Time.Span.t; (* S *)
     cpu_user:   Core.Time.Span.t; (* U *)
     wall_clock: Core.Time.Span.t; (* e *)
-  } with sexp, bin_io, compare
+  } [@@deriving sexp, bin_io, compare]
 
   val pp: t Oci_pp.printer
 end

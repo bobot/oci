@@ -25,19 +25,19 @@ open Async.Std
 
 type kind =
   | Standard | Error | Chapter | Command
-    with sexp, bin_io
+    [@@deriving sexp, bin_io]
 
 val color_of_kind: kind -> [> `Black | `Underscore | `Red | `Blue]
 
 type 'a data =
   | Std of kind * string
   | Extra of 'a Or_error.t
-with sexp, bin_io
+[@@deriving sexp, bin_io]
 
 type 'a line = {
   data : 'a data;
   time : Time.t;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 val line: kind -> string -> 'a line
 val data: 'a Or_error.t -> 'a line
@@ -77,7 +77,7 @@ module Make(S: sig
       loader:(unit -> unit Deferred.t) ->
       saver:(unit -> unit Deferred.t) ->
       unit
-    type t with bin_io
+    type t [@@deriving bin_io]
   end): sig
 
   type t

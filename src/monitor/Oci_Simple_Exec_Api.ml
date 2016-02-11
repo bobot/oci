@@ -27,9 +27,9 @@ type run_query = {
   prog: string;
   args: string list;
   runas: Oci_Common.User.t;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
-type run_response = unit Or_error.t with sexp, bin_io
+type run_response = unit Or_error.t [@@deriving sexp, bin_io]
 
 let run: (run_query, unit Or_error.t) Rpc.Rpc.t =
   Rpc.Rpc.create

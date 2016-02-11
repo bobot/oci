@@ -23,7 +23,7 @@
 open Core.Std
 
 module Artefact = struct
-  type t = Int.t with sexp, compare, bin_io
+  type t = Int.t [@@deriving sexp, compare, bin_io]
   (* let bin_t = Int.bin_t *)
   let to_string = Int.to_string
   let pp = Int.pp
@@ -35,8 +35,8 @@ module Artefact = struct
 end
 
 module Commit = struct
-  exception BadGitCommitFormat of string with sexp
-  type t = String.t with sexp, compare, bin_io
+  exception BadGitCommitFormat of string [@@deriving sexp]
+  type t = String.t [@@deriving sexp, compare, bin_io]
   let invariant x =
     String.length x = 40 &&
     String.for_all ~f:(function
@@ -53,7 +53,7 @@ module Commit = struct
 end
 
 module User = struct
-  type t = {uid : int; gid : int} with sexp, compare, bin_io
+  type t = {uid : int; gid : int} [@@deriving sexp, compare, bin_io]
 
   let equal a b = a.uid = b.uid && a.gid = b.gid
   let pp_t fmt u = Format.fprintf fmt "%i,%i" u.uid u.gid
@@ -68,7 +68,7 @@ type user_kind =
       root, In Artifact run with superroot as root *)
   | Root
   | User
-with sexp, compare, bin_io
+[@@deriving sexp, compare, bin_io]
 
 let master_user = function
   | Superroot -> {uid=0;gid=0}
@@ -90,7 +90,7 @@ module Formatted (X:sig
     val template: (string arg, unit, string) format
   end) = struct
   type t = string
-  with sexp, bin_io, compare
+  [@@deriving sexp, bin_io, compare]
 
   let mk x = string_of_format x
   let get x = Scanf.format_from_string x X.template
@@ -102,7 +102,7 @@ module Timed = struct
     cpu_kernel: Time.Span.t; (* S *)
     cpu_user:   Time.Span.t; (* U *)
     wall_clock: Time.Span.t; (* e *)
-  } with sexp, bin_io, compare
+  } [@@deriving sexp, bin_io, compare]
 
   let pp fmt e =
     Format.fprintf fmt "{kernel:%a; user:%a; wall:%a}"

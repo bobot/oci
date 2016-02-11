@@ -64,8 +64,8 @@ let gconf = Ivar.read gconf_ivar
 
 type t = Oci_Common.Artefact.t
 
-exception Directory_should_not_exists of Oci_Filename.t with sexp
-exception Can't_copy_this_file of Oci_Filename.t with sexp
+exception Directory_should_not_exists of Oci_Filename.t [@@deriving sexp]
+exception Can't_copy_this_file of Oci_Filename.t [@@deriving sexp]
 
 let get_conf () =
   Option.value_exn

@@ -133,7 +133,7 @@ let error_log t d =
   Pipe.write_without_pushback t.log
     (Oci_Log.data d)
 
-type artefact = Oci_Common.Artefact.t with sexp, bin_io
+type artefact = Oci_Common.Artefact.t [@@deriving sexp, bin_io]
 
 let create_artefact ?(rooted_at="/") ?(prune=[]) ?(only_new=true) t ~dir =
   assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:dir);
