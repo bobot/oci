@@ -23,7 +23,7 @@ depends: [
    "core_extended"
    "extunix" {>= "0.1.3"}
    "fileutils" "textutils" "ocamlbuild"
-   "ppx_sexp_conv" "ppx_bin_prot" "ppx_here"
+   "ppx_sexp_conv" "ppx_bin_prot" "ppx_here" "ppx_fields_conv"
 ]
 
 available: [ ocaml-version >= "4.02.3" ]
