@@ -185,7 +185,7 @@ module Cmdline: sig
     deps:repo list ->
     cmds:Git.cmd list ->
     ?tests:Git.cmd list ->
-    string (** name *) -> repo
+    string (* name *) -> repo
 
   val mk_copy_file:
     url:string list ->

@@ -329,7 +329,7 @@ module Cmdline = struct
               return commit
           )
     in
-    (** replace commit in repos *)
+    (* replace commit in repos *)
     Deferred.Map.map
       used_repos
       ~how:`Parallel
@@ -405,8 +405,8 @@ module Cmdline = struct
     create_query ccopt cq_hook rootfs revspecs repo !db_repos socket
     >>= fun query ->
     let repos =
-      String.Map.change query.repos repo (function
-          | None -> assert false (** absurd: the main repo is used *)
+      String.Map.change query.repos repo ~f:(function
+          | None -> assert false (* absurd: the main repo is used *)
           | Some data ->
             Some {data with tests=[]; cmds = List.filter ~f:(function
                 | `GitClone _ -> true
@@ -1153,15 +1153,19 @@ module Cmdline = struct
           make ["install"];
         ]
 
-    let camomile = mk_repo
+    let camomile =
+      let working_dir = "Camomile" in
+      mk_repo
         "camomile"
         ~url:"https://github.com/yoriyuki/Camomile.git"
+        (* latest stable release, 0.8.5 *)
+        ~revspec:"07415d3049eaad11914523468904ee117db149e3"
         ~deps:[ocaml;ocamlfind;camlp4;cppo]
         ~cmds:[
-          run ~working_dir:"Camomile" "autoconf" [];
-          run ~working_dir:"Camomile" "./configure" [];
-          make ~working_dir:"Camomile" [];
-          make ~working_dir:"Camomile" ["install"];
+          run ~working_dir "autoconf" [];
+          run ~working_dir "./configure" [];
+          make ~working_dir [];
+          make ~working_dir ["install"];
         ]
 
     let ounit =
