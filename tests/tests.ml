@@ -57,7 +57,7 @@ module Ocaml_Query = struct
   type t = {
     rootfs: Oci_Rootfs_Api.Rootfs.t;
     commit: Oci_Common.Commit.t;
-  } with sexp, bin_io, compare
+  } [@@deriving sexp, bin_io, compare]
 
   let hash = Hashtbl.hash
 

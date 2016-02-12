@@ -25,7 +25,7 @@ include FilePath
 
 (* include FilePath.UnixPath *)
 
-type t = string with sexp, bin_io, compare
+type t = string [@@deriving sexp, bin_io, compare]
 
 let pp = String.pp
 

@@ -37,7 +37,7 @@ type artefact_api = {
   identity_file: string option;
   proc: Int.t List.t List.t;
   master_proc: Int.t List.t;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 let get_configuration = Rpc.Rpc.create
     ~name:"Oci_Artefact.start"
@@ -48,7 +48,7 @@ let get_configuration = Rpc.Rpc.create
 type exec_in_namespace_response =
   | Exec_Ok
   | Exec_Error of string
-with bin_io
+[@@deriving bin_io]
 
 let exec_in_namespace = Rpc.Rpc.create
     ~name:"Oci_Monitor.exec_in_namespace"
@@ -98,7 +98,7 @@ let start_in_namespace
 type set_cpuset = {
   cgroup: string;
   cpuset: Int.t list;
-} with bin_io
+} [@@deriving bin_io]
 
 let set_cpuset = Rpc.Rpc.create
     ~name:"Oci_Artefact.set_cpuset"
@@ -113,7 +113,7 @@ type rpc_create_query = {
   prune: Oci_Filename.t list;
   rooted_at: Oci_Filename.t;
   only_new: bool;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 let rpc_create =
   Rpc.Rpc.create
@@ -123,7 +123,7 @@ let rpc_create =
     ~bin_response:Artefact.bin_t
 
 type rpc_link_to_query =
-  Oci_Common.user_kind * Artefact.t * Oci_Filename.t with bin_io
+  Oci_Common.user_kind * Artefact.t * Oci_Filename.t [@@deriving bin_io]
 
 let rpc_link_to =
   Rpc.Rpc.create
@@ -151,7 +151,7 @@ type rpc_git_clone_query = {
   dst: Oci_Filename.t;
   user: Oci_Common.user_kind;
   commit: Oci_Common.Commit.t;
-} with bin_io
+} [@@deriving bin_io]
 
 let rpc_git_clone =
   Rpc.Rpc.create
@@ -166,7 +166,7 @@ type rpc_git_copy_file_query = {
   dst: Oci_Filename.t;
   user: Oci_Common.user_kind;
   commit: Oci_Common.Commit.t;
-} with bin_io
+} [@@deriving bin_io]
 
 let rpc_git_copy_file =
   Rpc.Rpc.create
@@ -179,7 +179,7 @@ type rpc_get_file = {
   kind : [`MD5];
   checksum: String.t;
   dst : Oci_Filename.t;
-} with bin_io
+} [@@deriving bin_io]
 
 let rpc_get_file =
   Rpc.Rpc.create

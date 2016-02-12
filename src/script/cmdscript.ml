@@ -11,7 +11,7 @@ end
 
 type verb = Normal | Quiet | Verbose
 type copts = { debug : bool; verb : verb}
-type script  = {script_exec: string; script_args: string list} with sexp
+type script  = {script_exec: string; script_args: string list} [@@deriving sexp]
 
 let str = Printf.sprintf
 let opt_str sv = function None -> "None" | Some v -> str "Some(%s)" (sv v)

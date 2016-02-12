@@ -25,7 +25,7 @@ type idmap = {
   extern_id: Oci_Common.User.t;
   intern_id: Oci_Common.User.t;
   length_id: int;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 let idmaps ~in_user ~first_user_mapped =
   List.map ~f:(fun (u,length_id) -> {
@@ -49,4 +49,4 @@ type parameters = {
   cgroup: string option;
   (** move to the given cgroup *)
   initial_cpuset: Int.t List.t option;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]

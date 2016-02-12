@@ -19,6 +19,7 @@ OCI:
 - extunix
 - fileutils
 - textutils
+- ocamlbuild
 
 Of course, opam will take care of installing their dependencies as well.
 Please ensure that you truly have the latest version available of OCaml

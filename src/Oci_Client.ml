@@ -190,7 +190,8 @@ module Cmdline = struct
 
   let print_time fmt t =
     if Log.Global.level () = `Debug then Time.pp fmt t
-    else Format.pp_print_string fmt (Time.format t "%H:%M:%S")
+    else Format.pp_print_string fmt
+        (Time.format ~zone:Time.Zone.local t "%H:%M:%S")
 
   let exec_one test input ~init ~fold sexp_input output_printer conn =
     debug "Input %s\n%!" (Sexp.to_string_hum (sexp_input input));
@@ -359,7 +360,7 @@ module Cmdline = struct
                     | Some l ->
                       Deferred.List.find l
                         ~f:(fun url ->
-                          Monitor.try_with_or_error (fun () ->
+                          Monitor.try_with_or_error ~here:[%here] (fun () ->
                               Git.download_file socket ~checksum ~kind ~url)
                           >>= function
                           | Ok () -> Deferred.return true
@@ -664,7 +665,7 @@ module Cmdline = struct
     type rootfs_spec =
       {distrib: string; release: string;
        arch: string; comment: string}
-    with bin_io, sexp
+    [@@deriving bin_io, sexp]
 
     (** return download build and directory url *)
     let parse_index index =

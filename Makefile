@@ -1,13 +1,13 @@
 
 
-PACKAGES=async fileutils core.syntax camlp4 bin_prot.syntax sexplib.syntax async_shell extunix core core_extended textutils cmdliner
+PACKAGES=async fileutils ppx_core ppx_bin_prot ppx_sexp_conv async_shell extunix core core_extended textutils cmdliner ppx_compare ppx_fields_conv ppx_here
 # I don't understand warning 18
 OCAML_WARNING=+a-4-9-18-41-30-42-44-40
 OCAML_WARN_ERROR=+5+10+8+12+20+11
 OPTIONS=-no-sanitize -no-links -tag debug -use-ocamlfind	\
 -cflags -w,$(OCAML_WARNING) -cflags				\
 -warn-error,$(OCAML_WARN_ERROR) -cflag -bin-annot -j 8 -tag thread		\
--syntax camlp4o -tag principal
+ -tag principal
 #OPTIONS += -cflags -warn-error,+a
 DIRECTORIES=src/common src/monitor src/utils src/clients_lib src/conductor tests src/script src src/wrapper
 OCAMLBUILD=ocamlbuild \
@@ -34,6 +34,8 @@ all: .merlin
 byte: .merlin
 	$(OCAMLBUILD) $(subst .native,.byte,$(BINARY))
 
+install:
+	@echo nothing yet!
 
 #force allows to always run the rules that depends on it
 .PHONY: force

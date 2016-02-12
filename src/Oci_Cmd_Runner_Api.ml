@@ -27,7 +27,7 @@ type run_query = {
   args: string list;
   env: [`Extend of (string * string) list | `Replace of (string * string) list];
   runas: Oci_Common.user_kind;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 let run = Oci_Data.register
     ~name:"Oci_Cmd_Runner_Api.run"
@@ -46,7 +46,7 @@ type link_copy_query = {
   user: Oci_Common.user_kind;
   artefact: Oci_Common.Artefact.t;
   dst: Oci_Filename.t;
-} with sexp, bin_io
+} [@@deriving sexp, bin_io]
 
 let link_to = Oci_Data.register
     ~name:"Oci_Cmd_Runner_Api.link_to"

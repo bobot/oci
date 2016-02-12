@@ -29,7 +29,7 @@ open Log.Global
 let (>>!) or_error_deferred f =
   or_error_deferred >>= fun r -> f (ok_exn r)
 
-exception RunnerFailed of Unix.Exit_or_signal.error with sexp
+exception RunnerFailed of Unix.Exit_or_signal.error [@@deriving sexp]
 
 let get_etc_sub_config ~user ~file =
   file
@@ -177,7 +177,7 @@ let exec_in_namespace =
     debug "Oci_Wrapper started";
     (** possible race for the addition to running_process *)
     send_process_to_stderr wrapper;
-    Writer.close (Process.stdin wrapper);
+    Writer.close (Process.stdin wrapper)
     >>= fun () ->
     Writer.open_file named_pipe_in
     >>= fun writer ->

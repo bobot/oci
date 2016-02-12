@@ -64,8 +64,8 @@ let gconf = Ivar.read gconf_ivar
 
 type t = Oci_Common.Artefact.t
 
-exception Directory_should_not_exists of Oci_Filename.t with sexp
-exception Can't_copy_this_file of Oci_Filename.t with sexp
+exception Directory_should_not_exists of Oci_Filename.t [@@deriving sexp]
+exception Can't_copy_this_file of Oci_Filename.t [@@deriving sexp]
 
 let get_conf () =
   Option.value_exn
@@ -393,10 +393,10 @@ end
 
 let dispatch_master d q =
   let name = Oci_Data.name d in
-  Monitor.try_with_join_or_error
+  Monitor.try_with_join_or_error ~here:[%here]
     (fun () ->
        debug "%s called from a master" name;
-       Monitor.try_with_join_or_error
+       Monitor.try_with_join_or_error ~here:[%here]
          ~name (fun () ->
              let r = (Direct_Master.find_exn d) q in
              let r = Oci_Log.read r in
@@ -427,7 +427,7 @@ let register_master
   let name = (Printf.sprintf "Master %s" (Oci_Data.name data)) in
   let simple_rpc {rootfs} q =
     debug "%s called from %s" name rootfs;
-    Monitor.try_with_join_or_error
+    Monitor.try_with_join_or_error ~here:[%here]
       ~name (fun () ->
           let r = f q in
           let r = Oci_Log.read r in
@@ -451,10 +451,10 @@ let register_master
       (Rpc.Pipe_rpc.implement (Oci_Data.log data)
          (fun {rootfs} q ~aborted:_ ->
             debug "%s log called from %s" name rootfs;
-            Monitor.try_with_or_error ~name
+            Monitor.try_with_or_error ~here:[%here] ~name
               (fun () -> return (Oci_Log.read (f q)))
          ));
-  let forget _ q = Monitor.try_with_join_or_error (fun () -> forget q) in
+  let forget _ q = Monitor.try_with_join_or_error ~here:[%here] (fun () -> forget q) in
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Rpc.implement (Oci_Data.forget data) forget);
   ()
@@ -464,9 +464,9 @@ let savers = Stack.create ()
 
 let register_saver ~name ~loader ~saver =
   let loader () =
-    Monitor.protect ~name:("Loader:"^name) loader ~finally:return in
+    Monitor.protect ~here:[%here] ~name:("Loader:"^name) loader ~finally:return in
   let saver  () =
-    Monitor.protect ~name:("Saver:" ^name) saver ~finally:return in
+    Monitor.protect ~here:[%here] ~name:("Saver:" ^name) saver ~finally:return in
   Stack.push savers (loader,saver)
 
 let save =

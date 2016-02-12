@@ -132,7 +132,7 @@ val register_saver:
 
 type runner_result =
   | Exec_Ok
-  | Exec_Error of string with bin_io
+  | Exec_Error of string [@@deriving bin_io]
 
 val start_runner:
   binary_name:string ->

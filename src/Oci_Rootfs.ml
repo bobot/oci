@@ -41,7 +41,7 @@ let () =
   let module M = struct
     type t = {rootfs_next_id: Int.t;
               db_rootfs: (Rootfs_Id.t * Rootfs.t) list;
-             } with bin_io
+             } [@@deriving bin_io]
   end in
   Oci_Master.simple_register_saver
     Oci_Rootfs_Api.create_rootfs
@@ -68,7 +68,7 @@ let create_new_rootfs rootfs_query =
   incr rootfs_next_id;
   let id = Rootfs_Id.of_int_exn (!rootfs_next_id) in
   let testdir = Oci_Filename.make_absolute testdir (Rootfs_Id.to_string id) in
-  Monitor.protect
+  Monitor.protect ~here:[%here]
     ~finally:(fun () -> Async_shell.run "rm" ["-rf";"--";testdir])
     (fun () ->
        Unix.mkdir testdir
@@ -142,7 +142,7 @@ let add_packages (d:add_packages_query) =
       | Oci_Master.Exec_Error s -> return s) Or_error.error_string;
     choice begin
       conn >>= fun conn ->
-      Monitor.protect
+      Monitor.protect ~here:[%here]
         ~finally:(fun () -> Oci_Master.stop_runner conn)
         ~name:"add_packages"
         (fun () ->

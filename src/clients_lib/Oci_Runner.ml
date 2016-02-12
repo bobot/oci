@@ -69,7 +69,7 @@ let implement data f =
     (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
        let reader = Pipe.init (fun writer ->
-           Monitor.try_with_or_error
+           Monitor.try_with_or_error ~here:[%here]
              (fun () -> f {connection;log=writer} q)
            >>= fun res ->
            Pipe.write writer (Oci_Log.data res)
@@ -88,7 +88,7 @@ let implement_unit data f =
     (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
        let reader = Pipe.init (fun writer ->
-         Monitor.try_with
+         Monitor.try_with ~here:[%here]
            (fun () ->
               try
                 f {connection;log=writer} q
@@ -133,7 +133,7 @@ let error_log t d =
   Pipe.write_without_pushback t.log
     (Oci_Log.data d)
 
-type artefact = Oci_Common.Artefact.t with sexp, bin_io
+type artefact = Oci_Common.Artefact.t [@@deriving sexp, bin_io]
 
 let create_artefact ?(rooted_at="/") ?(prune=[]) ?(only_new=true) t ~dir =
   assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:dir);
@@ -182,7 +182,7 @@ let get_release_proc t requested f =
     else return 0
   end
   >>= fun got ->
-  Monitor.protect
+  Monitor.protect ~here:[%here]
     ~finally:(fun () ->
         if 1 < got
         then release_proc t got

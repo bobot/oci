@@ -41,7 +41,7 @@ module CompileGitRepoRunner = struct
           | `Extend of (string * string) list];
     proc_requested : int;
     working_dir: Oci_Filename.t (** Relative path *)
-  } with sexp, bin_io, compare
+  } [@@deriving sexp, bin_io, compare]
   (** `Proc replaced by number of processus *)
 
   let pp_exec fmt e =
@@ -73,7 +73,7 @@ module CompileGitRepoRunner = struct
     directory: Oci_Filename.t; (** Relative path *)
     url: string;
     commit: Oci_Common.Commit.t;
-  } with sexp, bin_io, compare
+  } [@@deriving sexp, bin_io, compare]
 
 
   type gitcopyfile = {
@@ -81,13 +81,13 @@ module CompileGitRepoRunner = struct
     dst: Oci_Filename.t; (** Relative path *)
     url: string;
     commit: Oci_Common.Commit.t;
-  } with sexp, bin_io, compare
+  } [@@deriving sexp, bin_io, compare]
 
   type copyfile = {
     dst: Oci_Filename.t; (** Relative path *)
     checksum: string;
     kind: [`MD5]
-  } with sexp, bin_io, compare
+  } [@@deriving sexp, bin_io, compare]
 
   type cmd = [
     | `Exec of exec
@@ -95,10 +95,10 @@ module CompileGitRepoRunner = struct
     | `GitCopyFile of gitcopyfile
     | `CopyFile of copyfile
   ]
-  with sexp, bin_io, compare
+  [@@deriving sexp, bin_io, compare]
 
   type cmds = cmd list
-  with sexp, bin_io, compare
+  [@@deriving sexp, bin_io, compare]
 
   module Query = struct
     type t = {
@@ -107,19 +107,19 @@ module CompileGitRepoRunner = struct
       tests: cmds;
       artefacts: Oci_Common.Artefact.t list;
       save_artefact: bool;
-    } with sexp, bin_io, compare
+    } [@@deriving sexp, bin_io, compare]
 
     let hash = Hashtbl.hash
   end
 
   module Result = struct
     type exit_or_signal = (* Exit_or_signal.error with bin_io, compare *)
-      [ `Exit_non_zero of int | `Signal of Signal.t ] with sexp, bin_io, compare
+      [ `Exit_non_zero of int | `Signal of Signal.t ] [@@deriving sexp, bin_io, compare]
     type t = [
       | `Cmd of exec * (unit,exit_or_signal) Result.t * Oci_Common.Timed.t
       | `Artefact of Oci_Common.Artefact.t
     ]
-    with sexp, bin_io, compare
+    [@@deriving sexp, bin_io, compare]
 
     let pp fmt : t -> unit = function
       | `Artefact artefact ->
@@ -150,7 +150,7 @@ module XpraRunner = struct
       | CompileGitRepoRunner.Result.t
       | `XpraDir of Oci_Filename.t
     ]
-    with sexp, bin_io, compare
+    [@@deriving sexp, bin_io, compare]
 
     let pp fmt = function
       | #CompileGitRepoRunner.Result.t as x ->
@@ -177,13 +177,13 @@ module CompileGitRepo = struct
       cmds: CompileGitRepoRunner.cmds;
       tests: CompileGitRepoRunner.cmds;
       save_artefact: bool;
-    } with sexp, bin_io, compare
+    } [@@deriving sexp, bin_io, compare]
 
     type t = {
       name: string;
       rootfs: Oci_Rootfs_Api.Rootfs.t;
       repos: repo String.Map.t;
-    } with sexp, bin_io, compare
+    } [@@deriving sexp, bin_io, compare]
 
     exception MissingRepo of string
     let used_repos t =
@@ -218,7 +218,7 @@ module CompileGitRepo = struct
       | CompileGitRepoRunner.Result.t
       | `Dependency_error of String.Set.t
     ]
-    with sexp, bin_io, compare
+    [@@deriving sexp, bin_io, compare]
 
     let pp fmt = function
       | #CompileGitRepoRunner.Result.t as x ->
@@ -244,7 +244,7 @@ module XpraGitRepo = struct
       | XpraRunner.Result.t
       | `Dependency_error of String.Set.t
     ]
-    with sexp, bin_io, compare
+    [@@deriving sexp, bin_io, compare]
 
     let pp fmt = function
       | #XpraRunner.Result.t as x ->
@@ -270,7 +270,7 @@ module GitMergeBase = struct
       url : string;
       commit1: Oci_Common.Commit.t;
       commit2: Oci_Common.Commit.t;
-    } with sexp, bin_io, compare
+    } [@@deriving sexp, bin_io, compare]
   end
 
   let rpc =
@@ -286,7 +286,7 @@ module GitCommitOfRevSpec = struct
     type t = {
       url : string;
       revspec: String.t;
-    } with sexp, bin_io, compare
+    } [@@deriving sexp, bin_io, compare]
   end
 
   let rpc =
@@ -303,7 +303,7 @@ module GitCommitOfBranch = struct
     type t = {
       url : string;
       branch: String.t;
-    } with sexp, bin_io, compare
+    } [@@deriving sexp, bin_io, compare]
   end
 
   let rpc =
@@ -321,7 +321,7 @@ module GitLastCommitBefore = struct
       url : string;
       branch: String.t;
       time: Time.t;
-    } with sexp, bin_io, compare
+    } [@@deriving sexp, bin_io, compare]
   end
 
   let rpc =
@@ -337,7 +337,7 @@ module GitTimeOfCommit = struct
     type t = {
       url : string;
       commit: Oci_Common.Commit.t;
-    } with sexp, bin_io, compare
+    } [@@deriving sexp, bin_io, compare]
   end
 
   let rpc =
@@ -355,7 +355,7 @@ module WgetDownloadFile = struct
       kind : [`MD5];
       checksum: String.t;
       url : String.t;
-    } with bin_io
+    } [@@deriving bin_io]
   end
 
   let rpc =

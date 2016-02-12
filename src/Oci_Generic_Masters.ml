@@ -127,7 +127,7 @@ let init_compile_git_repo () =
     Oci_Master.register rpc
       (fun q ->
          Oci_Log.init (fun log ->
-             Monitor.try_with_or_error (fun () -> f q)
+             Monitor.try_with_or_error ~here:[%here] (fun () -> f q)
              >>= fun res ->
              Oci_Log.add log (Oci_Log.data res)
            ))
