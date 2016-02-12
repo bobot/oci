@@ -26,4 +26,4 @@ depends: [
    "ppx_sexp_conv" "ppx_bin_prot" "ppx_here" "ppx_fields_conv" "ppx_compare"
 ]
 
-available: [ ocaml-version >= "4.02.3" ]
+available: [ ocaml-version = "4.02.1" or ocaml-version >= "4.02.3" ]
