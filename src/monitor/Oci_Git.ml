@@ -71,7 +71,7 @@ let get_id url =
         Git_Id.incr next_id;
         let id = !next_id in
         let dst = get_dir id in
-        Monitor.try_with_or_error (fun () ->
+        Monitor.try_with_or_error ~here:[%here] (fun () ->
             Async_shell.run "git"
               ~env:(get_env ())
               ["clone";"--mirror";"--bare";"--";url;dst]
@@ -90,7 +90,7 @@ let lookup_path url (f:Oci_Filename.t -> 'a Deferred.t) : 'a Deferred.t =
   | Ok id ->
     let call seq f =
       Throttle.enqueue seq
-        (fun src -> Monitor.try_with_or_error (fun () -> f src))
+        (fun src -> Monitor.try_with_or_error ~here:[%here] (fun () -> f src))
       >>= fun res ->
       return (Or_error.ok_exn res)
     in

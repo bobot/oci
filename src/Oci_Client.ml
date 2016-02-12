@@ -360,7 +360,7 @@ module Cmdline = struct
                     | Some l ->
                       Deferred.List.find l
                         ~f:(fun url ->
-                          Monitor.try_with_or_error (fun () ->
+                          Monitor.try_with_or_error ~here:[%here] (fun () ->
                               Git.download_file socket ~checksum ~kind ~url)
                           >>= function
                           | Ok () -> Deferred.return true

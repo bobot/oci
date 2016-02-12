@@ -7,7 +7,7 @@ include Log.Global
 
 let unlink_no_fail filename =
   (** Sys.file_exists follows symlink *)
-  Monitor.try_with
+  Monitor.try_with ~here:[%here]
     (fun () -> Unix.lstat filename)
   >>= function
   | Ok _ -> Unix.unlink filename

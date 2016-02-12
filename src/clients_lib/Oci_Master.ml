@@ -84,7 +84,7 @@ let simple_runner ~binary_name ~error f =
       | Exec_Error s -> return s) error;
     choice begin
       conn >>= fun conn ->
-      Monitor.protect
+      Monitor.protect ~here:[%here]
         ~finally:(fun () -> stop_runner conn)
         ~name:"create_master_and_runner"
         (fun () -> f conn)
@@ -93,7 +93,7 @@ let simple_runner ~binary_name ~error f =
 
 let simple_master f q =
   Oci_Log.init_writer (fun log ->
-      Monitor.try_with_or_error
+      Monitor.try_with_or_error ~here:[%here]
         ~name:"Oci_Master.simple_master"
         (fun () -> attach_log log (fun () -> f q))
       >>= fun res ->
@@ -102,7 +102,7 @@ let simple_master f q =
 
 let simple_master_unit f q =
   Oci_Log.init_writer (fun log ->
-      Monitor.try_with_or_error
+      Monitor.try_with_or_error ~here:[%here]
         ~name:"Oci_Master.simple_master"
         (fun () -> attach_log log (fun () -> f q log))
       >>= function
@@ -143,7 +143,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
           let log = Log.create () in
           H.add_exn db ~key:q ~data:log;
           don't_wait_for begin
-            Monitor.try_with_or_error
+            Monitor.try_with_or_error ~here:[%here]
               ~name:"Oci_Master.Make.create_master"
               (fun () ->
                  let log = Log.writer log in

@@ -69,7 +69,7 @@ let implement data f =
     (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
        let reader = Pipe.init (fun writer ->
-           Monitor.try_with_or_error
+           Monitor.try_with_or_error ~here:[%here]
              (fun () -> f {connection;log=writer} q)
            >>= fun res ->
            Pipe.write writer (Oci_Log.data res)
@@ -88,7 +88,7 @@ let implement_unit data f =
     (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
        let reader = Pipe.init (fun writer ->
-         Monitor.try_with
+         Monitor.try_with ~here:[%here]
            (fun () ->
               try
                 f {connection;log=writer} q
@@ -182,7 +182,7 @@ let get_release_proc t requested f =
     else return 0
   end
   >>= fun got ->
-  Monitor.protect
+  Monitor.protect ~here:[%here]
     ~finally:(fun () ->
         if 1 < got
         then release_proc t got
