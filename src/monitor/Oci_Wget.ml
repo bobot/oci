@@ -86,7 +86,7 @@ let download_file ~kind ~checksum ~url =
         | Some seq -> seq
         | None ->
           let seq = Sequencer.create ~continue_on_error:true () in
-          String.Table.add_exn db_md5sum ~key:url ~data:seq;
+          String.Table.add_exn db_md5sum ~key:checksum ~data:seq;
           seq
       in
       Throttle.enqueue seq (fun () ->

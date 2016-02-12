@@ -978,7 +978,7 @@ module Cmdline = struct
              ~doc:"Give the list of y variables")
     in
     let output =
-      Arg.(required & opt (some file) None & info ["output"]
+      Arg.(required & opt (some string) None & info ["output"]
              ~docv:"OUT"
              ~doc:"Specify the file to output the computing datas")
     in
