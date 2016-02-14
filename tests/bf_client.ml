@@ -85,7 +85,6 @@ let mk_framac_plugin_repo ?revspec ?noconfigure ~url ~deps ~has_tests name=
     ]
   in
   let tests =
-    make ~j:8 ["doc"] ::
     if has_tests
     then [make_tests 4]
     else []
