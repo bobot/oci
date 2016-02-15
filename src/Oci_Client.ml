@@ -1025,7 +1025,12 @@ module Cmdline = struct
       end
     | `Help | `Version -> exit 0
 
-  let git_clone ?dir url = Git.git_clone ?dir ~url dumb_commit
+  let git_clone ?dir url =
+    if not (String.Table.mem url_to_default_revspec url)
+    then invalid_argf
+        "The url have not been registered with \
+         add_default_revspec_for_url: %s" url ();
+    Git.git_clone ?dir ~url dumb_commit
 
   type repo = {name:string;url:string}
 
