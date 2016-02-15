@@ -105,7 +105,14 @@ module Git = struct
   let pp =
     Oci_Generic_Masters_Api.CompileGitRepo.Result.pp
 
-  type connection = Async_extra.Import.Rpc_kernel.Connection.t
+  type connection = {
+    socket: Async_extra.Import.Rpc_kernel.Connection.t;
+    revspec_cache: (Oci_Generic_Masters_Api.GitCommitOfRevSpec.Query.t,
+                    Oci_Common.Commit.t option Or_error.t Deferred.t)
+        Hashtbl.Poly.t;
+  }
+
+  let socket_of_connection t = t.socket
 
   type exec = Oci_Generic_Masters_Api.CompileGitRepoRunner.exec = {
     cmd: string;
@@ -119,7 +126,7 @@ module Git = struct
   let compile_and_tests t repos =
     Rpc.Pipe_rpc.dispatch_exn
       (Oci_Data.log Oci_Generic_Masters_Api.CompileGitRepo.rpc)
-      t repos
+      t.socket repos
     >>= fun (p,_) ->
     return p
 
@@ -129,42 +136,57 @@ module Git = struct
 
   let xpra t repos =
     Rpc.Pipe_rpc.dispatch_exn
-      (Oci_Data.log Oci_Generic_Masters_Api.XpraGitRepo.rpc) t repos
+      (Oci_Data.log Oci_Generic_Masters_Api.XpraGitRepo.rpc) t.socket repos
     >>= fun (p,_) ->
     return p
 
   let merge_base t ~url commit1 commit2 =
     Rpc.Rpc.dispatch_exn
       (Oci_Data.rpc Oci_Generic_Masters_Api.GitMergeBase.rpc)
-      t {Oci_Generic_Masters_Api.GitMergeBase.Query.url;commit1;commit2}
+      t.socket {Oci_Generic_Masters_Api.GitMergeBase.Query.url;commit1;commit2}
     >>= fun r ->
     return (Or_error.ok_exn r)
 
   let commit_of_revspec t ~url ~revspec =
-    Rpc.Rpc.dispatch_exn
-      (Oci_Data.rpc Oci_Generic_Masters_Api.GitCommitOfRevSpec.rpc)
-      t {Oci_Generic_Masters_Api.GitCommitOfRevSpec.Query.url;revspec}
+    let key = {Oci_Generic_Masters_Api.GitCommitOfRevSpec.Query.url;revspec} in
+    Hashtbl.Poly.find_or_add
+      t.revspec_cache key
+      ~default:(fun () ->
+          Rpc.Rpc.dispatch_exn
+            (Oci_Data.rpc Oci_Generic_Masters_Api.GitCommitOfRevSpec.rpc)
+            t.socket key)
     >>= fun r ->
     return (Or_error.ok_exn r)
+
+  let commit_of_revspec_exn t ~url ~revspec =
+    commit_of_revspec t ~url ~revspec
+    >>= function
+    | None ->
+      invalid_argf
+        "revspec %s of %s correspond to no known ref"
+        revspec url ()
+    | Some commit ->
+      return commit
 
   let commit_of_branch t ~url ~branch =
     Rpc.Rpc.dispatch_exn
       (Oci_Data.rpc Oci_Generic_Masters_Api.GitCommitOfBranch.rpc)
-      t {Oci_Generic_Masters_Api.GitCommitOfBranch.Query.url;branch}
+      t.socket {Oci_Generic_Masters_Api.GitCommitOfBranch.Query.url;branch}
     >>= fun r ->
     return (Or_error.ok_exn r)
 
   let last_commit_before t ~url ~branch ~time =
     Rpc.Rpc.dispatch_exn
       (Oci_Data.rpc Oci_Generic_Masters_Api.GitLastCommitBefore.rpc)
-      t {Oci_Generic_Masters_Api.GitLastCommitBefore.Query.url;branch;time}
+      t.socket
+      {Oci_Generic_Masters_Api.GitLastCommitBefore.Query.url;branch;time}
     >>= fun r ->
     return (Or_error.ok_exn r)
 
   let time_of_commit t ~url ~commit =
     Rpc.Rpc.dispatch_exn
       (Oci_Data.rpc Oci_Generic_Masters_Api.GitTimeOfCommit.rpc)
-      t {Oci_Generic_Masters_Api.GitTimeOfCommit.Query.url;commit}
+      t.socket {Oci_Generic_Masters_Api.GitTimeOfCommit.Query.url;commit}
     >>= fun r ->
     return (Or_error.ok_exn r)
 
@@ -172,7 +194,8 @@ module Git = struct
   let download_file t ~kind ~url ~checksum =
    Rpc.Rpc.dispatch_exn
       (Oci_Data.rpc Oci_Generic_Masters_Api.WgetDownloadFile.rpc)
-      t {Oci_Generic_Masters_Api.WgetDownloadFile.Query.url;kind;checksum}
+      t.socket
+      {Oci_Generic_Masters_Api.WgetDownloadFile.Query.url;kind;checksum}
     >>= fun r ->
     return (Or_error.ok_exn r)
 end
@@ -244,8 +267,8 @@ module Cmdline = struct
   let exec test ?(init=`Ok)
       ?(fold=fun acc _ -> acc) input sexp_input sexp_output conn =
     if Sys.getenv "OCIFORGET" = None
-    then exec_one ~init ~fold test input sexp_input sexp_output conn
-    else forget test input sexp_input sexp_output conn
+    then exec_one ~init ~fold test input sexp_input sexp_output conn.Git.socket
+    else forget test input sexp_input sexp_output conn.Git.socket
 
   type default_revspec = {
     name: string;
@@ -278,7 +301,9 @@ module Cmdline = struct
   type query = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
   type revspecs = string option String.Map.t
   type ('x,'y) compare_n =
-    revspecs -> 'x -> 'y -> revspecs * Git.repo * [`Exec of Git.exec ]
+    Git.connection ->
+    revspecs -> 'x -> 'y ->
+    (revspecs * Git.repo * [`Exec of Git.exec ]) Deferred.t
   type exists_compare_n =
     | CompareN:
         ('x,'y) compare_n * (Sexp.t -> 'x) * ('x -> Sexp.t) * (Sexp.t -> 'y) *
@@ -292,42 +317,44 @@ module Cmdline = struct
       String.Map.add !db_compare_n ~key:name
         ~data:(CompareN(compare_n,sexp_x,x_sexp,sexp_y,y_sexp,analyse))
 
-  let default_create_query_hook ~query ~revspecs = query, revspecs
+  let default_create_query_hook ~connection:_
+      ~query ~revspecs = query, revspecs
 
   let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
 
-  let create_query _ccopt create_query_hook rootfs revspecs repo repos socket =
-    Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs) socket rootfs
+
+  let create_query
+      ?(info_level=`Info)
+      _ccopt
+      create_query_hook rootfs revspecs repo repos connection =
+    Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs)
+      connection.Git.socket rootfs
     >>= fun rootfs ->
-    info "Check the revspecs:";
+    Log.Global.printf ~level:info_level "Check the revspecs:";
     let query = Git.repos
         ~name:repo
         ~rootfs:(Or_error.ok_exn rootfs)
         ~repos
     in
-    let query, revspecs = create_query_hook ~query ~revspecs in
+    let query, revspecs =
+      create_query_hook ~connection ~query ~revspecs in
     let used_repos = Git.used_repos query in
-    let cache = String.Table.create () in
     let commits_cmdline = Buffer.create 100 in
-    let get_commit url = String.Table.find_or_add cache url
-        ~default:(fun () ->
-            let def = String.Table.find_exn url_to_default_revspec url in
-            let revspec =
-              Option.value ~default:def.revspec
-                (String.Map.find_exn revspecs def.name)
-            in
-            Git.commit_of_revspec ~url ~revspec socket
-            >>= function
-            | None ->
-              error "%s correspond to no known ref" def.name; exit 1
-            | Some commit ->
-              let msg =sprintf " --%s %s"
-                  def.name (Oci_Common.Commit.to_string commit)
-              in
-              info "%s: %s" def.name (Oci_Common.Commit.to_string commit);
-              Buffer.add_string commits_cmdline msg;
-              return commit
-          )
+    let get_commit url =
+      let def = String.Table.find_exn url_to_default_revspec url in
+      let revspec =
+        Option.value ~default:def.revspec
+          (String.Map.find_exn revspecs def.name)
+      in
+      Git.commit_of_revspec_exn ~url ~revspec connection
+      >>= fun commit ->
+      let msg =sprintf " --%s %s"
+          def.name (Oci_Common.Commit.to_string commit)
+      in
+      Log.Global.printf ~level:info_level
+        "%s: %s" def.name (Oci_Common.Commit.to_string commit);
+      Buffer.add_string commits_cmdline msg;
+      return commit
     in
     (* replace commit in repos *)
     Deferred.Map.map
@@ -361,11 +388,12 @@ module Cmdline = struct
                       Deferred.List.find l
                         ~f:(fun url ->
                           Monitor.try_with_or_error ~here:[%here] (fun () ->
-                              Git.download_file socket ~checksum ~kind ~url)
+                                Git.download_file
+                                  connection ~checksum ~kind ~url)
                           >>= function
                           | Ok () -> Deferred.return true
                           | Error e ->
-                            info "Download error: %s" (Error.to_string_hum e);
+                            error "Download error: %s" (Error.to_string_hum e);
                             Deferred.return false
                         )
                       >>= function
@@ -384,11 +412,12 @@ module Cmdline = struct
           return {repo with cmds}
         )
     >>= fun repos ->
-    info "commits:%s" (Buffer.contents commits_cmdline);
+    Log.Global.printf ~level:info_level
+      "commits:%s" (Buffer.contents commits_cmdline);
     return { query with repos}
 
-  let run ccopt cq_hook rootfs revspecs (repo:string) socket =
-    create_query ccopt cq_hook rootfs revspecs repo !db_repos socket
+  let run ccopt cq_hook rootfs revspecs (repo:string) connection =
+    create_query ccopt cq_hook rootfs revspecs repo !db_repos connection
     >>= fun query ->
     let fold acc = function
       | Result.Ok (`Cmd (_,Ok _,_)) -> acc
@@ -399,7 +428,7 @@ module Cmdline = struct
     in
     exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query ~fold
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-      Oci_Generic_Masters_Api.CompileGitRepo.Result.pp socket
+      Oci_Generic_Masters_Api.CompileGitRepo.Result.pp connection
 
   let xpra ccopt cq_hook rootfs revspecs repo socket =
     create_query ccopt cq_hook rootfs revspecs repo !db_repos socket
@@ -423,7 +452,7 @@ module Cmdline = struct
 
   let compare_n ccopt cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
-      output socket =
+      output connection =
     match String.Map.find_exn !db_compare_n bench with
     | CompareN(for_one,sexp_x,x_sexp,sexp_y,y_sexp,analyse) ->
       Reader.load_sexps_exn x_input sexp_x
@@ -431,19 +460,24 @@ module Cmdline = struct
       Reader.load_sexps_exn y_input sexp_y
       >>= fun ly ->
       let exec_one x y =
-        let revspecs, git_repo, `Exec exec = for_one revspecs x y in
+        for_one connection revspecs x y
+        >>= function (revspecs, git_repo, `Exec exec) ->
         let repo_compare_n = "Oci_Client.compare_n" in
         let repos = String.Map.add !db_repos ~key:repo_compare_n
             ~data:git_repo in
-        create_query ccopt cq_hook rootfs revspecs repo_compare_n
-          repos socket
+        create_query
+          ~info_level:`Debug
+          ccopt cq_hook rootfs revspecs repo_compare_n
+          repos connection
         >>= fun query ->
         Rpc.Pipe_rpc.dispatch_exn
           (Oci_Data.log Oci_Generic_Masters_Api.CompileGitRepo.rpc)
-          socket query
+          connection.Git.socket query
         >>= fun (p,_) ->
         Pipe.fold p ~init:None ~f:(fun acc -> function
-            | {Oci_Log.data=Oci_Log.Std _;_} -> return acc
+            | {Oci_Log.data=Oci_Log.Std (_,line);_} ->
+              debug "[Std] %s" line;
+              return acc
             | {Oci_Log.data=Oci_Log.Extra r} ->
               begin match r with
                 | Ok (`Cmd(exec',result,time) as r) when
@@ -458,8 +492,12 @@ module Cmdline = struct
                     (Oci_pp.string_of
                        Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
                   return (analyse result time)
-
-                | Ok _ -> return acc
+                | Ok r ->
+                  debug
+                    "[Prepare] %s@."
+                    (Oci_pp.string_of
+                       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
+                  return acc
                 | Error e ->
                   error
                     "[Anomaly] for %s please report: %s"
@@ -538,7 +576,7 @@ module Cmdline = struct
       reader writer
     >>= fun socket ->
     let socket = Result.ok_exn socket in
-    cmd socket
+    cmd {Git.socket;revspec_cache=Hashtbl.Poly.create ()}
     >>= fun res ->
     Rpc.Connection.close socket
     >>= fun () ->
@@ -1009,11 +1047,8 @@ module Cmdline = struct
     (run_xpra_cmd create_query_hook)
 
   type create_query_hook =
-    (query:Oci_Generic_Masters_Api.CompileGitRepo.Query.t ->
-     revspecs:string option String.Map.t ->
-     Oci_Generic_Masters_Api.CompileGitRepo.Query.t *
-     string option Core.Std.String.Map.t)
-      Cmdliner.Term.t
+    (connection:Git.connection ->
+     query:query -> revspecs:revspecs -> query * revspecs) Cmdliner.Term.t
 
   let default_cmdline
       ?(create_query_hook=Term.const default_create_query_hook) () =
@@ -1032,6 +1067,13 @@ module Cmdline = struct
          add_default_revspec_for_url: %s" url ();
     Git.git_clone ?dir ~url dumb_commit
 
+  let git_copy_file ~src ~dst url =
+    if not (String.Table.mem url_to_default_revspec url)
+    then invalid_argf
+        "The url have not been registered with \
+         add_default_revspec_for_url: %s" url ();
+    Git.git_copy_file ~src ~dst ~url dumb_commit
+
   type repo = {name:string;url:string}
 
   let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name =
@@ -1049,23 +1091,24 @@ module Cmdline = struct
 
   let mk_compare_n
       ~deps
-      ~(cmds:(revspecs -> 'x ->
-              'y ->
-              (revspecs * Git.cmd list * [< `Exec of Git.exec ])))
+      ~cmds
       ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y ~analyse
       name =
     add_compare_n
       name
-      (fun revspecs x y ->
-         let revspecs,cmds,test = cmds revspecs x y in
-         revspecs,
-         (Git.repo
-            ~save_artefact:false
-            ~deps:(List.map ~f:(fun x -> x.name) deps)
-            ~cmds
-            ~tests:[(test:> Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd)]
-            ()),
-         test
+      (fun conn revspecs x y ->
+         cmds conn revspecs x y
+         >>= fun (revspecs,cmds,test) ->
+         return
+           (revspecs,
+            Git.repo
+              ~save_artefact:false
+              ~deps:(List.map ~f:(fun x -> x.name) deps)
+              ~cmds
+              ~tests:[(test:> Oci_Generic_Masters_Api.CompileGitRepoRunner.
+                                cmd)]
+              (),
+            test)
       )
       x_of_sexp sexp_of_x y_of_sexp sexp_of_y analyse
 

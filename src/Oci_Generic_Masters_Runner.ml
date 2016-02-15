@@ -53,68 +53,66 @@ let run_cmds t kind working_dir
       ~checksum:copy.checksum
       ~kind:copy.kind
       ~dst:(Oci_Filename.make_absolute working_dir copy.dst)
-      | `GitClone clone ->
-      Oci_Runner.cha_log t "Clone repository at %s"
-        (Oci_Common.Commit.to_string clone.commit);
-      Oci_Runner.git_clone t
-        ~user:Root
-        ~url:clone.url
-        ~dst:(Oci_Filename.make_absolute working_dir clone.directory)
-        ~commit:clone.commit
-    | `GitCopyFile show_file ->
-      Oci_Runner.cha_log t "Show file %s at %s to %s"
-        show_file.src
-        (Oci_Common.Commit.to_string show_file.commit)
-        show_file.dst;
-      Oci_Runner.git_copy_file t
-        ~user:Root
-        ~url:show_file.url
-        ~src:show_file.src
-        ~dst:(Oci_Filename.make_absolute working_dir show_file.dst)
-        ~commit:show_file.commit
-    | `Exec cmd ->
-      Oci_Runner.get_release_proc t cmd.proc_requested
-        (fun got ->
-           let args =
-             List.map cmd.args
-               ~f:(function
-                   | `S s -> s
-                   | `Proc s ->
-                     let fmt = (Oci_Generic_Masters_Api.
-                                  CompileGitRepoRunner.Formatted_proc.get s) in
-                     Printf.sprintf fmt got)
-           in
-           Oci_Runner.run_timed t
-             ~working_dir:(Oci_Filename.make_absolute working_dir
-                             cmd.working_dir)
-             ~prog:cmd.cmd ~args
-             ~env:(cmd.env :> Async.Std.Process.env) ()
-           >>= fun r ->
-           match kind, r with
-           | `Test, (r,i) ->
-             Oci_Runner.data_log t (`Cmd (cmd,r,i));
-             return ()
-           | `Required, (Ok () as r,i) ->
-             Oci_Runner.data_log t (`Cmd (cmd,r,i));
-             return ()
-           | `Required, (r,i) ->
-             Oci_Runner.data_log t (`Cmd (cmd,r,i));
-             raise Oci_Runner.StopQuery
-        )
+  | `GitClone clone ->
+    Oci_Runner.cha_log t "Clone repository at %s"
+      (Oci_Common.Commit.to_string clone.commit);
+    Oci_Runner.git_clone t
+      ~user:Root
+      ~url:clone.url
+      ~dst:(Oci_Filename.make_absolute working_dir clone.directory)
+      ~commit:clone.commit
+  | `GitCopyFile show_file ->
+    Oci_Runner.cha_log t "Show file %s at %s to %s"
+      show_file.src
+      (Oci_Common.Commit.to_string show_file.commit)
+      show_file.dst;
+    Oci_Runner.git_copy_file t
+      ~user:Root
+      ~url:show_file.url
+      ~src:show_file.src
+      ~dst:(Oci_Filename.make_absolute working_dir show_file.dst)
+      ~commit:show_file.commit
+  | `Exec cmd ->
+    Oci_Runner.get_release_proc t cmd.proc_requested
+      (fun got ->
+         let args =
+           List.map cmd.args
+             ~f:(function
+                 | `S s -> s
+                 | `Proc s ->
+                   let fmt = (Oci_Generic_Masters_Api.
+                                CompileGitRepoRunner.Formatted_proc.get s) in
+                   Printf.sprintf fmt got)
+         in
+         Oci_Runner.run_timed t
+           ~working_dir:(Oci_Filename.make_absolute working_dir
+                           cmd.working_dir)
+           ~prog:cmd.cmd ~args
+           ~env:(cmd.env :> Async.Std.Process.env) ()
+         >>= fun r ->
+         match kind, r with
+         | `Test, (r,i) ->
+           Oci_Runner.data_log t (`Cmd (cmd,r,i));
+           return ()
+         | `Required, (Ok () as r,i) ->
+           Oci_Runner.data_log t (`Cmd (cmd,r,i));
+           return ()
+         | `Required, (r,i) ->
+           Oci_Runner.data_log t (`Cmd (cmd,r,i));
+           raise Oci_Runner.StopQuery
+      )
 
 
 let compile_git_repo_runner t q =
   create_dir t q
-  >>= fun working_dir -> begin
+  >>= fun working_dir ->
+  Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
+  >>= fun () -> begin
     if q.save_artefact
-    then
-      Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
-      >>= fun () ->
-      Oci_Runner.create_artefact t
+    then Oci_Runner.create_artefact t
         ~dir:"/"
         ~prune:[working_dir]
-    else
-      Deferred.return Oci_Common.Artefact.empty
+    else Deferred.return Oci_Common.Artefact.empty
   end
   >>= fun artefact ->
   Oci_Runner.data_log t (`Artefact artefact);

@@ -35,7 +35,7 @@ let popop = mk_repo
             [ocaml;ocamlfind;ounit;cryptokit;zarith;ocamlgraph]
     ~cmds:[
       make [];
-      run "cp" ["popop.native";"/usr/local/bin"];
+      run "cp" ["popop.native";"/usr/local/bin/popop"];
     ]
     ~tests:[
       make ["tests"];
@@ -47,12 +47,17 @@ let () = mk_compare_n
     ~sexp_of_x:Oci_Common.Commit.sexp_of_t
     ~y_of_sexp:Oci_Filename.t_of_sexp
     ~sexp_of_y:Oci_Filename.sexp_of_t
-    ~cmds:(fun revspecs x y ->
-        (String.Map.add revspecs ~key:"popop"
-           ~data:(Some (Oci_Common.Commit.to_string x))),
-        [git_copy_file ~url:"git@git.frama-c.com:soprano/popop.git" ~src:y
-           ~dst:(Oci_Filename.basename y) x (**todo change that *)],
-        (run "popop" [Oci_Filename.basename y]))
+    ~cmds:(fun conn revspecs x y ->
+        let url = "git@git.frama-c.com:soprano/popop.git" in
+        commit_of_revspec conn ~url ~revspec:"master"
+        >>= fun master ->
+        return
+          ((String.Map.add revspecs ~key:"popop"
+              ~data:(Some (Oci_Common.Commit.to_string x))),
+           [Oci_Client.Git.git_copy_file ~url ~src:y
+              ~dst:(Oci_Filename.basename y)
+              (Option.value_exn ~here:[%here] master)],
+           (run "popop" [Oci_Filename.basename y])))
     ~analyse:(fun _  timed ->
         Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
     "popop_compare_n"

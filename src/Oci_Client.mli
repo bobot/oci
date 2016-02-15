@@ -113,7 +113,9 @@ module Git: sig
     rootfs:Oci_Rootfs_Api.Rootfs.t ->
     t
 
-  type connection = Async_extra.Import.Rpc_kernel.Connection.t
+  type connection
+  val socket_of_connection:
+    connection -> Async_extra.Import.Rpc_kernel.Connection.t
 
   type compile_and_tests =
     [ `Artefact of Artefact.t
@@ -200,13 +202,16 @@ module Cmdline: sig
   val cmdliner_revspecs: revspecs -> (revspecs Cmdliner.Term.t)
 
   type ('x,'y) compare_n =
-    revspecs -> 'x -> 'y -> revspecs * Git.repo * [`Exec of Git.exec ]
+    Git.connection ->
+    revspecs -> 'x -> 'y ->
+    (revspecs * Git.repo * [`Exec of Git.exec ]) Deferred.t
 
   val mk_compare_n:
     deps:repo List.t ->
-    cmds:(revspecs ->
+    cmds:(Git.connection ->
+          revspecs ->
           'x -> 'y ->
-          revspecs * Git.cmd list * [ `Exec of Git.exec ]) ->
+          (revspecs * Git.cmd list * [ `Exec of Git.exec ]) Deferred.t) ->
     x_of_sexp:(Sexp.t -> 'x) ->
     sexp_of_x:('x -> Sexp.t) ->
     y_of_sexp:(Sexp.t -> 'y) ->
@@ -232,7 +237,8 @@ module Cmdline: sig
   end
 
   type create_query_hook =
-    (query:query -> revspecs:revspecs -> query * revspecs) Cmdliner.Term.t
+    (connection:Git.connection ->
+     query:query -> revspecs:revspecs -> query * revspecs) Cmdliner.Term.t
 
   val default_cmdline:
     ?create_query_hook:create_query_hook (* experts only *) ->
@@ -241,6 +247,8 @@ module Cmdline: sig
 
   (** {2 Experts only} *)
   val git_clone: ?dir:Oci_Filename.t -> string -> Git.cmd
+  val git_copy_file:
+    src:Oci_Filename.t -> dst:Oci_Filename.t -> string -> Git.cmd
   val add_repo: string -> Git.repo -> unit
   val add_default_revspec_for_url:
     revspec:string -> url:string -> name:string -> unit
