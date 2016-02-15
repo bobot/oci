@@ -723,7 +723,6 @@ let conn_monitor () =
   return conn
 
 let run () =
-  info "Run Artefact";
   begin
     conn_monitor ()
     >>> fun conn_monitor ->
@@ -749,6 +748,13 @@ let run () =
     } in
     Ivar.fill gconf_ivar conf;
     if conf_monitor.debug_level then Log.Global.set_level `Debug;
+    Log.Global.set_output [Log.Output.stdout ();
+                           Log.Output.rotating_file `Text
+                             (Log.Rotation.default ())
+                             ~basename:(Oci_Filename.concat
+                                          conf_monitor.oci_data "master_log")
+                          ];
+    info "Run Master";
     Async_shell.run "rm" ["-rf";"--";
                           conf.runners;conf.binaries;conf.external_access;]
     >>> fun () ->
