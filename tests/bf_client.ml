@@ -156,7 +156,7 @@ let _framac_internal =
   let cloneplugins =
     plugins
     |> List.map ~f:(fun (pkg,_) ->
-        git_clone ~dir:(Oci_Filename.concat "src/plugins" name) pkg.url
+        git_clone ~dir:(Oci_Filename.concat "src/plugins" pkg.name) pkg.url
       )
   in
   Oci_Client.Cmdline.add_repo name
