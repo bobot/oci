@@ -64,7 +64,6 @@ let gconf = Ivar.read gconf_ivar
 
 type t = Oci_Common.Artefact.t
 
-exception Directory_should_not_exists of Oci_Filename.t [@@deriving sexp]
 exception Can't_copy_this_file of Oci_Filename.t [@@deriving sexp]
 
 let get_conf () =
@@ -168,22 +167,31 @@ let copydir ~hardlink ~prune_file ~prune_user ~chown src dst =
 let create ~prune ~rooted_at ~only_new ~src =
   assert (Oci_Filename.is_subdir ~parent:rooted_at ~children:src);
   let conf = get_conf () in
-  conf.last_artefact_id <- conf.last_artefact_id + 1;
-  let id = Artefact.of_int_exn conf.last_artefact_id in
-  match dir_of_artefact id with
-  | None -> assert false (** absurd: it can't be Artefact.empty *)
-  | Some dst ->
-    Sys.file_exists_exn (Oci_Filename.get dst)
-    >>= fun b ->
-    if b then raise (Directory_should_not_exists dst);
-    let dst = Oci_Filename.reparent ~oldd:rooted_at ~newd:dst src in
-    copydir
-      ~hardlink:false
-      ~prune_file:prune
-      ~prune_user:(if only_new then [master_user Superroot] else [])
-      ~chown:(master_user Superroot)
-      src dst
-    >>= fun () -> return id
+  let rec get_id () =
+    conf.last_artefact_id <- conf.last_artefact_id + 1;
+    let id = Artefact.of_int_exn conf.last_artefact_id in
+    match dir_of_artefact id with
+    | None -> assert false (** absurd: it can't be Artefact.empty *)
+    | Some dst ->
+      Sys.file_exists_exn (Oci_Filename.get dst)
+      >>= fun b ->
+      if b then begin
+        error "The directory artefact %s should not already exists"
+          (Oci_Filename.get dst);
+        get_id ()
+      end
+      else return (id,dst)
+  in
+  get_id ()
+  >>= fun (id,dst) ->
+  let dst = Oci_Filename.reparent ~oldd:rooted_at ~newd:dst src in
+  copydir
+    ~hardlink:false
+    ~prune_file:prune
+    ~prune_user:(if only_new then [master_user Superroot] else [])
+    ~chown:(master_user Superroot)
+    src dst
+  >>= fun () -> return id
 
 let link_copy_to ~hardlink chown id dst =
   match dir_of_artefact id with
@@ -454,7 +462,8 @@ let register_master
             Monitor.try_with_or_error ~here:[%here] ~name
               (fun () -> return (Oci_Log.read (f q)))
          ));
-  let forget _ q = Monitor.try_with_join_or_error ~here:[%here] (fun () -> forget q) in
+  let forget _ q = Monitor.try_with_join_or_error ~here:[%here]
+      (fun () -> forget q) in
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Rpc.implement (Oci_Data.forget data) forget);
   ()
@@ -464,9 +473,11 @@ let savers = Stack.create ()
 
 let register_saver ~name ~loader ~saver =
   let loader () =
-    Monitor.protect ~here:[%here] ~name:("Loader:"^name) loader ~finally:return in
+    Monitor.protect ~here:[%here] ~name:("Loader:"^name) loader
+      ~finally:return in
   let saver  () =
-    Monitor.protect ~here:[%here] ~name:("Saver:" ^name) saver ~finally:return in
+    Monitor.protect ~here:[%here] ~name:("Saver:" ^name) saver
+      ~finally:return in
   Stack.push savers (loader,saver)
 
 let save =
