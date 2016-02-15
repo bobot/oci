@@ -637,7 +637,7 @@ let add_artefact_api init =
       );
   ]
 
-let start_runner ~binary_name =
+let start_runner ~debug_info ~binary_name =
   let conf = get_conf () in
   conf.last_runner_id <- conf.last_runner_id + 1;
   let runner_id = conf.last_runner_id in
@@ -679,7 +679,8 @@ let start_runner ~binary_name =
     cgroup = Some cgroup;
     initial_cpuset = Some initial_cpuset;
   } in
-  info "Start runner %s" binary_name;
+  info "Start runner %i %s:" runner_id binary_name;
+  info " %s" debug_info;
   let r =
     Oci_Artefact_Api.start_in_namespace
       ~exec_in_namespace ~parameters
@@ -755,6 +756,7 @@ let run () =
                                           conf_monitor.oci_data "master_log")
                           ];
     info "Run Master";
+    debug "Debug level";
     Async_shell.run "rm" ["-rf";"--";
                           conf.runners;conf.binaries;conf.external_access;]
     >>> fun () ->

@@ -134,7 +134,9 @@ let find_rootfs key =
 
 let add_packages (d:add_packages_query) =
   let rootfs = Rootfs_Id.Table.find_exn !db_rootfs d.id in
-  Oci_Master.start_runner ~binary_name:"Oci_Cmd_Runner"
+  Oci_Master.start_runner
+    ~debug_info:"add packages"
+    ~binary_name:"Oci_Cmd_Runner"
   >>= fun (err,conn) ->
   choose [
     choice (err >>= function
@@ -162,7 +164,7 @@ let add_packages (d:add_packages_query) =
              Oci_Cmd_Runner_Api.run conn {
              prog = "apt-get";
              args = ["update";
-                     (** We disable privilege dropping because it work not well
+                     (* We disable privilege dropping because it work not well
                          with the current hardlink overlay technique *)
                      "--option";"APT::Sandbox::User=rot";
                      "--option";"Acquire::Retries=3";

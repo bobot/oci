@@ -84,7 +84,9 @@ let run_git_repo rpc map_type q log =
   >>= function
   | `Artefact results ->
     let repo = String.Map.find_exn q.repos q.name in
-    Oci_Master.simple_runner ~binary_name ~error:(fun _ -> raise Exit) begin
+    Oci_Master.simple_runner
+      ~debug_info:(sprintf "Repo %s" q.name)
+      ~binary_name ~error:(fun _ -> raise Exit) begin
       fun conn ->
         let log' = Pipe.init (fun log' ->
             Oci_Master.dispatch_runner_log log' rpc conn {

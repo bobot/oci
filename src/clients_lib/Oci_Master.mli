@@ -111,6 +111,7 @@ val simple_register_saver:
    unit
 
 val simple_runner:
+  debug_info:string ->
   binary_name:string ->
   error:(string -> 'a) ->
   (Rpc.Connection.t -> 'a Deferred.t) ->
@@ -135,6 +136,7 @@ type runner_result =
   | Exec_Error of string [@@deriving bin_io]
 
 val start_runner:
+  debug_info:string ->
   binary_name:string ->
   (runner_result Deferred.t *
    Async.Std.Rpc.Connection.t Deferred.t)

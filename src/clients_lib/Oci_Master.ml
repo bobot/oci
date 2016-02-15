@@ -33,7 +33,8 @@ let register = Oci_Artefact.register_master
 let register_saver = Oci_Artefact.register_saver
 
 let run () = Oci_Artefact.run ()
-let start_runner ~binary_name = Oci_Artefact.start_runner ~binary_name
+let start_runner ~debug_info ~binary_name =
+  Oci_Artefact.start_runner ~debug_info ~binary_name
 let stop_runner conn =
   Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_stop_runner conn ()
 let permanent_directory = Oci_Artefact.permanent_directory
@@ -75,8 +76,8 @@ let simple_register_saver ?(init=(fun () -> return ())) ~basename
       Writer.close writer
       )
 
-let simple_runner ~binary_name ~error f =
-  start_runner ~binary_name
+let simple_runner ~debug_info ~binary_name ~error f =
+  start_runner ~debug_info ~binary_name
   >>= fun (err,conn) ->
   choose [
     choice (err >>= function
@@ -167,6 +168,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
             permanent_directory S.data
             >>= fun dir ->
             let file = Oci_Filename.make_absolute dir "data" in
+            Async.Std.Log.Global.debug "Load master %s" name;
             if not (H.is_empty db) then begin
               Async.Std.Log.Global.error
                 "Master %s have already been loaded" name;
@@ -175,7 +177,15 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
             Oci_Std.read_if_exists file bin_reader_save_data
               (fun r ->
                  List.iter
-                   ~f:(fun (q,l) -> H.add_exn db ~key:q ~data:l)
+                   ~f:(fun (q,l) ->
+                       match H.add db ~key:q ~data:l with
+                       | `Ok -> ()
+                       | `Duplicate ->
+                         Async.Std.Log.Global.error
+                           "Duplicate key %s"
+                           (Sexp.to_string_hum ~indent:1
+                              (Query.sexp_of_t q))
+                     )
                    r;
                  return ())
           )
@@ -211,7 +221,9 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
          return ())
 
   let create_master_and_runner data ?(binary_name=Oci_Data.name data) ~error f =
-    create_master data (fun q -> simple_runner ~binary_name ~error
+    create_master data (fun q -> simple_runner
+                         ~debug_info:(Oci_Data.name data)
+                           ~binary_name ~error
                            (fun conn -> f conn q))
 
 end

@@ -59,6 +59,7 @@ val register_saver:
 val run: unit -> never_returns
 
 val start_runner:
+  debug_info:string ->
   binary_name:string ->
   (Oci_Artefact_Api.exec_in_namespace_response Deferred.t *
    Async.Std.Rpc.Connection.t Deferred.t)
