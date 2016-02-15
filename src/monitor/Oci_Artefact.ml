@@ -651,8 +651,8 @@ let start_runner ~debug_info ~binary_name =
   >>= fun () ->
   let etc = (Oci_Filename.concat rootfs "etc") in
   Unix.mkdir ~p:() etc
-  >>= fun () ->
-  Async_shell.run "cp" ["/etc/resolv.conf";"-t";etc]
+  (* >>= fun () -> *)
+  (* Async_shell.run "cp" ["/etc/resolv.conf";"-t";etc] *)
   >>= fun () ->
   Async_shell.run "chown" [User.pp_chown (master_user Root);"-R";"--";rootfs]
   >>= fun () ->
