@@ -160,12 +160,18 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
         if H.mem db q then H.remove db q;
         Deferred.Or_error.return ()
       in
+      let name = Oci_Data.name S.data in
       register_saver
-        ~name:(Oci_Data.name S.data)
+        ~name
         ~loader:(fun () ->
             permanent_directory S.data
             >>= fun dir ->
             let file = Oci_Filename.make_absolute dir "data" in
+            if not (H.is_empty db) then begin
+              Async.Std.Log.Global.error
+                "Master %s have already been loaded" name;
+              H.clear db;
+            end;
             Oci_Std.read_if_exists file bin_reader_save_data
               (fun r ->
                  List.iter
@@ -225,8 +231,6 @@ let std_log fmt = write_log Oci_Log.Standard fmt
 let err_log fmt = write_log Oci_Log.Error fmt
 let cmd_log fmt = write_log Oci_Log.Command fmt
 let cha_log fmt = write_log Oci_Log.Chapter fmt
-
-exception Internal_error [@@deriving sexp]
 
 
 exception NoResult
