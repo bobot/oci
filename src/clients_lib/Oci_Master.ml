@@ -179,17 +179,6 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
             Oci_Std.read_if_exists file bin_reader_save_data
               (fun l ->
                  debug "Master %s load %i records" name (List.length l);
-                 let l =
-                   List.dedup ~compare:(fun (a,_) (b,_) ->
-                       let c = Query.compare a b in
-                       let ha = Query.hash a in
-                       let hb = Query.hash b in
-                       if c = 0 && ha <> hb
-                       then error "Same compare hash different";
-                       c
-                     ) l
-                 in
-                 debug "Master %s load %i records" name (List.length l);
                  List.iter
                    ~f:(fun (q,l) ->
                        match H.add db ~key:q ~data:l with
@@ -210,16 +199,6 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
                     then (key,log)::acc
                     else acc
                   ) db in
-            debug "Master %s save %i records" name (List.length l);
-            let l =
-              List.dedup ~compare:(fun (a,_) (b,_) ->
-                  let c = Query.compare a b in
-                  let ha = Query.hash a in
-                  let hb = Query.hash b in
-                  if c = 0 && ha <> hb
-                  then error "Same compare hash different";
-                  c
-                ) l in
             debug "Master %s save %i records" name (List.length l);
             permanent_directory S.data
             >>= fun dir ->
