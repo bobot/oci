@@ -292,7 +292,7 @@ let run_timed_exn t ?working_dir ?env ~prog ~args () =
 
 let git_clone_id = ref (-1)
 let git_clone_dir = "/oci/git_clone/"
-(** We put the clone in a safe repository (on the same filesystem)
+(* We put the clone in a safe repository (on the same filesystem)
     so that dst can be on a tmpfs
  *)
 let git_clone t ?(user=Oci_Common.Root) ~url ~dst ~commit =

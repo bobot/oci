@@ -48,12 +48,14 @@ let () = mk_compare_n
     ~y_of_sexp:Oci_Filename.t_of_sexp
     ~sexp_of_y:Oci_Filename.sexp_of_t
     ~cmds:(fun conn revspecs x y ->
+        let revspecs =
+          String.Map.add revspecs ~key:"popop"
+            ~data:(Some (Oci_Common.Commit.to_string x)) in
         let url = "git@git.frama-c.com:soprano/popop.git" in
         commit_of_revspec conn ~url ~revspec:"master"
         >>= fun master ->
         return
-          ((String.Map.add revspecs ~key:"popop"
-              ~data:(Some (Oci_Common.Commit.to_string x))),
+          (revspecs,
            [Oci_Client.Git.git_copy_file ~url ~src:y
               ~dst:(Oci_Filename.basename y)
               (Option.value_exn ~here:[%here] master)],
@@ -61,6 +63,32 @@ let () = mk_compare_n
     ~analyse:(fun _  timed ->
         Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
     "popop_compare_n"
+
+
+let () = mk_compare_n
+    ~deps:[popop]
+    ~x_of_sexp:[%of_sexp: (String.t * String.t) List.t]
+    ~sexp_of_x:[%sexp_of: (String.t * String.t) List.t]
+    ~y_of_sexp:Oci_Filename.t_of_sexp
+    ~sexp_of_y:Oci_Filename.sexp_of_t
+    ~cmds:(fun conn revspecs x y ->
+        let revspecs = List.fold_left x ~init:revspecs
+            ~f:(fun acc (repo,rev) ->
+                String.Map.add acc ~key:repo ~data:(Some rev)) in
+          let url = "git@git.frama-c.com:soprano/popop.git" in
+          commit_of_revspec conn ~url ~revspec:"master"
+          >>= fun master ->
+          return
+            (revspecs,
+             [Oci_Client.Git.git_copy_file ~url ~src:y
+                ~dst:(Oci_Filename.basename y)
+                (Option.value_exn ~here:[%here] master)],
+             (run "popop" [Oci_Filename.basename y]))
+      )
+    ~analyse:(fun _  timed ->
+        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    "popop_all_compare_n"
+
 
 let () =
   don't_wait_for (default_cmdline ());

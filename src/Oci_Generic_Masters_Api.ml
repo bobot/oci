@@ -114,7 +114,8 @@ module CompileGitRepoRunner = struct
 
   module Result = struct
     type exit_or_signal = (* Exit_or_signal.error with bin_io, compare *)
-      [ `Exit_non_zero of int | `Signal of Signal.t ] [@@deriving sexp, bin_io, compare]
+      [ `Exit_non_zero of int | `Signal of Signal.t ]
+      [@@deriving sexp, bin_io, compare]
     type t = [
       | `Cmd of exec * (unit,exit_or_signal) Result.t * Oci_Common.Timed.t
       | `Artefact of Oci_Common.Artefact.t
@@ -185,6 +186,13 @@ module CompileGitRepo = struct
       repos: repo String.Map.t;
     } [@@deriving sexp, bin_io, compare]
 
+    let hash x =
+      2 * String.hash x.name + 3 * Hashtbl.hash x.rootfs
+      + 5 * (String.Map.fold ~init:13
+               ~f:(fun ~key:k ~data:d acc ->
+                  7 * String.hash k + Hashtbl.hash d * acc)
+               x.repos)
+
     exception MissingRepo of string
     let used_repos t =
       let rec aux m name =
@@ -203,14 +211,13 @@ module CompileGitRepo = struct
     let filter_deps_for t =
       let used_repos = used_repos t in
       {t with repos =
-                String.Map.filter t.repos
+                String.Map.filteri t.repos
                   ~f:(fun ~key ~data:_ -> String.Map.mem used_repos key)}
 
     let invariant t =
       try ignore (used_repos t); true
       with MissingRepo _ -> false
 
-    let hash = Hashtbl.hash
   end
 
   module Result = struct

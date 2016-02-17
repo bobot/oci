@@ -234,6 +234,7 @@ module Cmdline: sig
     val camomile: repo
     val ounit: repo
     val cryptokit: repo
+    val ocamlbuild: repo
   end
 
   type create_query_hook =

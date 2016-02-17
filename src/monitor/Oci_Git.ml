@@ -23,7 +23,7 @@
 
 open Core.Std
 open Async.Std
-
+open Log.Global
 
 module Git_Id : Int_intf.S = Int
 
@@ -355,7 +355,7 @@ let init ~dir ~register_saver ~identity_file:i =
   let data = Oci_Filename.make_absolute dir "data" in
   let module M = struct
     type t = {next_id: Git_Id.t;
-              db: (String.t * Git_Id.t Or_error.t) list;
+              db: (String.t * Git_Id.t) list;
              } [@@deriving bin_io]
   end in
   register_saver
@@ -364,15 +364,13 @@ let init ~dir ~register_saver ~identity_file:i =
         >>= fun () ->
         Oci_Std.read_if_exists data M.bin_reader_t
           (fun x ->
+             debug "Oci_Git load %i records" (List.length x.db);
              next_id := x.M.next_id;
              String.Table.clear db;
              List.iter
                ~f:(fun (key,data) ->
-                   match data with (** For testing *)
-                   | Error _ -> ()
-                   | Ok _ ->
                    String.Table.add_exn db ~key
-                     ~data:(return data))
+                     ~data:(return (Ok data)))
                x.M.db;
              return ())
       )
@@ -382,9 +380,12 @@ let init ~dir ~register_saver ~identity_file:i =
         let l = String.Table.fold ~init:[]
             ~f:(fun ~key ~data acc ->
                 Option.fold (Deferred.peek data)
-                  ~init:acc ~f:(fun acc data -> (key,data)::acc)
+                  ~init:acc ~f:(fun acc -> function
+                      | Error _ -> acc
+                      | Ok data -> (key,data)::acc)
               ) db in
         let r = { M.next_id = !next_id; M.db = l; } in
+        debug "Oci_Git save %i records" (List.length l);
         Writer.write_bin_prot writer M.bin_writer_t r;
         Writer.close writer
       )

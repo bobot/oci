@@ -1116,7 +1116,7 @@ module Cmdline = struct
     open Git
     let ocaml = mk_repo
         "ocaml"
-        ~url:"git@git.frama-c.com:bobot/ocaml.git"
+        ~url:"https://github.com/ocaml/ocaml.git"
         ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
         ~deps:[]
         ~cmds:[
@@ -1137,6 +1137,15 @@ module Cmdline = struct
           run "./configure" [];
           make ["all"];
           make ["opt"];
+          make ["install"];
+        ]
+
+    let ocamlbuild = mk_repo
+        "ocamlbuild"
+        ~url:"https://github.com/ocaml/ocamlbuild.git"
+        ~deps:[ocaml;ocamlfind]
+        ~cmds:[
+          make [];
           make ["install"];
         ]
 
