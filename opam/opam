@@ -7,13 +7,13 @@ homepage: "https://github.com/bobot/oci"
 license: "LGPL-2+ with OCaml linking exception"
 
 build: [
-  [make]
+  [make "PREFIX=%{prefix}%"]
 ]
 install: [
-  [make "install"]
+  [make "install" "PREFIX=%{prefix}%"]
 ]
 remove: [
-  [make "uninstall"]
+  [make "uninstall" "PREFIX=%{prefix}%"]
 ]
 
 depends: [

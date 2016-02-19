@@ -124,3 +124,5 @@ val run_exn: 'r t -> unit Deferred.t Process.with_create_args
 
 val run_timed_exn:
   'r t -> Oci_Common.Timed.t Deferred.t Process.with_create_args
+
+val oci_version: string

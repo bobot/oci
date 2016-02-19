@@ -347,3 +347,5 @@ let get_file t ~kind ~checksum ~dst =
     t.connection {checksum;dst=safe_file;kind}
   >>= fun () ->
   Unix.symlink ~src:safe_file ~dst
+
+let oci_version = Oci_Version.version
