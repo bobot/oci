@@ -243,7 +243,8 @@ module Cmdline: sig
 
   val default_cmdline:
     ?create_query_hook:create_query_hook (* experts only *) ->
-    unit -> unit Deferred.t
+    ?doc:string ->  ?version:string ->
+    string -> unit Deferred.t
   (** parse cmdline, run, and quit *)
 
   (** {2 Experts only} *)
@@ -255,3 +256,6 @@ module Cmdline: sig
     revspec:string -> url:string -> name:string -> unit
 
 end
+
+
+val oci_version: string

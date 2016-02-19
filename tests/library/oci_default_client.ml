@@ -24,5 +24,8 @@ open Core.Std
 open Async.Std
 
 let () =
-  don't_wait_for (Oci_Client.Cmdline.default_cmdline ());
+  don't_wait_for (Oci_Client.Cmdline.default_cmdline
+                    ~doc:"Oci client with masters by default"
+                    ~version:Oci_Client.oci_version
+                    "oci_default_client");
   never_returns (Scheduler.go ())

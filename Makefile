@@ -147,6 +147,5 @@ META: .config_stamp Makefile META.in
 
 # We test that the library contains the needed modules
 bin/%:tests/library/%.ml force compile
-	OCAMLFIND_IGNORE_DUPS_IN=lib:$(OCAMLFIND_IGNORE_DUPS_IN) \
 	OCAMLPATH=lib:$(OCAMLPATH) \
 	ocamlfind ocamlopt -thread -linkpkg -package oci.$(patsubst oci_default_%,%,$*) $< -o $@

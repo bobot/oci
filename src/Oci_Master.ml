@@ -326,3 +326,5 @@ let dispatch_master_log ?msg d q =
 let dispatch_master_exn ?msg d q =
   cmd_log "dispatch master %s%s" (Oci_Data.name d) (print_msg msg);
   Oci_Artefact.dispatch_master_exn d q
+
+let oci_version = Oci_Version.version

@@ -155,3 +155,5 @@ val stop_runner: Rpc.Connection.t -> unit Deferred.t
 val permanent_directory:
   ('query,'result) Oci_Data.t -> Oci_Filename.t Deferred.t
 (** Give the permanent directory for this master *)
+
+val oci_version: string
