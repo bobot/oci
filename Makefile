@@ -61,19 +61,19 @@ compile: .merlin src/Oci_Version.ml META
 	@cp $(addprefix _build/,$(addprefix src/, $(LIB))) META lib/oci
 
 install:
-	rm -rf $(LIB_INSTALL_DIR)/bin
+	rm -rf $(DESTDIR)$(LIB_INSTALL_DIR)/bin
 	ocamlfind remove oci
 	ocamlfind install oci lib/oci/*
-	@mkdir -p $(LIB_INSTALL_DIR)/bin
-	install $(addprefix bin/, $(addsuffix .native, $(INTERNAL_BINARY))) $(LIB_INSTALL_DIR)/bin
-	install bin/oci_default_master $(LIB_INSTALL_DIR)/bin
-	install bin/Oci_Monitor.native $(PREFIX)/bin/oci_monitor
-	install bin/oci_default_client $(PREFIX)/bin/oci_default_client
+	@mkdir -p $(DESTDIR)$(LIB_INSTALL_DIR)/bin $(DESTDIR)$(PREFIX)/bin
+	install $(addprefix bin/, $(addsuffix .native, $(INTERNAL_BINARY))) $(DESTDIR)$(LIB_INSTALL_DIR)/bin
+	install bin/oci_default_master $(DESTDIR)$(LIB_INSTALL_DIR)/bin
+	install bin/Oci_Monitor.native $(DESTDIR)$(PREFIX)/bin/oci_monitor
+	install bin/oci_default_client $(DESTDIR)$(PREFIX)/bin/oci_default_client
 
 uninstall:
-	rm -rf $(LIB_INSTALL_DIR)/bin
+	rm -rf $(DESTDIR)$(LIB_INSTALL_DIR)/bin
 	ocamlfind remove oci
-	rm -f $(PREFIX)/bin/oci_monitor $(PREFIX)/bin/oci_default_client
+	rm -f $(DESTDIR)$(PREFIX)/bin/oci_monitor $(DESTDIR)$(PREFIX)/bin/oci_default_client
 
 #force allows to always run the rules that depends on it
 .PHONY: force
