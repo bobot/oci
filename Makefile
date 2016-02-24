@@ -34,7 +34,6 @@ BINARY=$(INTERNAL_BINARY) $(EXTERNAL_BINARY)
 
 LIBRARY=Oci_Master Oci_Runner Oci_Client
 
-TESTS_TMP = soprano_client bf_client
 TESTS = tests_runner launch_test
 
 LIB= Oci_Common.cmi Oci_Filename.cmi Oci_Std.cmi Oci_pp.cmi		\
@@ -46,7 +45,7 @@ LIB= Oci_Common.cmi Oci_Filename.cmi Oci_Std.cmi Oci_pp.cmi		\
 	$(addsuffix .a,	$(LIBRARY))
 
 TOCOMPILE= $(addprefix src/, $(addsuffix .native,$(BINARY)) $(LIB)) \
-	$(addprefix tests/, $(addsuffix .native,$(TESTS) $(TESTS_TMP)))
+	$(addprefix tests/, $(addsuffix .native,$(TESTS)))
 
 all: compile $(addprefix bin/, $(EXTERNALLY_COMPILED_BINARY))
 
@@ -56,7 +55,6 @@ compile: .merlin src/Oci_Version.ml META
 	@mkdir -m 777 -p bin/
 	@mkdir -p lib/oci/
 	@cp $(addprefix _build/,$(addprefix src/, $(addsuffix .native, $(BINARY)))) \
-	    $(addprefix _build/,$(addprefix tests/, $(addsuffix .native, $(TESTS_TMP)))) \
 	    bin
 	@cp $(addprefix _build/,$(addprefix src/, $(LIB))) META lib/oci
 
