@@ -91,5 +91,8 @@ let () = mk_compare_n
 
 
 let () =
-  don't_wait_for (default_cmdline ());
+  don't_wait_for (default_cmdline ~doc:"Soprano client for oci"
+                    ~version:Oci_Client.oci_version
+                    "soprano_client"
+                    );
   never_returns (Scheduler.go ())

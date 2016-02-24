@@ -1032,11 +1032,10 @@ module Cmdline = struct
           $ output),
     Term.info "compare_n" ~doc ~sdocs:copts_sect ~man
 
-  let default_cmd =
-    let doc = "OCI client for Frama-C and Frama-C plugins" in
+  let default_cmd ?version ?doc name =
     let man = help_secs in
     Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
-    Term.info "bf_client" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
+    Term.info name ?version ~sdocs:copts_sect ?doc ~man
 
   let cmds create_query_hook =
     [list_rootfs_cmd; create_rootfs_cmd;
@@ -1051,8 +1050,10 @@ module Cmdline = struct
      query:query -> revspecs:revspecs -> query * revspecs) Cmdliner.Term.t
 
   let default_cmdline
-      ?(create_query_hook=Term.const default_create_query_hook) () =
-    match Term.eval_choice default_cmd (cmds create_query_hook) with
+      ?(create_query_hook=Term.const default_create_query_hook)
+      ?doc ?version name =
+    match Term.eval_choice (default_cmd ?version ?doc name)
+            (cmds create_query_hook) with
     | `Error _ -> exit 1
     | `Ok r -> begin r >>= function
       | `Ok -> Shutdown.exit 0
@@ -1257,3 +1258,5 @@ module Cmdline = struct
   end
 
 end
+
+let oci_version = Oci_Version.version

@@ -74,7 +74,7 @@ let get_id url =
         Monitor.try_with_or_error ~here:[%here] (fun () ->
             Async_shell.run "git"
               ~env:(get_env ())
-              ["clone";"--mirror";"--bare";"--";url;dst]
+              ["clone";"--mirror";"--bare";"--quiet";"--";url;dst]
             >>= fun () -> return id)
         >>> fun r ->
         Ivar.fill result r

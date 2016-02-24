@@ -198,5 +198,8 @@ En plus:
 *)
 
 let () =
-  don't_wait_for (default_cmdline ());
+  don't_wait_for (default_cmdline
+                    ~doc:"OCI client for Frama-C and Frama-C plugins"
+                    ~version:Oci_Client.oci_version
+                    "bf_client");
   never_returns (Scheduler.go ())
