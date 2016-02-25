@@ -20,6 +20,11 @@ OCI:
 - fileutils
 - textutils
 - ocamlbuild
+- ppx_here
+- ppx_fields_conv
+- ppx_compare
+- ppx_sexp_conv
+- ppx_bin_prot
 
 Of course, opam will take care of installing their dependencies as well.
 Please ensure that you truly have the latest version available of OCaml
