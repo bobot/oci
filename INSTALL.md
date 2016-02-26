@@ -30,10 +30,14 @@ Of course, opam will take care of installing their dependencies as well.
 Please ensure that you truly have the latest version available of OCaml
 and each package. OCI loves to use bleeding edge stuff.
 
+
+#### opam package
+
+There is now an opam package for oci. Thus, you should be able to install
+it directly through opam with the following command:
 ```
 opam pin add oci --kind=git "git@git.frama-c.com:bobot/oci.git#master"
 ```
-
 
 ### Compilation step
 
