@@ -75,16 +75,21 @@ let reader t =
         >>= function
         | Eof -> return ()
         | Next (q,v) ->
-        Pipe.write writer v
-        >>= fun () ->
-        get q
+          if Pipe.is_closed writer
+          then return ()
+          else
+            Pipe.write writer v
+            >>= fun () ->
+            get q
       in
       get t.first
     )
 
 
 let transfer_id t p = Pipe.transfer_id p t.source
-let add t v = Pipe.write t.source v
+let add t v =
+  assert (not (Pipe.is_closed t.source));
+  Pipe.write t.source v
 let add_without_pushback t v = Pipe.write_without_pushback t.source v
 let writer t = t.source
 

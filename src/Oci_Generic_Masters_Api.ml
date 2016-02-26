@@ -23,7 +23,7 @@
 open Core.Std
 open Oci_Std
 
-let version = 9
+let version = 10
 
 module CompileGitRepoRunner = struct
 
