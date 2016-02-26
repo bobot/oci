@@ -28,7 +28,16 @@ OCI:
 
 Of course, opam will take care of installing their dependencies as well.
 Please ensure that you truly have the latest version available of OCaml
-and each package. OCI loves to use bleeding edge stuff.
+and each package. OCI loves to use bleeding edge stuff. Note that these
+packages might not be installed at their latest version after an
+`opam install pkg`: they have complex interdependencies and the whole
+JaneStreet libraries are sometimes
+re-split in a new set of packages in a manner that can confuse
+opam. **Ensure that `opam upgrade` does not tell you that some packages have
+not been upgraded because of dependencies before continuing.** This can be
+done by explicitly asking `opam upgrade pkg` to tell that you truly want the
+latest version of `pkg`. Repeat that for all packages until
+`opam upgrade` stays silent.
 
 
 #### opam package
