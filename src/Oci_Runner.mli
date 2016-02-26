@@ -99,7 +99,6 @@ val err_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
 val cha_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
 val cmd_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
 val data_log: 'result t -> 'result -> unit
-val error_log: 'result t -> 'result Or_error.t -> unit
 
 val process_log: 'r t -> Process.t -> unit Deferred.t
 

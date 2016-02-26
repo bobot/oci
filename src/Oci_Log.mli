@@ -31,7 +31,8 @@ val color_of_kind: kind -> [> `Black | `Underscore | `Red | `Blue]
 
 type 'a data =
   | Std of kind * string
-  | Extra of 'a Or_error.t
+  | Extra of 'a
+  | End of unit Or_error.t
 [@@deriving sexp, bin_io]
 
 type 'a line = {
@@ -40,11 +41,14 @@ type 'a line = {
 } [@@deriving sexp, bin_io]
 
 val line: kind -> string -> 'a line
-val data: 'a Or_error.t -> 'a line
+val data: 'a -> 'a line
+val _end: unit Or_error.t -> 'a line
 
 val map_line: ('a -> 'b) -> 'a line -> 'b line
 
 type 'result writer = 'result line Pipe.Writer.t
+val close_writer: 'result writer -> unit Or_error.t -> unit Deferred.t
+val write_and_close: 'result writer -> 'result Or_error.t -> unit Deferred.t
 
 (** alive log *)
 
@@ -53,10 +57,10 @@ val read: 'result reader -> 'result line Pipe.Reader.t
 val init_writer: ('result writer -> unit Deferred.t) -> 'result reader
 
 val reader_stop_after:
-  f:('result Core.Std.Or_error.t -> bool) -> 'result reader -> 'result reader
+  f:('result -> bool) -> 'result reader -> 'result reader
 val reader_get_first:
-  f:('result Core.Std.Or_error.t -> bool) -> 'result reader ->
-  'result Core.Std.Or_error.t Deferred.Option.t
+  f:('result -> bool) -> 'result reader ->
+  'result Deferred.Option.t
 
 exception Closed_Log
 

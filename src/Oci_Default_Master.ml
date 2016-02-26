@@ -60,7 +60,6 @@ module MasterIntArtefact = Oci_Master.Make(Int)(Oci_Common.Artefact)
 let () =
   MasterIntArtefact.create_master_and_runner
     Tests.test_fibo_artefact_aux
-    ~error:(fun _ -> raise Exit)
     ~binary_name
     (Oci_Master.dispatch_runner_exn Tests.test_fibo_artefact_aux)
 
@@ -70,7 +69,6 @@ module MasterOcamlArtefact =
 let () =
   MasterOcamlArtefact.create_master_and_runner
     Tests.test_ocaml
-    ~error:(fun _ -> raise Exit)
     ~binary_name
     (Oci_Master.dispatch_runner_exn Tests.test_ocaml)
 

@@ -57,7 +57,14 @@ let exec_one test input sexp_input sexp_output conn =
       | {Oci_Log.data=Oci_Log.Extra r} ->
         Format.printf
           "[Result] %s@."
-          (Sexp.to_string_hum ((Or_error.sexp_of_t sexp_output) r));
+          (Sexp.to_string_hum (sexp_output r));
+        Deferred.unit
+      | {Oci_Log.data=Oci_Log.End (Error r)} ->
+        Format.printf
+          "[Anomaly] %s@."
+          (Sexp.to_string_hum (Error.sexp_of_t r));
+        Deferred.unit
+      | {Oci_Log.data=Oci_Log.End (Ok ())} ->
         Deferred.unit
     )
   >>= fun () ->

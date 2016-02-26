@@ -31,7 +31,8 @@ type kind =
 
 type 'a data =
   | Std of kind * string
-  | Extra of 'a Or_error.t
+  | Extra of 'a
+  | End of unit Or_error.t
 [@@deriving sexp, bin_io]
 
 type 'a line = {
@@ -45,11 +46,12 @@ let line kind line =
   {data=Std(kind,line);time=Time.now ()}
 let data data =
   {data=Extra data;time=Time.now ()}
+let _end e =
+  {data=End e;time=Time.now ()}
 
 let map_line f = function
-  | { data = Extra(Ok x); time } -> {data = Extra(Ok (f x)); time }
-  | { data = Extra(Error x); time } -> {data = Extra(Error x); time }
-  | { data = Std(k,s); time } -> { data = Std(k,s); time }
+  | { data = Extra x; time } -> {data = Extra(f x); time }
+  | { data = (Std _ | End _) } as x -> x
 
 let color_of_kind = function
   | Standard -> `Black
@@ -58,9 +60,26 @@ let color_of_kind = function
   | Command -> `Blue
 
 type 'result writer = 'result line Pipe.Writer.t
-type 'result reader = {mutable state: (unit -> 'result line Pipe.Reader.t)}
+let close_writer w e =
+  Pipe.write w (_end e)
+  >>= fun () ->
+  Pipe.close w;
+  Deferred.unit
 
-type 'result t = 'result line Oci_Queue.t
+let write_and_close w e =
+  begin match (e:'r Or_error.t) with
+  | Ok r ->
+    Pipe.write w (data r)
+    >>= fun () ->
+    Pipe.write w (_end (Ok ()))
+  | Error e ->
+    Pipe.write w (_end (Error e))
+  end
+  >>= fun () ->
+  Pipe.close w;
+  Deferred.unit
+
+type 'result reader = {mutable state: (unit -> 'result line Pipe.Reader.t)}
 
 let reader t = {state = fun () -> Oci_Queue.reader t}
 let read t = t.state ()
@@ -72,22 +91,16 @@ let init f =
   reader log
 let init_writer f =
   init (fun log -> f (Oci_Queue.writer log))
-let read_writer = Oci_Queue.reader
-let write_writer = Oci_Queue.writer
-let add_without_pushback = Oci_Queue.add_without_pushback
-let add = Oci_Queue.add
-let transfer = Oci_Queue.transfer_id
 
 let reader_stop_after ~f t = {
   state = fun () ->
     let reached = ref false in
     Pipe.filter (t.state ()) ~f:(function
         | _ when !reached -> false
-        | { data = Std _ } -> true
-        | { data= Extra e } when f e ->
-          reached := true;
+        | { data = (Std _ | End _) } -> true
+        | { data= Extra e } ->
+          if f e then reached := true;
           true
-        | {data= Extra _ } -> true
       )
 }
 
@@ -108,8 +121,6 @@ let reader_get_first ~f t =
     aux (t.state ())
 
 exception Closed_Log
-
-type 'a log = 'a t
 
 module Make(S: sig
     val dir: Oci_Filename.t Deferred.t
@@ -168,23 +179,23 @@ module Make(S: sig
   let writer id =
     match Table.find db_log id with
     | None -> raise Closed_Log
-    | Some (q,_) -> write_writer q
+    | Some (q,_) -> Oci_Queue.writer q
 
   let create () =
     incr next_id;
     let id = !next_id in
-    (** create the queue storage *)
+    (* create the queue storage *)
     let q = Oci_Queue.create () in
     let r = { state = fun () -> Oci_Queue.reader q } in
     Table.add_exn db_log ~key:id ~data:(q,r);
-    (** write to disk *)
+    (* write to disk *)
     don't_wait_for begin
       log_file id
       >>= fun log_file ->
       let log_file_part = Oci_Filename.add_extension log_file "part" in
       Writer.open_file log_file_part
       >>= fun writer ->
-      (** When the log end, new readers will read from the file *)
+      (* When the log end, new readers will read from the file *)
       Writer.transfer writer
         (Oci_Queue.reader q)
         (Writer.write_bin_prot writer
@@ -228,7 +239,7 @@ module Make(S: sig
           Oci_Std.read_if_exists data bin_reader_t
             (fun x -> next_id := x; return ())
           >>= fun () ->
-          (** create null file *)
+          (* create null file *)
           log_file null
             >>= fun log_file ->
           Writer.open_file log_file

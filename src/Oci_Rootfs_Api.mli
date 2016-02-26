@@ -46,7 +46,7 @@ module Rootfs : sig
     id: Rootfs_Id.t;
     info: rootfs_info;
     rootfs: Oci_Common.Artefact.t;
-  } [@@deriving sexp, bin_io, compare]
+  } [@@deriving sexp, bin_io]
 
   include Hashable.S with type t := t
 end

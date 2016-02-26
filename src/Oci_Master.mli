@@ -45,7 +45,7 @@ module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
   val create_master_and_runner:
     (Query.t,Result.t) Oci_Data.t ->
     ?binary_name:string ->
-    error:(Error.t -> Result.t) ->
+    ?error:(Error.t -> Result.t) ->
     (runner -> Query.t -> Result.t Deferred.t) ->
     unit
 
@@ -115,7 +115,7 @@ val simple_register_saver:
 val simple_runner:
   debug_info:string ->
   binary_name:string ->
-  error:(Error.t -> 'a) ->
+  ?error:(Error.t -> 'a) ->
   (runner -> 'a Deferred.t) ->
   'a Deferred.t
 

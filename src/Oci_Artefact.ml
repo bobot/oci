@@ -452,7 +452,8 @@ let dispatch_master d q =
              let r = (Direct_Master.find_exn d) q in
              let r = Oci_Log.read r in
              let r = Pipe.filter_map r ~f:(function
-                 | {Oci_Log.data = Oci_Log.Extra x} -> Some x
+                 | {Oci_Log.data = Oci_Log.Extra x} -> Some (Ok x)
+                 | {Oci_Log.data = Oci_Log.End (Error e)} -> Some (Error e)
                  | _ -> None )
              in
              Pipe.read r
@@ -481,7 +482,8 @@ let register_master
           let r = f q in
           let r = Oci_Log.read r in
           let r = Pipe.filter_map r ~f:(function
-              | {Oci_Log.data = Oci_Log.Extra x} -> Some x
+              | {Oci_Log.data = Oci_Log.Extra x} -> Some (Ok x)
+              | {Oci_Log.data = Oci_Log.End (Error r)} -> Some (Error r)
               | _ -> None )
           in
           Pipe.read r
