@@ -223,6 +223,7 @@ module Cmdline = struct
     let stdout = (Lazy.force Writer.stdout) in
     let fmt = Writer.to_formatter stdout in
     let open Textutils.Std in
+    let complete = ref false in
     Pipe.fold p ~init ~f:(fun acc -> function
         | {Oci_Log.data=Oci_Log.Std (kind,line);time}
           when Console.is_color_tty () ->
@@ -242,15 +243,24 @@ module Cmdline = struct
           return acc
         | {Oci_Log.data=Oci_Log.Extra r} ->
           Format.fprintf fmt "[Result] %a@." output_printer r;
-          return (fold acc (Ok r))
+          return (fold acc (`Ok r))
         | {Oci_Log.data=Oci_Log.End (Error r)} ->
           Format.fprintf fmt
             "[Anomaly] please report: %s"
             (Sexp.to_string_hum (Error.sexp_of_t r));
-          return (fold acc (Error r))
-        | {Oci_Log.data=Oci_Log.End (Ok ())} -> return acc
+          complete := true;
+          return (fold acc (`Error r))
+        | {Oci_Log.data=Oci_Log.End (Ok ())} ->
+          complete := true;
+          return acc
       )
     >>= fun res ->
+    let res = if !complete then res else begin
+        Format.fprintf fmt
+          "[Anomaly] incomplete log, please report.";
+        fold res `Incomplete
+      end
+    in
     Writer.flushed stdout
     >>= fun () ->
     return res
@@ -419,11 +429,11 @@ module Cmdline = struct
     create_query ccopt cq_hook rootfs revspecs repo !db_repos connection
     >>= fun query ->
     let fold acc = function
-      | Result.Ok (`Cmd (_,Ok _,_)) -> acc
-      | Result.Ok (`Cmd (_,_,_)) -> `Error
-      | Result.Ok (`Dependency_error _) -> `Error
-      | Result.Ok (`Artefact _) -> acc
-      | Result.Error _ -> `Error
+      | `Ok (`Cmd (_,Ok _,_)) -> acc
+      | `Ok (`Cmd (_,_,_)) -> `Error
+      | `Ok (`Dependency_error _) -> `Error
+      | `Ok (`Artefact _) -> acc
+      | `Error _ | `Incomplete -> `Error
     in
     exec Oci_Generic_Masters_Api.CompileGitRepo.rpc query ~fold
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
@@ -473,6 +483,7 @@ module Cmdline = struct
           (Oci_Data.log Oci_Generic_Masters_Api.CompileGitRepo.rpc)
           connection.Git.socket query
         >>= fun (p,_) ->
+        let complete = ref false in
         Pipe.fold p ~init:None ~f:(fun acc -> function
             | {Oci_Log.data=Oci_Log.Std (_,line);_} ->
               debug "[Std] %s" line;
@@ -505,10 +516,20 @@ module Cmdline = struct
                     Oci_Generic_Masters_Api.CompileGitRepo.
                       Query.sexp_of_t query))
                 (Sexp.to_string_hum (Error.sexp_of_t e));
-              return acc
+              complete := true;
+              return None
             | {Oci_Log.data=Oci_Log.End (Ok ())} ->
+              complete := true;
               return acc
           )
+        >>= fun res ->
+        return (if !complete then res else
+                  (error
+                     "[Anomaly] incomplete log for %s"
+                     (Sexp.to_string_hum (
+                         Oci_Generic_Masters_Api.CompileGitRepo.
+                           Query.sexp_of_t query));
+                   None))
       in
       Deferred.List.map
         ~how:`Parallel
