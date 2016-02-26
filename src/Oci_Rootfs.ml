@@ -221,7 +221,7 @@ let init () =
              (fun () -> Oci_Master.attach_log log
                  (fun () -> f s))
            >>= fun res ->
-           Pipe.write log (Oci_Log.data res)
+           Oci_Log.write_and_close log res
          ))
   in
   register Oci_Rootfs_Api.create_rootfs create_new_rootfs;

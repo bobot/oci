@@ -39,14 +39,14 @@ let run_dependency dep dep_name =
   let r = Oci_Master.dispatch_master_log ~msg:dep_name rpc dep in
   Oci_Log.reader_get_first r
     ~f:(function
-        | (Core_kernel.Result.Ok (`Artefact _)) -> true
-        | (Core_kernel.Result.Ok (`Dependency_error _)) -> true
+        | `Artefact _ -> true
+        | `Dependency_error _ -> true
         | _ -> false ) (* always the first result *)
   >>= function
-  | Some (Core_kernel.Result.Ok (`Artefact artefact)) ->
+  | Some (`Artefact artefact) ->
     Oci_Master.cha_log "Dependency %s done" dep_name;
     return (`Artefact artefact)
-  | Some (Core_kernel.Result.Ok (`Dependency_error s)) ->
+  | Some (`Dependency_error s) ->
     Oci_Master.err_log
       "Some dependencies of %s failed" dep_name;
     return (`Dependency_error s)
@@ -86,7 +86,8 @@ let run_git_repo rpc map_type q log =
     let repo = String.Map.find_exn q.repos q.name in
     Oci_Master.simple_runner
       ~debug_info:(sprintf "Repo %s" q.name)
-      ~binary_name ~error:(fun _ -> raise Exit) begin
+      ~binary_name
+      begin
       fun runner ->
         let log' = Pipe.init (fun log' ->
             Oci_Master.dispatch_runner_log log' rpc runner {
@@ -102,7 +103,7 @@ let run_git_repo rpc map_type q log =
           ~f:(Oci_Log.map_line map_type)
     end
   | `Dependency_error s ->
-    Pipe.write log (Oci_Log.data (Or_error.return (`Dependency_error s)))
+    Pipe.write log (Oci_Log.data (`Dependency_error s))
 
 let compile_git_repo q log =
   run_git_repo Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc
@@ -131,7 +132,7 @@ let init_compile_git_repo () =
          Oci_Log.init_writer (fun log ->
              Monitor.try_with_or_error ~here:[%here] (fun () -> f q)
              >>= fun res ->
-             Pipe.write log (Oci_Log.data res)
+             Oci_Log.write_and_close log res
            ))
   in
 

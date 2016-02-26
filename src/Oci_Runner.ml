@@ -73,11 +73,7 @@ let implement data f =
            Monitor.try_with_or_error ~here:[%here]
              (fun () -> f {connection;log=writer} q)
            >>= fun res ->
-           Pipe.write writer (Oci_Log.data res)
-           >>= fun () ->
-           Pipe.downstream_flushed writer
-           >>= fun _ ->
-           return ()
+           Oci_Log.write_and_close writer res
          ) in
        Deferred.Or_error.return reader
     )
@@ -89,26 +85,13 @@ let implement_unit data f =
     (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
        let reader = Pipe.init (fun writer ->
-         Monitor.try_with ~here:[%here]
-           (fun () ->
-              try
-                f {connection;log=writer} q
-              with StopQuery -> return ())
-         >>= fun res ->
-         begin match res with
-           | Ok () -> return ()
-           | Error StopQuery -> return ()
-           | Error err ->
-             Pipe.write writer
-               (Oci_Log.data
-                  (Or_error.of_exn
-                     ~backtrace:(`This "During runner computation")
-                     err))
-         end
-         >>= fun () ->
-         Pipe.downstream_flushed writer
-         >>= fun _ ->
-         Deferred.unit
+           Monitor.try_with_or_error ~here:[%here]
+             (fun () ->
+                try
+                  f {connection;log=writer} q
+                with StopQuery -> return ())
+           >>= fun res ->
+           Oci_Log.close_writer writer res
          )
        in
        Deferred.Or_error.return reader
@@ -128,9 +111,6 @@ let err_log t fmt = write_log Oci_Log.Error t fmt
 let cmd_log t fmt = write_log Oci_Log.Command t fmt
 let cha_log t fmt = write_log Oci_Log.Chapter t fmt
 let data_log t d =
-  Pipe.write_without_pushback t.log
-    (Oci_Log.data (Or_error.return d))
-let error_log t d =
   Pipe.write_without_pushback t.log
     (Oci_Log.data d)
 

@@ -29,10 +29,6 @@ let oci_at_shutdown = Oci_Artefact_Api.oci_at_shutdown
 
 type runner= Oci_Artefact.runner
 
-type runner_result =
-  | Exec_Ok of runner
-  | Exec_Error of string
-
 let register = Oci_Artefact.register_master
 let register_saver = Oci_Artefact.register_saver
 
@@ -79,13 +75,18 @@ let simple_register_saver ?(init=(fun () -> return ())) ~basename
       Writer.close writer
       )
 
-let simple_runner ~debug_info ~binary_name ~error f =
+let simple_runner ~debug_info ~binary_name
+    ?error f =
   start_runner ~debug_info ~binary_name
   >>= fun (err,runner) ->
   choose [
     choice (err >>= function
       | Ok () -> never ()
-      | Error s -> return s) error;
+      | Error s -> return s)
+      (match error with
+       | None -> (fun e -> invalid_argf "error %s" (Error.to_string_hum e) ())
+       | Some error -> error
+      );
     choice begin
       Monitor.protect ~here:[%here]
         ~finally:(fun () -> stop_runner runner)
@@ -100,7 +101,7 @@ let simple_master f q =
         ~name:"Oci_Master.simple_master"
         (fun () -> attach_log log (fun () -> f q))
       >>= fun res ->
-      Pipe.write log (Oci_Log.data res)
+      Oci_Log.write_and_close log res
     )
 
 let simple_master_unit f q =
@@ -108,10 +109,8 @@ let simple_master_unit f q =
       Monitor.try_with_or_error ~here:[%here]
         ~name:"Oci_Master.simple_master"
         (fun () -> attach_log log (fun () -> f q log))
-      >>= function
-      | Ok () -> return ()
-      | Error error ->
-          Pipe.write log (Oci_Log.data (Error error))
+      >>= fun res ->
+      Oci_Log.close_writer log res
     )
 
 
@@ -151,11 +150,9 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
               (fun () ->
                  let log = Log.writer log in
                  attach_log log (fun () -> f q log))
-            >>= function
-            | Ok () -> Log.close log
-            | Error r ->
-              Log.add_without_pushback log (Oci_Log.data (Error r));
-              Log.close log
+            >>= fun e ->
+            Log.add_without_pushback log (Oci_Log._end e);
+            Log.close log
           end;
           Log.reader log
       in
@@ -221,13 +218,13 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
       (fun q log ->
          f q
          >>= fun r ->
-         Pipe.write_without_pushback log (Oci_Log.data (Ok r));
+         Pipe.write_without_pushback log (Oci_Log.data r);
          return ())
 
-  let create_master_and_runner data ?(binary_name=Oci_Data.name data) ~error f =
+  let create_master_and_runner data ?(binary_name=Oci_Data.name data) ?error f =
     create_master data (fun q -> simple_runner
                          ~debug_info:(Oci_Data.name data)
-                           ~binary_name ~error
+                           ~binary_name ?error
                            (fun conn -> f conn q))
 
 end
@@ -269,14 +266,13 @@ let dispatch_runner ?msg d r q =
       | Error _ as err -> Ivar.fill r err; Deferred.unit
       | Ok (p,_) ->
         let p = Pipe.map p ~f:(function
-            | {Oci_Log.data=Oci_Log.Std _;_} as l -> l
+            | {Oci_Log.data=(Std _ | End (Ok ()));_} as l -> l
             | {Oci_Log.data=Oci_Log.Extra res} ->
-              Ivar.fill r res;
-              match res with
-              | Core_kernel.Result.Ok _ ->
-                Oci_Log.line Oci_Log.Standard "result received"
-              | Core_kernel.Result.Error _ ->
-                Oci_Log.line Oci_Log.Error "error received"
+              Ivar.fill r (Ok res);
+              Oci_Log.line Oci_Log.Standard "result received"
+            | {Oci_Log.data=Oci_Log.End (Error res)} ->
+              Ivar.fill r (Error res);
+              Oci_Log.line Oci_Log.Error "error received"
           )
         in
         upon (Pipe.closed p)
@@ -296,11 +292,11 @@ let dispatch_runner_exn ?msg d r q =
     Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log d) t q
     >>= fun (p,_) ->
     let p = Pipe.map p ~f:(function
-        | {Oci_Log.data=Oci_Log.Std _;_} as l -> l
-        | {Oci_Log.data=Oci_Log.Extra (Core_kernel.Result.Ok res)} ->
+        | {Oci_Log.data=(Std _ | End (Ok ()));_} as l -> l
+        | {Oci_Log.data=Oci_Log.Extra res} ->
           Ivar.fill_if_empty r res;
           Oci_Log.line Oci_Log.Standard "result received"
-        | {Oci_Log.data=Oci_Log.Extra (Core_kernel.Result.Error err)} ->
+        | {Oci_Log.data=Oci_Log.End (Core_kernel.Result.Error err)} ->
           Pipe.write_without_pushback log
             (Oci_Log.line Oci_Log.Error "error received");
           Error.raise err

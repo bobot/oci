@@ -241,15 +241,14 @@ module Cmdline = struct
             line;
           return acc
         | {Oci_Log.data=Oci_Log.Extra r} ->
-          begin match r with
-            | Ok r ->
-              Format.fprintf fmt "[Result] %a@." output_printer r
-            | Error e ->
-              Format.fprintf fmt
-                "[Anomaly] please report: %s"
-                (Sexp.to_string_hum (Error.sexp_of_t e))
-          end;
-          return (fold acc r)
+          Format.fprintf fmt "[Result] %a@." output_printer r;
+          return (fold acc (Ok r))
+        | {Oci_Log.data=Oci_Log.End (Error r)} ->
+          Format.fprintf fmt
+            "[Anomaly] please report: %s"
+            (Sexp.to_string_hum (Error.sexp_of_t r));
+          return (fold acc (Error r))
+        | {Oci_Log.data=Oci_Log.End (Ok ())} -> return acc
       )
     >>= fun res ->
     Writer.flushed stdout
@@ -480,7 +479,7 @@ module Cmdline = struct
               return acc
             | {Oci_Log.data=Oci_Log.Extra r} ->
               begin match r with
-                | Ok (`Cmd(exec',result,time) as r) when
+                | `Cmd(exec',result,time) as r when
                     Oci_Generic_Masters_Api.CompileGitRepoRunner.
                       compare_exec exec exec' = 0
                   ->
@@ -492,21 +491,24 @@ module Cmdline = struct
                     (Oci_pp.string_of
                        Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
                   return (analyse result time)
-                | Ok r ->
+                | r ->
                   debug
                     "[Prepare] %s@."
                     (Oci_pp.string_of
                        Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
                   return acc
-                | Error e ->
-                  error
-                    "[Anomaly] for %s please report: %s"
-                    (Sexp.to_string_hum (
-                        Oci_Generic_Masters_Api.CompileGitRepo.
-                          Query.sexp_of_t query))
-                    (Sexp.to_string_hum (Error.sexp_of_t e));
-                  return acc
-              end)
+              end
+            | {Oci_Log.data=Oci_Log.End (Error e)} ->
+              error
+                "[Anomaly] for %s please report: %s"
+                (Sexp.to_string_hum (
+                    Oci_Generic_Masters_Api.CompileGitRepo.
+                      Query.sexp_of_t query))
+                (Sexp.to_string_hum (Error.sexp_of_t e));
+              return acc
+            | {Oci_Log.data=Oci_Log.End (Ok ())} ->
+              return acc
+          )
       in
       Deferred.List.map
         ~how:`Parallel
