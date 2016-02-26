@@ -43,14 +43,22 @@ let run_dependency dep dep_name =
         | `Dependency_error _ -> true
         | _ -> false ) (* always the first result *)
   >>= function
-  | Some (`Artefact artefact) ->
+  | `Found (`Artefact artefact) ->
     Oci_Master.cha_log "Dependency %s done" dep_name;
     return (`Artefact artefact)
-  | Some (`Dependency_error s) ->
+  | `Found (`Dependency_error s) ->
     Oci_Master.err_log
       "Some dependencies of %s failed" dep_name;
     return (`Dependency_error s)
-  | _ ->
+  | `Incomplete ->
+    Oci_Master.err_log
+      "Log of dependency %s is incomplete" dep_name;
+    return (`Error (Error.of_string "incomplete dependency"))
+  | `Error _ ->
+    Oci_Master.err_log
+      "Anomaly for the dependency %s" dep_name;
+    return (`Error (Error.of_string "anomaly in a dependency"))
+  | `NotFound | `Found _ ->
     Oci_Master.err_log
       "Dependency %s failed" dep_name;
     return (`Dependency_error (String.Set.singleton dep_name))
@@ -71,11 +79,14 @@ let compile_deps =
     let result =
       List.fold artefacts ~init:(`Artefact []) ~f:(fun acc x ->
           match x, acc with
+          | _, `Error _ -> acc
           | `Artefact x, `Artefact acc -> `Artefact (x::acc)
           | `Dependency_error x, `Artefact _ -> `Dependency_error x
           | `Dependency_error x, `Dependency_error acc ->
             `Dependency_error (String.Set.union x acc)
-          | `Artefact _, `Dependency_error _ -> acc)
+          | `Artefact _, `Dependency_error _ -> acc
+          | `Error err, _ -> `Error err
+        )
     in
     return result
 
@@ -104,6 +115,7 @@ let run_git_repo rpc map_type q log =
     end
   | `Dependency_error s ->
     Pipe.write log (Oci_Log.data (`Dependency_error s))
+  | `Error err -> Error.raise err
 
 let compile_git_repo q log =
   run_git_repo Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc

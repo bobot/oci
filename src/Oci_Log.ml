@@ -108,15 +108,17 @@ let reader_get_first ~f t =
     let rec aux r =
       Pipe.read' r
       >>= function
-      | `Eof -> return None
+      | `Eof -> return `Incomplete
       | `Ok q ->
         match
           Queue.find_map q ~f:(function
-              | { data = Extra e } when f e -> Some e
+              | { data = Extra e } when f e -> Some (`Found e)
+              | { data = End (Ok ()) } -> Some `NotFound
+              | { data = End (Error err) } -> Some (`Error err)
               | _ -> None)
         with
         | None -> aux r
-        | x -> return x
+        | Some x -> return x
     in
     aux (t.state ())
 

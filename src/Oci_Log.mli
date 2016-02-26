@@ -60,7 +60,7 @@ val reader_stop_after:
   f:('result -> bool) -> 'result reader -> 'result reader
 val reader_get_first:
   f:('result -> bool) -> 'result reader ->
-  'result Deferred.Option.t
+  [`Found of 'result | `Incomplete | `NotFound | `Error of Error.t] Deferred.t
 
 exception Closed_Log
 
