@@ -1,6 +1,6 @@
 ## OCI ##
 
-Installation [INSTALL.md]. 
+[Installation instructions](INSTALL.md). 
 
 # Technical #
 
