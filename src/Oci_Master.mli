@@ -28,6 +28,8 @@ open Async.Std
 val run: unit -> never_returns
 (** Once all the masters have been registered *)
 
+type runner
+
 module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
 
   val create_master:
@@ -43,8 +45,8 @@ module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
   val create_master_and_runner:
     (Query.t,Result.t) Oci_Data.t ->
     ?binary_name:string ->
-    error:(string -> Result.t) ->
-    (Rpc.Connection.t -> Query.t -> Result.t Deferred.t) ->
+    error:(Error.t -> Result.t) ->
+    (runner -> Query.t -> Result.t Deferred.t) ->
     unit
 
 end
@@ -52,19 +54,19 @@ end
 val dispatch_runner:
   ?msg:string ->
   ('query,'result) Oci_Data.t ->
-  Rpc.Connection.t ->
+  runner ->
   'query -> 'result Or_error.t Deferred.t
 val dispatch_runner_exn:
   ?msg:string ->
   ('query,'result) Oci_Data.t ->
-  Rpc.Connection.t ->
+  runner ->
   'query -> 'result Deferred.t
 
 val dispatch_runner_log:
   ?msg:string ->
   'result Oci_Log.writer ->
   ('query,'result) Oci_Data.t ->
-  Rpc.Connection.t ->
+  runner ->
   'query -> unit Deferred.t
 
 val dispatch_master:
@@ -113,8 +115,8 @@ val simple_register_saver:
 val simple_runner:
   debug_info:string ->
   binary_name:string ->
-  error:(string -> 'a) ->
-  (Rpc.Connection.t -> 'a Deferred.t) ->
+  error:(Error.t -> 'a) ->
+  (runner -> 'a Deferred.t) ->
   'a Deferred.t
 
 val simple_master:
@@ -131,16 +133,10 @@ val register_saver:
   saver:(unit -> unit Deferred.t) ->
   unit
 
-type runner_result =
-  | Exec_Ok
-  | Exec_Error of string [@@deriving bin_io]
-
 val start_runner:
   debug_info:string ->
   binary_name:string ->
-  (runner_result Deferred.t *
-   Async.Std.Rpc.Connection.t Deferred.t)
-    Async.Std.Deferred.t
+  (unit Or_error.t Deferred.t * runner) Async.Std.Deferred.t
 (** Start the given runner in a namespace and start an Rpc connection.
     `start_runner ~binary_name` start the executable
     [binary_name^".native"] located in the directory of binaries.
@@ -149,8 +145,8 @@ val start_runner:
     connection is established.
 *)
 
-val stop_runner: Rpc.Connection.t -> unit Deferred.t
-(** Ask the runner to stop *)
+val stop_runner: runner -> unit Deferred.t
+(** Ask or force the runner to stop *)
 
 val permanent_directory:
   ('query,'result) Oci_Data.t -> Oci_Filename.t Deferred.t

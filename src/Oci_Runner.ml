@@ -51,6 +51,7 @@ let start ~implementations =
     Rpc.Connection.create
       ~implementations
       ~connection_state:(fun c -> c)
+      ~description:(Info.createf "Runner (%s) <-> Master" Sys.executable_name)
       reader writer
     >>> fun conn ->
     let conn = Result.ok_exn conn in

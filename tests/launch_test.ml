@@ -136,6 +136,7 @@ let _ =
   >>= fun (_,reader,writer) ->
   Rpc.Connection.create
     ~connection_state:(fun _ -> ())
+    ~description:(Info.of_string "launch_test <-> Master")
     reader writer
   >>= fun conn ->
   let conn = Result.ok_exn conn in

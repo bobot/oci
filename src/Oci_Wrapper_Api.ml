@@ -49,4 +49,5 @@ type parameters = {
   cgroup: string option;
   (** move to the given cgroup *)
   initial_cpuset: Int.t List.t option;
+  runner_id: Int.t;
 } [@@deriving sexp, bin_io]

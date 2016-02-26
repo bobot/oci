@@ -26,6 +26,8 @@ open Async.Std
 
 type t = Oci_Common.Artefact.t
 
+type runner
+
 val create:
   prune:Oci_Filename.t list ->
   rooted_at:Oci_Filename.t ->
@@ -61,12 +63,15 @@ val run: unit -> never_returns
 val start_runner:
   debug_info:string ->
   binary_name:string ->
-  (Oci_Artefact_Api.exec_in_namespace_response Deferred.t *
-   Async.Std.Rpc.Connection.t Deferred.t)
-    Async.Std.Deferred.t
+  (unit Or_error.t Deferred.t * runner) Async.Std.Deferred.t
 (** Start the given runner in a namespace and start an Rpc connection.
     `start_runner ~binary_name` start the executable
     [binary_name^".native"] located in the directory of binaries *)
+
+val runner_conn: runner -> Async.Std.Rpc.Connection.t Deferred.t option
+val runner_conn_or_never: runner -> Async.Std.Rpc.Connection.t Deferred.t
+
+val stop_runner: runner -> unit Deferred.t
 
 val permanent_directory:
   ('query,'result) Oci_Data.t -> Oci_Filename.t Deferred.t

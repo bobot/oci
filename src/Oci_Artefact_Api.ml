@@ -45,16 +45,17 @@ let get_configuration = Rpc.Rpc.create
     ~bin_query:Unit.bin_t
     ~bin_response:bin_artefact_api
 
-type exec_in_namespace_response =
-  | Exec_Ok
-  | Exec_Error of string
-[@@deriving bin_io]
+let rpc_kill_runner = Rpc.Rpc.create
+    ~name:"Oci_Monitor.kill_runner"
+    ~version:1
+    ~bin_query:Int.bin_t (* runner_id *)
+    ~bin_response:Unit.bin_t
 
 let exec_in_namespace = Rpc.Rpc.create
     ~name:"Oci_Monitor.exec_in_namespace"
     ~version:1
     ~bin_query:Oci_Wrapper_Api.bin_parameters
-    ~bin_response:bin_exec_in_namespace_response
+    ~bin_response:(Or_error.bin_t Unit.bin_t)
 
 let start_in_namespace
     ?implementations ~initial_state
@@ -83,8 +84,14 @@ let start_in_namespace
     >>= fun () ->
     Unix.unlink named_pipe_out
     >>= fun () ->
+    let description =
+      Info.create ~here:[%here]
+        (sprintf "runner %i" parameters.Oci_Wrapper_Api.runner_id)
+        parameters Oci_Wrapper_Api.sexp_of_parameters
+    in
     Rpc.Connection.create
       ~connection_state:(fun _ -> initial_state)
+      ~description
       ?implementations
       reader
       writer
@@ -188,6 +195,7 @@ let rpc_get_file =
     ~bin_query:bin_rpc_get_file
     ~bin_response:Unit.bin_t
 
+(** ask a runner to stop nicely *)
 let rpc_stop_runner =
   Rpc.Rpc.create
     ~name:"Oci_Runner.stop_runner"

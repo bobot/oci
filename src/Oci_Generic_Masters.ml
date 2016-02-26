@@ -41,7 +41,7 @@ let run_dependency dep dep_name =
     ~f:(function
         | (Core_kernel.Result.Ok (`Artefact _)) -> true
         | (Core_kernel.Result.Ok (`Dependency_error _)) -> true
-        | _ -> false ) (** always the first result *)
+        | _ -> false ) (* always the first result *)
   >>= function
   | Some (Core_kernel.Result.Ok (`Artefact artefact)) ->
     Oci_Master.cha_log "Dependency %s done" dep_name;
@@ -66,7 +66,7 @@ let compile_deps =
           let dep = Query.filter_deps_for {q with name = dep_name} in
           run_dependency dep dep_name
         )
-    (** The order of the application of the artefact is not relevant *)
+    (* The order of the application of the artefact is not relevant *)
     >>= fun artefacts ->
     let result =
       List.fold artefacts ~init:(`Artefact []) ~f:(fun acc x ->
@@ -87,9 +87,9 @@ let run_git_repo rpc map_type q log =
     Oci_Master.simple_runner
       ~debug_info:(sprintf "Repo %s" q.name)
       ~binary_name ~error:(fun _ -> raise Exit) begin
-      fun conn ->
+      fun runner ->
         let log' = Pipe.init (fun log' ->
-            Oci_Master.dispatch_runner_log log' rpc conn {
+            Oci_Master.dispatch_runner_log log' rpc runner {
               Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.rootfs =
                 q.rootfs;
               cmds=repo.cmds;
@@ -121,7 +121,7 @@ let init_compile_git_repo () =
     Oci_Generic_Masters_Api.CompileGitRepo.rpc
     compile_git_repo;
 
-  (** Xpra *)
+  (* Xpra *)
   Oci_Master.register Oci_Generic_Masters_Api.XpraGitRepo.rpc
     (Oci_Master.simple_master_unit xpra_git_repo);
 
@@ -135,38 +135,38 @@ let init_compile_git_repo () =
            ))
   in
 
-  (** Commit of revspec *)
+  (* Commit of revspec *)
   register_simple_rpc
     Oci_Generic_Masters_Api.GitCommitOfRevSpec.rpc
     (fun q ->
        Oci_Git.commit_of_revspec ~url:q.url ~revspec:q.revspec);
 
-  (** Commit of branch *)
+  (* Commit of branch *)
   register_simple_rpc
     Oci_Generic_Masters_Api.GitCommitOfBranch.rpc
     (fun q ->
        Oci_Git.commit_of_branch ~url:q.url ~branch:q.branch);
 
-  (** merge base *)
+  (* merge base *)
   register_simple_rpc
     Oci_Generic_Masters_Api.GitMergeBase.rpc
     (fun q ->
        Oci_Git.merge_base ~url:q.url q.commit1 q.commit1);
 
-  (** last commit before *)
+  (* last commit before *)
   register_simple_rpc
     Oci_Generic_Masters_Api.GitLastCommitBefore.rpc
     (fun q ->
        Oci_Git.last_commit_before ~url:q.url ~branch:q.branch
          ~time:q.time);
 
-  (** time of commit *)
+  (* time of commit *)
   register_simple_rpc
     Oci_Generic_Masters_Api.GitTimeOfCommit.rpc
     (fun q ->
        Oci_Git.time_of_commit ~url:q.url ~commit:q.commit);
 
-  (** download_file *)
+  (* download_file *)
   register_simple_rpc
     Oci_Generic_Masters_Api.WgetDownloadFile.rpc
     (fun q ->

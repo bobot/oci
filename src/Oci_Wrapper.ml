@@ -87,7 +87,7 @@ let mount_base dir =
     ~flags:[MS_NOSUID; MS_STRICTATIME; MS_NODEV]
     ~option:"mode=755,uid=0,gid=0" ();
 
-  (** for aptitude *)
+  (* for aptitude *)
   mkdir (Filename.concat dir "/run/lock")
 
 let do_chroot dest =
@@ -159,7 +159,7 @@ open Oci_Wrapper_Api
 let set_usermap idmaps pid =
   assert (idmaps <> []);
   let call cmd proj =
-    (** newuidmap pid uid loweruid count [uid loweruid count [ ... ]] *)
+    (* newuidmap pid uid loweruid count [uid loweruid count [ ... ]] *)
     let argv = List.fold_left ~f:(fun acc idmap ->
         idmap.length_id::(proj idmap.extern_id)::(proj idmap.intern_id)::acc
       ) ~init:[Pid.to_int pid] idmaps in
@@ -178,12 +178,12 @@ let do_as_the_child_on_error pid =
 let goto_child ~exec_in_parent =
   let fin,fout = Unix.pipe () in
   match Unix.fork () with
-  | `In_the_child -> (** child *)
+  | `In_the_child -> (* child *)
     Unix.close fout;
     ignore (Unix.read fin ~buf:(Bytes.create 1) ~pos:0 ~len:1);
     Unix.close fin
   | `In_the_parent pid ->
-    (** execute the command and wait *)
+    (* execute the command and wait *)
     Unix.close fin;
     (exec_in_parent pid: unit);
     ignore (Unix.write fout ~buf:(Bytes.create 1) ~pos:0 ~len:1);
@@ -194,7 +194,7 @@ let goto_child ~exec_in_parent =
 let exec_in_child (type a) f =
   let fin,fout = Unix.pipe () in
   match Unix.fork () with
-  | `In_the_child -> (** child *)
+  | `In_the_child -> (* child *)
     Unix.close fout;
     let cin = Unix.in_channel_of_descr fin in
     let arg = (Marshal.from_channel cin : a) in
@@ -213,7 +213,7 @@ let exec_in_child (type a) f =
 
 let exec_now_in_child f arg =
   match Unix.fork () with
-  | `In_the_child -> (** child *)
+  | `In_the_child -> (* child *)
     f arg;
     exit 0
   | `In_the_parent pid ->
@@ -221,7 +221,7 @@ let exec_now_in_child f arg =
 
 let just_goto_child () =
   match Unix.fork () with
-  | `In_the_child -> (** child *) ()
+  | `In_the_child -> (* child *) ()
   | `In_the_parent pid ->
     do_as_the_child_on_error pid;
     exit 0
@@ -248,7 +248,7 @@ let send_pid pid =
   Out_channel.close cout
 
 let go_in_userns idmaps =
-  (** the usermap can be set only completely outside the namespace, so we
+  (* the usermap can be set only completely outside the namespace, so we
       keep a child for doing that when we have a pid completely inside the
       namespace *)
   let call_set_usermap = exec_in_child (set_usermap idmaps) in
@@ -258,7 +258,7 @@ let go_in_userns idmaps =
             CLONE_NEWUTS;
             CLONE_NEWUSER;
           ];
-  (** only the child will be in the new pid namespace, the parent is in an
+  (* only the child will be in the new pid namespace, the parent is in an
       intermediary state not interesting *)
   goto_child ~exec_in_parent:(fun pid ->
       send_pid pid;
@@ -268,7 +268,7 @@ let go_in_userns idmaps =
   (* Printf.printf "User: %i (%i)\n%!" (Unix.getuid ()) (Unix.geteuid ()); *)
 
 let test_overlay () =
-  (** for test *)
+  (* for test *)
   let test = "/overlay" in
   let ro = Filename.concat test "ro" in
   let rw = Filename.concat test "rw" in
@@ -285,7 +285,7 @@ let () =
     exit 1
   end;
   Unix.handle_unix_error begin fun () ->
-    (** remove the process from the group of the process monitor, and
+    (* remove the process from the group of the process monitor, and
     detach it from the controlling terminal. It allows to manage the
     shutdown nicely *)
     let _sessionid = Core.Std.Caml.Unix.setsid () in
@@ -298,12 +298,12 @@ let () =
     test_userns_availability ();
     (* Option.iter param.rootfs ~f:(mkdir ~perm:0o750); *)
     go_in_userns param.idmaps;
-    (** make the mount private and mount basic directories *)
+    (* make the mount private and mount basic directories *)
     if param.bind_system_mount then
       mount_base param.rootfs;
-    (** chroot in the directory *)
+    (* chroot in the directory *)
     Unix.chdir param.rootfs;
-    (** group must be changed before uid... *)
+    (* group must be changed before uid... *)
     setresgid param.rungid param.rungid param.rungid;
     setresuid param.runuid param.runuid param.runuid;
     if not (Sys.file_exists_exn param.command) then begin
