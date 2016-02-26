@@ -33,12 +33,42 @@ type used_procs =
 
 let dumb_used_procs = SemiFreezed
 
-type runners_data = {
+type runner = {
+  id: Int.t;
+  mutable conn: [`Init | `Closed | `Stopped
+                | `Ok of Rpc.Connection.t Deferred.t];
   rootfs: Oci_Filename.t;
   mutable used_procs: used_procs;
   cgroup: string;
   mutable closed: bool;
 }
+
+let runner_conn r =
+  match r.conn with
+  | `Init -> assert false (* absurd: Nothing use the connection before
+                             unsetting `Init *)
+  | `Stopped | `Closed -> None
+  | `Ok conn -> Some conn
+
+
+let runner_conn_or_never r =
+  match r.conn with
+  | `Init -> assert false (* absurd: Nothing use the connection before
+                             unsetting `Init *)
+  | `Stopped | `Closed -> never ()
+  | `Ok conn -> conn
+
+let _runner_conn_exn r =
+  match r.conn with
+  | `Init -> assert false (* absurd: Nothing use the connection before
+                             unsetting `Init *)
+  | `Closed -> invalid_argf "connection closed" ()
+  | `Stopped -> invalid_argf "runner stopped" ()
+  | `Ok conn ->
+    Option.value_exn
+      ~here:[%here]
+      ~message:"The connection is not initialized"
+      (Deferred.peek conn)
 
 type conf = {
   mutable last_artefact_id: Int.t;
@@ -55,7 +85,7 @@ type conf = {
   mutable last_external_access_id: Int.t;
   (** permanent storage for masters *)
   conf_monitor: Oci_Artefact_Api.artefact_api;
-  api_for_runner: runners_data Rpc.Implementations.t;
+  api_for_runner: runner Rpc.Implementations.t;
   proc: Int.t List.t Pipe.Reader.t * Int.t List.t Pipe.Writer.t;
 }
 
@@ -64,14 +94,25 @@ let gconf = Ivar.read gconf_ivar
 
 type t = Oci_Common.Artefact.t
 
-exception Can't_copy_this_file of Oci_Filename.t [@@deriving sexp]
-
 let get_conf () =
   Option.value_exn
     ~message:"Configuration can't be used before starting the `run` function"
     (Deferred.peek gconf)
 
-
+let stop_runner r =
+  let conf = get_conf () in
+  match runner_conn r with
+  | None ->
+    Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_kill_runner conf.conn_monitor r.id
+  | Some conn ->
+    conn
+    >>= fun conn ->
+    Monitor.protect
+      ~finally:(fun () ->
+          Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_kill_runner
+            conf.conn_monitor r.id
+        )
+      (fun () -> Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_stop_runner conn ())
 
 let dir_of_artefact id =
   let dir = Oci_Filename.mk (Artefact.to_string id) in
@@ -80,6 +121,8 @@ let dir_of_artefact id =
   else Some (Oci_Filename.make_absolute (get_conf ()).storage dir)
 
 (*
+exception Can't_copy_this_file of Oci_Filename.t [@@deriving sexp]
+
 let rec copydir
     ~hardlink ~prune_file ~prune_user
     ~chown:({User.uid;gid} as chown) src dst =
@@ -171,7 +214,7 @@ let create ~prune ~rooted_at ~only_new ~src =
     conf.last_artefact_id <- conf.last_artefact_id + 1;
     let id = Artefact.of_int_exn conf.last_artefact_id in
     match dir_of_artefact id with
-    | None -> assert false (** absurd: it can't be Artefact.empty *)
+    | None -> assert false (* absurd: it can't be Artefact.empty *)
     | Some dst ->
       Sys.file_exists_exn (Oci_Filename.get dst)
       >>= fun b ->
@@ -427,8 +470,6 @@ let dispatch_master_log d q =
   debug "%s called from a master" (Oci_Data.name d);
   (Direct_Master.find_exn d) q
 
-
-
 let register_master
     ?(forget=fun _ -> Deferred.Or_error.return ())
     data (f: 'query -> 'result Oci_Log.reader) : unit =
@@ -513,7 +554,7 @@ let add_artefact_api init =
     Rpc.Rpc.implement rpc f
   in
   List.fold_left ~f:Rpc.Implementations.add_exn ~init [
-    (** create *)
+    (* create *)
     implement_when_open
       Oci_Artefact_Api.rpc_create
       (fun {rootfs} {Oci_Artefact_Api.src;prune;rooted_at;only_new} ->
@@ -532,7 +573,7 @@ let add_artefact_api init =
            ~src:(reparent src)
            ~only_new
       );
-    (** link_to *)
+    (* link_to *)
     implement_when_open
       Oci_Artefact_Api.rpc_link_to
       (fun {rootfs} (user,artefact,dst) ->
@@ -541,7 +582,7 @@ let add_artefact_api init =
          let dst = Oci_Filename.make_absolute rootfs dst in
          link_to_gen (Oci_Common.master_user user) artefact dst
       );
-    (** copy_to *)
+    (* copy_to *)
     implement_when_open
       Oci_Artefact_Api.rpc_copy_to
       (fun {rootfs} (user,artefact,dst) ->
@@ -550,20 +591,20 @@ let add_artefact_api init =
          let dst = Oci_Filename.make_absolute rootfs dst in
          copy_to_gen (Oci_Common.master_user user) artefact dst
       );
-    (** get_internet *)
+    (* get_internet *)
     implement_when_open
       Oci_Artefact_Api.rpc_get_internet
       (fun {rootfs} () ->
          let resolv = "etc/resolv.conf" in
          let src = Oci_Filename.make_absolute "/" resolv in
          let dst = Oci_Filename.make_absolute rootfs resolv in
-         (** some distribution symlink /etc/resolv.conf to
+         (* some distribution symlink /etc/resolv.conf to
              /run/resolve/resolv.conf *)
          Oci_Std.unlink_no_fail dst
          >>= fun () ->
          Async_shell.run "cp" ["--";src;dst]
       );
-    (** git_clone *)
+    (* git_clone *)
     implement_when_open
       Oci_Artefact_Api.rpc_git_clone
       (fun {rootfs}
@@ -572,7 +613,7 @@ let add_artefact_api init =
         let dst = Oci_Filename.make_absolute rootfs dst in
         Oci_Git.clone ~user ~url ~dst ~commit
       );
-    (** git_show_file *)
+    (* git_show_file *)
     implement_when_open
       Oci_Artefact_Api.rpc_git_copy_file
       (fun {rootfs}
@@ -581,7 +622,7 @@ let add_artefact_api init =
         let dst = Oci_Filename.make_absolute rootfs dst in
         Oci_Git.copy_file ~user ~url ~src ~dst ~commit
       );
-    (** get_file *)
+    (* get_file *)
     implement_when_open
       Oci_Artefact_Api.rpc_get_file
       (fun {rootfs}
@@ -590,7 +631,7 @@ let add_artefact_api init =
         let dst = Oci_Filename.make_absolute rootfs dst in
         Oci_Wget.get_file ~dst ~kind ~checksum
       );
-    (** give_external_access *)
+    (* give_external_access *)
     implement_when_open
       Oci_Artefact_Api.rpc_give_external_access
       (fun {rootfs} src ->
@@ -608,7 +649,7 @@ let add_artefact_api init =
         >>= fun () ->
         return dst
       );
-    (** get_or_release *)
+    (* get_or_release *)
     implement_when_open
       Oci_Artefact_Api.rpc_get_or_release_proc
       (fun d requested ->
@@ -646,7 +687,8 @@ let start_runner ~debug_info ~binary_name =
   let rootfs = Oci_Filename.concat (get_conf ()).runners
       (Oci_Filename.mk (string_of_int runner_id)) in
   let cgroup = sprintf "runner%i" runner_id in
-  let initial_state = {rootfs;used_procs;cgroup;closed=false} in
+  let initial_state = {id=runner_id;
+                       conn=`Init;rootfs;used_procs;cgroup;closed=false} in
   Unix.mkdir ~p:() (Oci_Filename.concat rootfs "oci")
   >>= fun () ->
   let etc = (Oci_Filename.concat rootfs "etc") in
@@ -661,6 +703,7 @@ let start_runner ~debug_info ~binary_name =
       (Oci_Filename.add_extension binary_name "native") in
   let named_pipe = Oci_Filename.concat "oci" "oci_runner" in
   let parameters : Oci_Wrapper_Api.parameters = {
+    runner_id;
     rootfs = rootfs;
     idmaps =
       Oci_Wrapper_Api.idmaps
@@ -686,13 +729,14 @@ let start_runner ~debug_info ~binary_name =
       ~exec_in_namespace ~parameters
       ~implementations:conf.api_for_runner
       ~initial_state
-      ~named_pipe:(Oci_Filename.concat rootfs named_pipe) () in
+      ~named_pipe:(Oci_Filename.concat rootfs named_pipe) ()
+  in
+  r
+  >>= fun (result,conn) ->
   begin
-    r
-    >>> fun (result,_) ->
     result
     >>> fun _ -> begin
-      initial_state.closed <- true;
+      initial_state.conn <- `Closed;
       initial_state.used_procs <- release_all_proc initial_state.used_procs;
       if conf.conf_monitor.cleanup_rootfs
       then Async_shell.run "rm" ["-rf";"--";rootfs]
@@ -700,7 +744,8 @@ let start_runner ~debug_info ~binary_name =
     end >>> fun () ->
     ()
   end;
-  r
+  initial_state.conn <- `Ok conn;
+  return (result, initial_state)
 
 let conn_monitor () =
   let implementations =
@@ -715,9 +760,11 @@ let conn_monitor () =
   >>= fun reader ->
   Writer.open_file (named_pipe^".out")
   >>= fun writer ->
+  let description = Info.of_string "Master <-> Monitor" in
   Rpc.Connection.create
     ~implementations
     ~connection_state:(fun _ -> ())
+    ~description
     reader writer
   >>= fun conn ->
   let conn = Result.ok_exn conn in
@@ -765,7 +812,7 @@ let run () =
        conf.storage; conf.permanent;
        conf.log; conf.git; conf.wget]
     >>> fun () ->
-    (** Copy binaries *)
+    (* Copy binaries *)
     Sys.ls_dir conf_monitor.binaries
     >>> fun files ->
     let files = List.filter_map
@@ -780,7 +827,7 @@ let run () =
                               files)
     end
     >>> fun () ->
-    (** Write ssh key *)
+    (* Write ssh key *)
     Deferred.Option.bind
       (return conf.conf_monitor.identity_file)
       (fun src ->
@@ -816,12 +863,15 @@ let run () =
     >>> fun () ->
     Rpc.Connection.serve
       ~where_to_listen:(Tcp.on_file socket)
-      ~initial_connection_state:(fun _ _ -> {rootfs="external socket";
-                                             used_procs=dumb_used_procs;
-                                             cgroup="external socket";
-                                             (** not an open runner *)
-                                             closed=true;
-                                            })
+      ~initial_connection_state:(fun _ _ -> {
+            id = -2;
+            conn = `Init;
+            rootfs="external socket";
+            used_procs=dumb_used_procs;
+            cgroup="external socket";
+            (* not an open runner *)
+            closed=true;
+          })
       ~implementations:!masters
       ()
     >>> fun server ->

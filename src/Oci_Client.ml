@@ -573,6 +573,7 @@ module Cmdline = struct
     >>= fun (_,reader,writer) ->
     Rpc.Connection.create
       ~connection_state:(fun _ -> ())
+      ~description:(Info.of_string "Client <-> Master")
       reader writer
     >>= fun socket ->
     let socket = Result.ok_exn socket in

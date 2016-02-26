@@ -67,16 +67,6 @@ let () =
       Deferred.ignore (Pipe.upstream_flushed stderr_pipe)
     )
 
-let oci_wrapper =
-  Oci_Filename.concat
-    (Oci_Filename.dirname Sys.executable_name)
-    "Oci_Wrapper.native"
-
-let oci_simple_exec =
-  Oci_Filename.concat
-    (Oci_Filename.dirname Sys.executable_name)
-    "Oci_Simple_Exec.native"
-
 type process = {
   wrapper : Process.t;
   wrapped : Pid.t;
@@ -93,11 +83,17 @@ type conf = {
   mutable conn_to_artefact: Rpc.Connection.t option;
   mutable wait_to_artefact: unit Deferred.t option;
   wrappers_dir : Oci_Filename.t;
-  running_processes: process Bag.t;
+  running_processes: process Int.Table.t;
   cgroup: string option;
   cpuset_available: bool;
+  binaries: Oci_Filename.t;
 }
 
+let oci_wrapper conf =
+  Oci_Filename.concat conf.binaries "Oci_Wrapper.native"
+
+let oci_simple_exec conf =
+  Oci_Filename.concat conf.binaries "Oci_Simple_Exec.native"
 
 let cleanup_running_processes conf () =
   begin match conf.wait_to_artefact with
@@ -118,16 +114,16 @@ let cleanup_running_processes conf () =
          end)
   end
   >>= fun () ->
-  Bag.iter
-    ~f:(fun process ->
+  Int.Table.iteri
+    ~f:(fun ~key:_ ~data:process ->
         if not (Deferred.is_determined process.wrapper_wait) then begin
           debug "Send kill signal to %s" (Pid.to_string process.wrapped);
           Signal.send_i Signal.kill (`Pid process.wrapped)
         end)
     conf.running_processes;
   conf.running_processes
-  |> Bag.fold
-    ~f:(fun acc process ->
+  |> Int.Table.fold
+    ~f:(fun ~key:_ ~data:process acc ->
         (Deferred.ignore process.wrapper_wait)::acc)
     ~init:[]
   |> Deferred.all_unit
@@ -153,7 +149,7 @@ let create_cgroup ~conf cgroup_name =
 let exec_in_namespace =
   let wrapper_id = ref (-1) in
   fun conf parameters ->
-    (** create_cgroup *)
+    (* create_cgroup *)
     create_cgroup ~conf parameters.Oci_Wrapper_Api.cgroup
     >>= fun cgroup ->
     let parameters = {parameters with cgroup;
@@ -162,7 +158,7 @@ let exec_in_namespace =
                                         then parameters.initial_cpuset
                                         else None
                      } in
-    (** create communication channel *)
+    (* create communication channel *)
     incr wrapper_id;
     let named_pipe = Oci_Filename.make_absolute conf.wrappers_dir
         (Printf.sprintf "wrappers%i" !wrapper_id)  in
@@ -172,10 +168,10 @@ let exec_in_namespace =
     >>= fun () ->
     Unix.mkfifo named_pipe_out
     >>= fun () ->
-    Process.create ~prog:oci_wrapper ~args:[named_pipe] ()
+    Process.create ~prog:(oci_wrapper conf) ~args:[named_pipe] ()
     >>! fun wrapper ->
     debug "Oci_Wrapper started";
-    (** possible race for the addition to running_process *)
+    (* possible race for the addition to running_process *)
     send_process_to_stderr wrapper;
     Writer.close (Process.stdin wrapper)
     >>= fun () ->
@@ -199,29 +195,53 @@ let exec_in_namespace =
       Reader.close reader
       >>= fun () ->
       error "The pid of the wrapped program can't be read";
-      return (Oci_Artefact_Api.Exec_Error "Wrapper error: can't get pid")
+      return (Or_error.error_string "Wrapper error: can't get pid")
     | `Ok wrapped ->
-      debug "Oci_Wrapper pid %s received" (Pid.to_string wrapped);
+      debug "Oci_Wrapper: runner %i has pid %s"
+        parameters.runner_id (Pid.to_string wrapped);
       let process_info = {
         wrapper; wrapped; wrapper_wait = Process.wait wrapper;
       } in
-      let elt = Bag.add conf.running_processes process_info in
+      Int.Table.add_exn conf.running_processes ~key:parameters.runner_id
+        ~data:process_info;
       Reader.close reader
       >>= fun () ->
       process_info.wrapper_wait
       >>= fun res ->
-      debug "Wrapped program %s ended" (Pid.to_string wrapped);
-      Bag.remove conf.running_processes elt;
+      debug "Wrapped program %s for runner %i ended" (Pid.to_string wrapped)
+        parameters.runner_id;
+      Int.Table.remove conf.running_processes parameters.runner_id;
       match res with
-      | Ok () -> return Oci_Artefact_Api.Exec_Ok
+      | Ok () -> return (Or_error.return ())
       | Error _ as s ->
         error "The following program stopped with this error %s:\n%s\n"
           (Unix.Exit_or_signal.to_string_hum s)
           (Sexp.to_string_hum (Oci_Wrapper_Api.sexp_of_parameters parameters));
-        return (Oci_Artefact_Api.Exec_Error
+        return (Or_error.error_string
                   (Unix.Exit_or_signal.to_string_hum s))
 
-let compute_conf ~oci_data ~cgroup ~cpuset_available =
+let kill_runner conf i =
+  match Int.Table.find conf.running_processes i with
+  | None -> return ()
+  | Some process_info ->
+    Deferred.choose [
+      Deferred.choice
+        (Clock.after (Time.Span.create ~ms:500 ()))
+        (fun () -> `Kill);
+      Deferred.choice
+        process_info.wrapper_wait
+        (fun _ -> `Done)
+    ]
+    >>= function
+    | `Done -> return ()
+    | `Kill ->
+      match Signal.send Signal.kill (`Pid process_info.wrapped) with
+      | `No_such_process -> return ()
+      | `Ok ->
+        Deferred.ignore (process_info.wrapper_wait)
+
+
+let compute_conf ~oci_data ~cgroup ~binaries ~cpuset_available =
   User_and_group.for_this_process_exn ()
   >>= fun ug ->
   let current_user = {User.uid=Unix.getuid ();gid=Unix.getgid ()} in
@@ -241,9 +261,10 @@ let compute_conf ~oci_data ~cgroup ~cpuset_available =
                 wait_to_artefact=None;
                 wrappers_dir =
                   Oci_Filename.make_absolute oci_data "wrappers";
-                running_processes = Bag.create ();
+                running_processes = Int.Table.create ();
                 cgroup;
                 cpuset_available;
+                binaries;
                } in
     Async_shell.run "mkdir" ["-p";"--";oci_data]
     >>= fun () ->
@@ -285,6 +306,7 @@ let start_master ~conf ~master ~oci_data ~binaries
     workdir = None;
     cgroup = Some "master";
     initial_cpuset = Some master_proc;
+    runner_id = -1;
   } in
   let implementations = Rpc.Implementations.create_exn
       ~on_unknown_rpc:`Raise
@@ -300,7 +322,7 @@ let start_master ~conf ~master ~oci_data ~binaries
              >>= fun identity_file ->
              return {Oci_Artefact_Api.binaries;
                      oci_data;
-                     oci_simple_exec;
+                     oci_simple_exec = oci_simple_exec conf;
                      first_user_mapped = conf.first_user_mapped;
                      debug_level = verbosity = `Debug;
                      cleanup_rootfs;
@@ -310,6 +332,8 @@ let start_master ~conf ~master ~oci_data ~binaries
                     });
         Rpc.Rpc.implement Oci_Artefact_Api.exec_in_namespace
           (fun () -> exec_in_namespace conf);
+        Rpc.Rpc.implement Oci_Artefact_Api.rpc_kill_runner
+          (fun () -> kill_runner conf);
         Rpc.Rpc.implement Oci_Artefact_Api.set_cpuset
           (fun () (a:Oci_Artefact_Api.set_cpuset) ->
              if conf.cpuset_available then
@@ -332,13 +356,14 @@ let start_master ~conf ~master ~oci_data ~binaries
   conf.wait_to_artefact <- Some (error >>= fun _ -> return ());
   choose [
     choice error (function
-        | Oci_Artefact_Api.Exec_Ok when Oci_Artefact_Api.oci_shutting_down () ->
+        | Ok () when Oci_Artefact_Api.oci_shutting_down () ->
           info "master stopped for shutdown"
-        | Oci_Artefact_Api.Exec_Ok ->
+        | Ok () ->
           info "master stopped unexpectedly but normally";
           Shutdown.shutdown 1
-        | Oci_Artefact_Api.Exec_Error s ->
-          info "master stopped unexpectedly with error:%s" s;
+        | Error s ->
+          info "master stopped unexpectedly with error:%s"
+            (Error.to_string_hum s);
           Shutdown.shutdown 1
       );
     choice begin
@@ -351,7 +376,7 @@ let run
     verbosity cleanup_rootfs cgroup (proc,cpuset_available) =
   Log.Global.set_level verbosity;
   assert (not (Signal.is_managed_by_async Signal.term));
-  (** Handle nicely terminating signals *)
+  (* Handle nicely terminating signals *)
   Signal.handle Signal.terminating ~f:(fun s ->
       if Oci_Artefact_Api.oci_shutting_down ()
       then
@@ -362,14 +387,14 @@ let run
         don't_wait_for (Oci_Artefact_Api.oci_shutdown ())
       end
     );
-  compute_conf ~oci_data ~cgroup ~cpuset_available
+  compute_conf ~oci_data ~cgroup ~binaries ~cpuset_available
   >>= fun conf ->
   Oci_Artefact_Api.oci_at_shutdown (cleanup_running_processes conf);
   start_master ~conf ~binaries ~oci_data ~master
     ~proc ~verbosity ~cleanup_rootfs
     ~identity_file
 
-(** cpuinfo *)
+(* cpuinfo *)
 type cpu_data = {
   processor  : Int.t;
   physical_id: Int.t;
@@ -431,7 +456,7 @@ let read_cpuinfo () =
       cpu_datas = cpu_datas;
       layout =
         let h = Hashtbl.Poly.create () in
-        Hashtbl.iter cpu_datas
+        Hashtbl.iteri cpu_datas
           ~f:(fun ~key:_ ~data ->
               Hashtbl.add_multi h
                 ~key:(data.physical_id,data.core_id)
@@ -450,8 +475,6 @@ let partition_cpus cpuinfo cpus =
           | [] -> None
           | l -> Some l)
 
-
-(** *)
 
 let list_interval i1 i2 =
   let l = ref [] in
@@ -594,7 +617,7 @@ let cmd =
     match cpuinfo with
     | Some cpuinfo -> partition_cpus cpuinfo cpus, true
     | None ->
-      (** no sibling information: cpus don't have siblings *)
+      (* no sibling information: cpus don't have siblings *)
       List.map ~f:(fun x -> [x]) cpus, false
   in
   let doc = "Start an Oci  monitor and the given master" in

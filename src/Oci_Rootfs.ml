@@ -137,31 +137,30 @@ let add_packages (d:add_packages_query) =
   Oci_Master.start_runner
     ~debug_info:"add packages"
     ~binary_name:"Oci_Cmd_Runner"
-  >>= fun (err,conn) ->
+  >>= fun (err,runner) ->
   choose [
     choice (err >>= function
-      | Oci_Master.Exec_Ok -> never ()
-      | Oci_Master.Exec_Error s -> return s) Or_error.error_string;
+      | Ok () -> never ()
+      | Error _ as s -> return s) (fun x -> x);
     choice begin
-      conn >>= fun conn ->
       Monitor.protect ~here:[%here]
-        ~finally:(fun () -> Oci_Master.stop_runner conn)
+        ~finally:(fun () -> Oci_Master.stop_runner runner)
         ~name:"add_packages"
         (fun () ->
            Oci_Master.cha_log "Runner started";
            Oci_Master.dispatch_runner_exn
-             Oci_Cmd_Runner_Api.copy_to conn {
+             Oci_Cmd_Runner_Api.copy_to runner {
              user=Oci_Common.Root;
              artefact=rootfs.rootfs;
              dst="/";
            }
            >>= fun () ->
            Oci_Master.dispatch_runner_exn
-             Oci_Cmd_Runner_Api.get_internet conn ()
+             Oci_Cmd_Runner_Api.get_internet runner ()
            >>= fun () ->
            Oci_Master.cha_log "Update Apt Database";
            Oci_Master.dispatch_runner_exn
-             Oci_Cmd_Runner_Api.run conn {
+             Oci_Cmd_Runner_Api.run runner {
              prog = "apt-get";
              args = ["update";
                      (* We disable privilege dropping because it work not well
@@ -175,7 +174,7 @@ let add_packages (d:add_packages_query) =
            >>= fun () ->
            Oci_Master.cha_log "Install Package";
            Oci_Master.dispatch_runner_exn
-             Oci_Cmd_Runner_Api.run conn {
+             Oci_Cmd_Runner_Api.run runner {
              prog = "apt-get";
              args = "install"::
                     "--yes"::
@@ -189,7 +188,7 @@ let add_packages (d:add_packages_query) =
            >>= fun () ->
            Oci_Master.cha_log "Clean Package Data";
            Oci_Master.dispatch_runner_exn
-             Oci_Cmd_Runner_Api.run conn {
+             Oci_Cmd_Runner_Api.run runner {
              prog = "apt-get";
              args = ["clean";
                     "--option";"APT::Sandbox::User=root"];
@@ -198,7 +197,7 @@ let add_packages (d:add_packages_query) =
            }
            >>= fun () ->
            Oci_Master.dispatch_runner_exn
-             Oci_Cmd_Runner_Api.create_artefact conn "/"
+             Oci_Cmd_Runner_Api.create_artefact runner "/"
            >>= fun artefact ->
            incr rootfs_next_id;
            let id = Rootfs_Id.of_int_exn (!rootfs_next_id) in

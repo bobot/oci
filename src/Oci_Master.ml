@@ -27,9 +27,11 @@ open Log.Global
 
 let oci_at_shutdown = Oci_Artefact_Api.oci_at_shutdown
 
-type runner_result = Oci_Artefact_Api.exec_in_namespace_response =
-  | Exec_Ok
-  | Exec_Error of string [@@deriving bin_io]
+type runner= Oci_Artefact.runner
+
+type runner_result =
+  | Exec_Ok of runner
+  | Exec_Error of string
 
 let register = Oci_Artefact.register_master
 let register_saver = Oci_Artefact.register_saver
@@ -37,8 +39,7 @@ let register_saver = Oci_Artefact.register_saver
 let run () = Oci_Artefact.run ()
 let start_runner ~debug_info ~binary_name =
   Oci_Artefact.start_runner ~debug_info ~binary_name
-let stop_runner conn =
-  Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_stop_runner conn ()
+let stop_runner runner = Oci_Artefact.stop_runner runner
 let permanent_directory = Oci_Artefact.permanent_directory
 
 type exists_log =
@@ -80,17 +81,16 @@ let simple_register_saver ?(init=(fun () -> return ())) ~basename
 
 let simple_runner ~debug_info ~binary_name ~error f =
   start_runner ~debug_info ~binary_name
-  >>= fun (err,conn) ->
+  >>= fun (err,runner) ->
   choose [
     choice (err >>= function
-      | Exec_Ok -> never ()
-      | Exec_Error s -> return s) error;
+      | Ok () -> never ()
+      | Error s -> return s) error;
     choice begin
-      conn >>= fun conn ->
       Monitor.protect ~here:[%here]
-        ~finally:(fun () -> stop_runner conn)
+        ~finally:(fun () -> stop_runner runner)
         ~name:"create_master_and_runner"
-        (fun () -> f conn)
+        (fun () -> f runner)
     end (fun x -> x);
   ]
 
@@ -256,7 +256,9 @@ let print_msg msg =
   |> Option.map ~f:(fun s -> " "^s)
   |> Option.value ~default:""
 
-let dispatch_runner ?msg d t q =
+let dispatch_runner ?msg d r q =
+  Oci_Artefact.runner_conn_or_never r
+  >>= fun t ->
   match get_log () with
   | Log log ->
     cmd_log "dispatch runner %s%s" (Oci_Data.name d) (print_msg msg);
@@ -284,7 +286,9 @@ let dispatch_runner ?msg d t q =
     >>= fun () ->
     Ivar.read r
 
-let dispatch_runner_exn ?msg d t q =
+let dispatch_runner_exn ?msg d r q =
+  Oci_Artefact.runner_conn_or_never r
+  >>= fun t ->
   match get_log () with
   | Log log ->
     cmd_log "dispatch runner %s%s" (Oci_Data.name d) (print_msg msg);
@@ -308,7 +312,9 @@ let dispatch_runner_exn ?msg d t q =
     >>= fun () ->
     Ivar.read r
 
-let dispatch_runner_log ?msg log d t q =
+let dispatch_runner_log ?msg log d r q =
+  Oci_Artefact.runner_conn_or_never r
+  >>= fun t ->
   cmd_log "dispatch runner %s%s" (Oci_Data.name d) (print_msg msg);
   Rpc.Pipe_rpc.dispatch_exn (Oci_Data.log d) t q
   >>= fun (p,_) ->

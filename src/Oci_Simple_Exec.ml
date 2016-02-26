@@ -43,6 +43,7 @@ let () =
   Rpc.Connection.create
     ~implementations
     ~connection_state:(fun _ -> ())
+    ~description:(Info.of_string "Oci_Simple_Exec <-> Master")
     reader writer
   >>> fun _ ->
   ()
