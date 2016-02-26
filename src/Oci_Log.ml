@@ -23,6 +23,8 @@
 open Core.Std
 open Async.Std
 
+let version = 2
+
 type kind =
   | Standard | Error | Chapter | Command
 [@@deriving sexp, bin_io]
@@ -130,7 +132,9 @@ module Make(S: sig
   let db_log: (S.t line Oci_Queue.t * S.t reader) Table.t = Table.create ()
 
   let dir = S.dir
-    >>= fun dir -> Unix.mkdir ~p:() dir
+    >>= fun dir ->
+    let dir = Oci_Filename.make_absolute dir (Int.to_string version) in
+    Unix.mkdir ~p:() dir
     >>= fun () -> return dir
 
   let log_file id =
@@ -177,7 +181,7 @@ module Make(S: sig
     don't_wait_for begin
       log_file id
       >>= fun log_file ->
-      let log_file_part = Oci_Filename.add_extension log_file ".part" in
+      let log_file_part = Oci_Filename.add_extension log_file "part" in
       Writer.open_file log_file_part
       >>= fun writer ->
       (** When the log end, new readers will read from the file *)
