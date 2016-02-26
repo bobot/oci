@@ -128,10 +128,10 @@ let init_compile_git_repo () =
   let register_simple_rpc rpc f=
     Oci_Master.register rpc
       (fun q ->
-         Oci_Log.init (fun log ->
+         Oci_Log.init_writer (fun log ->
              Monitor.try_with_or_error ~here:[%here] (fun () -> f q)
              >>= fun res ->
-             Oci_Log.add log (Oci_Log.data res)
+             Pipe.write log (Oci_Log.data res)
            ))
   in
 

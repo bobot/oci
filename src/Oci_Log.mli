@@ -46,19 +46,10 @@ val map_line: ('a -> 'b) -> 'a line -> 'b line
 
 type 'result writer = 'result line Pipe.Writer.t
 
-type 'result t
 (** alive log *)
-val create: unit -> 'result t
-val transfer: 'result t -> 'result line Pipe.Reader.t -> unit Deferred.t
-val add_without_pushback: 'result t -> 'result line -> unit
-val add: 'result t -> 'result line -> unit Deferred.t
-val close: 'result t -> unit Deferred.t
-val read_writer: 'result t -> 'result line Pipe.Reader.t
-val write_writer: 'result t -> 'result writer
 
 type 'result reader
 val read: 'result reader -> 'result line Pipe.Reader.t
-val init: ('result t -> unit Deferred.t) -> 'result reader
 val init_writer: ('result writer -> unit Deferred.t) -> 'result reader
 
 val reader_stop_after:
@@ -68,8 +59,6 @@ val reader_get_first:
   'result Core.Std.Or_error.t Deferred.Option.t
 
 exception Closed_Log
-
-type 'a log = 'a t
 
 module Make(S: sig
     val dir: Oci_Filename.t Deferred.t
