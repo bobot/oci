@@ -144,7 +144,7 @@ module Make(S: sig
 
   let dir = S.dir
     >>= fun dir ->
-    let dir = Oci_Filename.make_absolute dir (Int.to_string version) in
+    let dir = Oci_Filename.make_absolute dir (sprintf "v%i" version) in
     Unix.mkdir ~p:() dir
     >>= fun () -> return dir
 
@@ -241,7 +241,7 @@ module Make(S: sig
           >>= fun () ->
           (* create null file *)
           log_file null
-            >>= fun log_file ->
+          >>= fun log_file ->
           Writer.open_file log_file
           >>= fun writer ->
           Writer.close writer
