@@ -50,7 +50,22 @@ opam pin add oci --kind=git "git@git.frama-c.com:bobot/oci.git#master"
 
 ### Compilation step
 
+You can customize some part of the compilation process by adding a `.config`
+file in the top directory of oci. It is included by `Makefile` if it exists.
+In particular, you can set the `PREFIX` variable to an appropriate path if
+you don't want to install the binaries under `/usr/local/bin`. Libraries will
+be handled by `ocamlfind`.
+
 - `make`
+- `make install`
+
+### Compilation of Oci_client
+
+You have now an Oci server and the basic blocks for creating clients that
+will actually run tasks. Client for launching Frama-C's tests is in
+the project `frama-c/oci_client` on gitlab. Clone the repository, and do
+`make` and `make install` in it. Again, `.config` can be used to customize
+the compilation or installation process.
 
 ### Usage
 
@@ -72,7 +87,7 @@ cgm movepid all oci $$
 - launch a new monitor
 
 ```shell
-  bin/Oci_Monitor.native \
+  oci_monitor \
       --oci-data=/path/to/data \
       --binaries=$(pwd)/bin \
       --master=bin/myoci.native \
@@ -81,19 +96,19 @@ cgm movepid all oci $$
 
 - Get a list of available rootfs from lxc, and download an appropriate one
   (defaults to debian jessie amd64)
-  - `bin/bf_client.native list-download-rootfs`
-  - `bin/bf_client.native download-rootfs --socket OCI_DATA [rootfs-opts]`
+  - `bf_client list-download-rootfs`
+  - `bf_client download-rootfs --socket OCI_DATA [rootfs-opts]`
   where `rootfs-opts` can be chosen among `--arch`, `--distribution` and
   `--release` if you're not satisfied with default ones. This should get you
   the ID of the created rootfs (typically `1`)
 - Optional: check that the rootfs is known to the monitor:
-  `bin/bf_client.native list_rootfs --socket OCI_DATA/oci.socket ID` where
+  `bf_client list_rootfs --socket OCI_DATA/oci.socket ID` where
   `ID` is the ID you have retrieved at previous step. Note that if you do not
   provide an ID, nothing will be output.
 - launch a specific test, e.g. the ones for frama-c:
 
 ```shell
-  bin/bf_client.native \
+  bf_client \
      run \
      --rootfs ID \
      --socket OCI_DATA/oci.socket \
@@ -104,7 +119,7 @@ cgm movepid all oci $$
   the corresponding container:
 
 ```shell
-  bin/bf_client.native \
+  bf_client \
      xpra \
      --rootfs ID \
      --socket OCI_DATA/oci.socket \
