@@ -152,6 +152,10 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
                  attach_log log (fun () -> f q log))
             >>= fun e ->
             Log.add_without_pushback log (Oci_Log._end e);
+            begin match e with
+              | Ok _ -> ()
+              | Error _ -> H.remove db q (* anomaly are not saved *)
+            end;
             Log.close log
           end;
           Log.reader log
