@@ -108,6 +108,7 @@ let stop_runner r =
     conn
     >>= fun conn ->
     Monitor.protect
+      ~here:[%here]
       ~finally:(fun () ->
           Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_kill_runner
             conf.conn_monitor r.id
