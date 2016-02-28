@@ -347,7 +347,7 @@ let time_of_commit ~url ~commit =
          let commit = Oci_Common.Commit.to_string commit in
          Async_shell.run_one
            ~working_dir:src
-           "git" ["show";"-s";"--format=%ci";commit;"--"]
+           "git" ["show";"-s";"--format=%cI";commit;"--"]
          >>= function
        | None -> invalid_argf "Can't get date of commit %s." commit ()
        | Some s -> return (Time.of_string s)
