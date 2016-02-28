@@ -327,7 +327,7 @@ module Cmdline = struct
         ~data:(CompareN(compare_n,sexp_x,x_sexp,sexp_y,y_sexp,analyse))
 
   let default_create_query_hook ~connection:_
-      ~query ~revspecs = query, revspecs
+      ~query ~revspecs = Deferred.return (query, revspecs)
 
   let dumb_commit = Oci_Common.Commit.of_string_exn (String.make 40 '0')
 
@@ -345,8 +345,8 @@ module Cmdline = struct
         ~rootfs:(Or_error.ok_exn rootfs)
         ~repos
     in
-    let query, revspecs =
-      create_query_hook ~connection ~query ~revspecs in
+    create_query_hook ~connection ~query ~revspecs
+    >>= fun (query, revspecs) ->
     let used_repos = Git.used_repos query in
     let commits_cmdline = Buffer.create 100 in
     let get_commit url =
@@ -1071,7 +1071,8 @@ module Cmdline = struct
 
   type create_query_hook =
     (connection:Git.connection ->
-     query:query -> revspecs:revspecs -> query * revspecs) Cmdliner.Term.t
+     query:query -> revspecs:revspecs -> 
+     (query * revspecs) Deferred.t) Cmdliner.Term.t
 
   let default_cmdline
       ?(create_query_hook=Term.const default_create_query_hook)

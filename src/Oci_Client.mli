@@ -239,7 +239,8 @@ module Cmdline: sig
 
   type create_query_hook =
     (connection:Git.connection ->
-     query:query -> revspecs:revspecs -> query * revspecs) Cmdliner.Term.t
+     query:query -> revspecs:revspecs -> 
+     (query * revspecs) Deferred.t) Cmdliner.Term.t
 
   val default_cmdline:
     ?create_query_hook:create_query_hook (* experts only *) ->
