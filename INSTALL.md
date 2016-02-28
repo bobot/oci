@@ -89,28 +89,37 @@ cgm movepid all oci $$
 ```shell
   oci_monitor \
       --oci-data=/path/to/data \
-      --binaries=$(pwd)/bin \
-      --master=bin/myoci.native \
+      --binaries=INSTALLED_LIB/bin \
+      --master=INSTALLED_LIB/bin/oci_default_master \
       --identity-file=oci-ssh-key
 ```
 
 - Get a list of available rootfs from lxc, and download an appropriate one
   (defaults to debian jessie amd64)
   - `bf_client list-download-rootfs`
-  - `bf_client download-rootfs --socket OCI_DATA [rootfs-opts]`
+  - `bf_client download-rootfs --socket OCI_DATA/oci.socket [rootfs-opts]`
   where `rootfs-opts` can be chosen among `--arch`, `--distribution` and
   `--release` if you're not satisfied with default ones. This should get you
-  the ID of the created rootfs (typically `1`)
+  the ID of the created rootfs (typically `0`)
+- Add necessary packages to the initial rootfs:
+  ```shell
+  bf_client add-package --rootfs ID --socket OCI_DATA/oci.socket \
+  autotools-dev binutils-dev libiberty-dev libncurses5-dev pkg-config \
+  zlib1g-dev git gcc build-essential m4 autoconf time libgmp-dev xpra tmux \
+  strace xterm libexpat1-dev libgmp-dev libgnomecanvas2-dev libgtk2.0-dev \
+  libgtksourceview2.0-dev m4 ncurses-dev xsltproc libxml2-utils
+  ```
+  This will give you a new rootfs of id `NID` (typically `1`).
 - Optional: check that the rootfs is known to the monitor:
-  `bf_client list_rootfs --socket OCI_DATA/oci.socket ID` where
-  `ID` is the ID you have retrieved at previous step. Note that if you do not
+  `bf_client list-rootfs --socket OCI_DATA/oci.socket NID` where
+  `NID` is the ID you have retrieved at previous step. Note that if you do not
   provide an ID, nothing will be output.
 - launch a specific test, e.g. the ones for frama-c:
 
 ```shell
   bf_client \
      run \
-     --rootfs ID \
+     --rootfs NID \
      --socket OCI_DATA/oci.socket \
      frama-c
 ```
