@@ -243,11 +243,16 @@ let merge_base ~url commit1 commit2 =
        | Ok proc ->
          don't_wait_for (Writer.close (Process.stdin proc));
          don't_wait_for (Reader.drain (Process.stderr proc));
-         Reader.contents (Process.stdout proc)
+         Reader.read_line (Process.stdout proc)
          >>= fun content ->
          Unix.waitpid (Process.pid proc)
          >>= function
-         | Result.Ok () -> return (Oci_Common.Commit.of_string_exn content)
+         | Result.Ok () -> 
+           (match content with
+              | `Eof ->
+                invalid_argf "merge-base for %s %s returned empty string"
+                  commit1 commit2 ()
+              | `Ok content -> return (Oci_Common.Commit.of_string_exn content))
          | Result.Error _ ->
            invalid_argf "Can't find merge-base for %s %s" commit1 commit2 ()
     )
