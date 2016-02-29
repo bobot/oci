@@ -313,14 +313,16 @@ let commit_of_branch ~url ~branch =
        >>= fun () ->
        Async_shell.run_one
          ~working_dir:src
-         "git" ["show-ref";"--verify";"refs/heads/"^branch]
+         ~expect:[0;128]
+         "git" ["show";"--format=%H"; "-s"; branch]
        >>= function
-       | None -> return None
+       | None ->
+         Log.Global.printf ~level:`Debug "No branch %s in %s" branch src;
+         return None
        | Some s ->
-         match String.lsplit2 ~on:' ' s with
-         | None -> invalid_argf "invalid output of git show-ref: %s" s ()
-         | Some(commit,_) ->
-           return (Some (Oci_Common.Commit.of_string_exn commit))
+         Log.Global.printf ~level:`Debug "Branch %s in %s is at commit %s"
+           branch src s;
+         return (Some (Oci_Common.Commit.of_string_exn s))
     )
 
 
