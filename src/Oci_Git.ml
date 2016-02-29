@@ -333,8 +333,8 @@ let last_commit_before ~url ~branch ~time =
        >>= fun () ->
        Async_shell.run_one
          ~working_dir:src
-         "git" ["log";"--before";Time.to_string time; "-n"; "1";
-                branch; "--"]
+         "git" ["log";"--before";Time.to_string time;
+                "--format=%H"; "-n"; "1"; branch; "--"]
        >>= function
        | None -> return None
        | Some "" -> return None
