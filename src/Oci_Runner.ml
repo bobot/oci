@@ -85,16 +85,27 @@ let implement_unit data f =
     (Oci_Data.log data)
     (fun connection q ~aborted:_ ->
        let reader = Pipe.init (fun writer ->
-           Monitor.try_with_or_error ~here:[%here]
+           Monitor.try_with
+             ~here:[%here]
+             ~name:"Oci_Runner.implement_*"
+             ~run:`Now
+             ~rest:`Log
              (fun () ->
-                try
-                  f {connection;log=writer} q
-                with StopQuery -> return ())
+                f {connection;log=writer} q
+             )
            >>= fun res ->
+           let res =
+             match res with
+             | Ok () -> Ok ()
+             | Error exn ->
+               match Monitor.extract_exn exn with
+               | StopQuery -> Ok ()
+               | _ -> Or_error.of_exn exn
+           in
            Oci_Log.close_writer writer res
          )
-       in
-       Deferred.Or_error.return reader
+in
+Deferred.Or_error.return reader
     )
 
 let write_log kind t fmt =

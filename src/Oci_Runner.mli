@@ -32,6 +32,8 @@ val start:
 (** The runner waits for request. *)
 
 exception StopQuery
+(** Stop the query. It is not an error in itself. The log sent to
+    master to here *)
 
 val implement:
   ('query,'result) Oci_Data.t ->
