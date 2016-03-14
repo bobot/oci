@@ -107,13 +107,10 @@ let stop_runner r =
   | Some conn ->
     conn
     >>= fun conn ->
-    Monitor.protect
-      ~here:[%here]
-      ~finally:(fun () ->
-          Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_kill_runner
-            conf.conn_monitor r.id
-        )
-      (fun () -> Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_stop_runner conn ())
+    Rpc.Rpc.dispatch Oci_Artefact_Api.rpc_stop_runner conn ()
+    >>= fun _ ->
+    Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_kill_runner
+      conf.conn_monitor r.id
 
 let dir_of_artefact id =
   let dir = Oci_Filename.mk (Artefact.to_string id) in
