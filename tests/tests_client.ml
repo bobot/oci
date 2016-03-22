@@ -46,6 +46,7 @@ let cmds_with_connections =
     test "fibo" Tests_api.test_fibo;
     test "fibo_artefact" Tests_api.test_fibo_artefact;
     test "fibo_error_artefact" Tests_api.test_fibo_error_artefact;
+    test "collatz" Tests_api.test_collatz;
   ]
 
 let () =
