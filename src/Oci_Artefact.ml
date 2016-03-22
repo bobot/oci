@@ -376,7 +376,6 @@ let release_proc local_procs nb =
   let conf = get_conf () in
   let (_, writer)  = conf.proc in
   let rec release_in_local_pool nb alloc used got l =
-    assert (used <> []);
     if nb <= 0 then
       (mk_running alloc used got), l
     else
@@ -386,11 +385,11 @@ let release_proc local_procs nb =
         give_to_global writer (p::alloc);
         begin match got with
           | [] ->
-            if nb > 1 then debug "More cpu released than used!!";
+            if nb > 2 then debug "More cpu released than used!!";
             mk_semifreezed, (p::l)
           | used::got ->
             assert (used <> []);
-            release_in_local_pool nb [] used got (p::l)
+            release_in_local_pool (nb-1) [] used got (p::l)
         end
       | p::used ->
         release_in_local_pool (nb-1) (p::alloc) used got (p::l)
