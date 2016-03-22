@@ -34,9 +34,9 @@ let test_fibo conn q =
     Oci_Runner.release_proc conn 1
     >>= fun () ->
     let q_1 = Oci_Runner.dispatch_exn
-        conn Tests.test_fibo (q-1) in
+        conn Tests_api.test_fibo (q-1) in
     let q_2 = Oci_Runner.dispatch_exn
-        conn Tests.test_fibo (q-2) in
+        conn Tests_api.test_fibo (q-2) in
     Deferred.both q_1 q_2
     >>= fun (q_1,q_2) ->
     return (q_1 + q_2)
@@ -68,10 +68,10 @@ let test_fibo_artefact_aux conn q =
     Oci_Runner.release_proc conn 1
     >>= fun () ->
     Oci_Runner.dispatch_exn
-      conn Tests.test_fibo_artefact_aux (q-1)
+      conn Tests_api.test_fibo_artefact_aux (q-1)
     >>= fun a_1 ->
     Oci_Runner.dispatch_exn
-      conn Tests.test_fibo_artefact_aux (q-2)
+      conn Tests_api.test_fibo_artefact_aux (q-2)
     >>= fun a_2 ->
     Oci_Runner.get_proc conn 1
     >>= fun _ ->
@@ -97,7 +97,7 @@ let test_fibo_artefact conn q =
   Oci_Runner.release_proc conn 1
   >>= fun () ->
   Oci_Runner.dispatch_exn
-      conn Tests.test_fibo_artefact_aux q
+      conn Tests_api.test_fibo_artefact_aux q
   >>= fun a ->
   Oci_Runner.get_proc conn 1
   >>= fun _ ->
@@ -111,7 +111,7 @@ let test_fibo_artefact conn q =
 
 let test_fibo_error_artefact conn q =
   Oci_Runner.dispatch_exn
-      conn Tests.test_fibo_artefact_aux q
+      conn Tests_api.test_fibo_artefact_aux q
   >>= fun a ->
   Oci_Runner.link_artefact conn a ~dir:"/fibo"
   >>= fun () ->
@@ -122,7 +122,7 @@ let test_fibo_error_artefact conn q =
   >>= fun _ ->
   return (-1)
 
-let test_ocaml t (q:Tests.Ocaml_Query.t) =
+let test_ocaml t (q:Tests_api.Ocaml_Query.t) =
   Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
   >>= fun () ->
   Oci_Runner.git_clone t
@@ -159,16 +159,16 @@ let () =
     Oci_Runner.start
       ~implementations:[
         Oci_Runner.implement
-          Tests.test_succ test_succ;
+          Tests_api.test_succ test_succ;
         Oci_Runner.implement
-          Tests.test_fibo test_fibo;
+          Tests_api.test_fibo test_fibo;
         Oci_Runner.implement
-          Tests.test_fibo_artefact test_fibo_artefact;
+          Tests_api.test_fibo_artefact test_fibo_artefact;
         Oci_Runner.implement
-          Tests.test_fibo_artefact_aux test_fibo_artefact_aux;
+          Tests_api.test_fibo_artefact_aux test_fibo_artefact_aux;
         Oci_Runner.implement
-          Tests.test_fibo_error_artefact test_fibo_error_artefact;
+          Tests_api.test_fibo_error_artefact test_fibo_error_artefact;
         Oci_Runner.implement
-          Tests.test_ocaml test_ocaml;
+          Tests_api.test_ocaml test_ocaml;
       ]
   end

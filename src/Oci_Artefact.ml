@@ -27,11 +27,30 @@ open Oci_Common
 
 open Log.Global
 
-type used_procs =
-  | SemiFreezed
-  | Running of Int.t list * Int.t list * Int.t List.t List.t
+module Used_procs : sig
+  type used_procs = private
+    | SemiFreezed
+    | Running of Int.t list * Int.t list * Int.t List.t List.t
+      (** allocated, proc used, list of group of other used proc *)
+  val mk_semifreezed: used_procs
+  val mk_running: Int.t list -> Int.t list -> Int.t List.t List.t -> used_procs
+end = struct
+  type used_procs =
+    | SemiFreezed
+    | Running of Int.t list * Int.t list * Int.t List.t List.t
+    (** allocated, proc used, list of group of other used proc *)
 
-let dumb_used_procs = SemiFreezed
+  let mk_semifreezed = SemiFreezed
+
+  let mk_running alloc used got =
+    assert (not (List.is_empty used) &&
+            not (List.exists ~f:List.is_empty got));
+    Running(alloc,used,got)
+end
+
+open Used_procs
+
+let dumb_used_procs = mk_semifreezed
 
 type runner = {
   id: Int.t;
@@ -286,13 +305,6 @@ let saver_artifact_data () =
   Writer.write_bin_prot writer Int.bin_writer_t conf.last_artefact_id;
   Writer.close writer
 
-let invariant_procs = function
-  | SemiFreezed -> true
-  | Running (alloc,used,got) ->
-    not (List.is_empty used &&
-         List.is_empty alloc) &&
-    not (List.exists ~f:List.is_empty got)
-
 let give_to_global writer (l:Int.t List.t) =
   assert (not (List.is_empty l));
   Pipe.write_without_pushback writer l
@@ -309,7 +321,7 @@ let create_used_procs () =
   >>= function
   | `Eof | `Ok [] -> assert false
   | `Ok (e::l) ->
-  return (Running([e],l,[]), [e])
+  return (mk_running l [e] [], [e])
 
 let get_proc local_procs nb =
   let conf = get_conf () in
@@ -318,19 +330,19 @@ let get_proc local_procs nb =
     match Pipe.read_now' reader with
     | `Eof -> assert false
     | `Nothing_available ->
-      Running([],hdgot,got), l
+      (mk_running [] hdgot got), l
     | `Ok q ->
       let rec aux nb hdgot got l =
         match Queue.dequeue q with
         | None ->
-          Running([],hdgot,got), l
+          (mk_running [] hdgot got), l
         | Some e ->
           let e_len = List.length e in
           let nb' = nb - e_len in
           if nb' <= 0 then begin
             let e_used,e_alloc = List.split_n e nb in
             Queue.iter ~f:(give_to_global writer) q;
-            Running(e_alloc,e_used,hdgot::got), (e_used@l)
+            (mk_running e_alloc e_used (hdgot::got)), (e_used@l)
           end
           else begin
             aux nb' e (hdgot::got) (e@l)
@@ -339,7 +351,7 @@ let get_proc local_procs nb =
       aux nb hdgot got l
   in
   let rec get_proc_in_local_pool nb alloc used got l =
-    if nb <= 0 then Running(alloc,used,got), l
+    if nb <= 0 then (mk_running alloc used got), l
     else
       match alloc with
       | [] ->
@@ -347,7 +359,6 @@ let get_proc local_procs nb =
       | p::alloc ->
         get_proc_in_local_pool (nb-1) alloc (p::used) got (p::l)
   in
-  assert (invariant_procs local_procs);
   match local_procs with
   | SemiFreezed -> begin
       Pipe.read reader
@@ -365,39 +376,42 @@ let release_proc local_procs nb =
   let conf = get_conf () in
   let (_, writer)  = conf.proc in
   let rec release_in_local_pool nb alloc used got l =
-    if nb <= 0 then Running(alloc,used,got), l
+    assert (used <> []);
+    if nb <= 0 then
+      (mk_running alloc used got), l
     else
       match used with
-      | [] ->
+      | [] -> assert false
+      | [p] ->
+        give_to_global writer (p::alloc);
         begin match got with
           | [] ->
-            if nb > 0 then debug "More cpu released than used!!";
-            SemiFreezed, l
+            if nb > 1 then debug "More cpu released than used!!";
+            mk_semifreezed, (p::l)
           | used::got ->
-            give_to_global writer alloc;
-            release_in_local_pool nb [] used got l
+            assert (used <> []);
+            release_in_local_pool nb [] used got (p::l)
         end
       | p::used ->
         release_in_local_pool (nb-1) (p::alloc) used got (p::l)
   in
-  assert (invariant_procs local_procs);
   match local_procs with
   | SemiFreezed ->
     if nb > 0 then debug "More cpu released than used!!";
-    SemiFreezed, []
+    mk_semifreezed, []
   | Running(alloc,used,got) ->
+    assert (used <> []);
     release_in_local_pool nb alloc used got []
 
 let release_all_proc local_procs =
   let conf = get_conf () in
   let (_, writer)  = conf.proc in
-  assert (invariant_procs local_procs);
   match local_procs with
-  | SemiFreezed -> SemiFreezed
+  | SemiFreezed -> mk_semifreezed
   | Running(alloc,used,got) ->
     give_to_global writer (alloc@used);
     List.iter ~f:(give_to_global writer) got;
-    SemiFreezed
+    mk_semifreezed
 
 let get_used_cpu local_procs =
   let conf = get_conf () in
@@ -813,19 +827,25 @@ let run () =
        conf.log; conf.git; conf.wget]
     >>> fun () ->
     (* Copy binaries *)
-    Sys.ls_dir conf_monitor.binaries
-    >>> fun files ->
-    let files = List.filter_map
-        ~f:(fun f -> if String.is_suffix f ~suffix:"native"
-             then Some f else None)
-        files in
-    begin if files = [] then return ()
-    else
-      Async_shell.run "cp" (["-t";conf.binaries;"--"]@
-                            List.map
-                              ~f:(Oci_Filename.concat conf_monitor.binaries)
-                              files)
-    end
+    Deferred.List.iter ~f:(fun src ->
+        Sys.ls_dir src
+        >>= fun files ->
+        let files = List.filter_map
+            ~f:(fun f -> if String.is_suffix f ~suffix:"native"
+                 then Some f else None)
+            files in
+        begin if files = [] then return ()
+          else
+            Async_shell.run "cp"
+              (["-t";conf.binaries;"--"]@
+               List.map ~f:(Oci_Filename.concat src) files)
+        end
+        >>= fun () ->
+        Deferred.List.iter
+          ~f:(fun x -> Unix.chmod ~perm:0o555
+                 (Oci_Filename.concat conf.binaries x))
+          files
+      ) conf_monitor.binaries
     >>> fun () ->
     (* Write ssh key *)
     Deferred.Option.bind
@@ -842,12 +862,6 @@ let run () =
          Deferred.Option.return dst
       )
     >>> fun identity_file ->
-    Deferred.all_unit
-      (List.map
-         ~f:(fun x -> Unix.chmod ~perm:0o555
-                (Oci_Filename.concat conf.binaries x))
-         files)
-    >>> fun () ->
     register_saver ~name:"artifact"
       ~loader:loader_artifact_data ~saver:saver_artifact_data;
     Oci_Git.init ~dir:conf.git ~register_saver:(register_saver ~name:"Git")

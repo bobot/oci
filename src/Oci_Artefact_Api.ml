@@ -28,7 +28,7 @@ open Oci_Std
 (** master to monitor *)
 
 type artefact_api = {
-  binaries : Oci_Filename.t;
+  binaries : Oci_Filename.t list;
   oci_data : Oci_Filename.t;
   oci_simple_exec : Oci_Filename.t;
   first_user_mapped: User.t;
