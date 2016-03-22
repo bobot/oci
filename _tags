@@ -2,5 +2,6 @@
 <tests/library>: -traverse
 <bin>: -traverse
 <oci-data>: -traverse
+<test-oci-data>: -traverse
 <src/wrapper/Oci_Wrapper.*>: -package(async), -package(async_shell), -package(cmdliner)
 <*.tmp> : -traverse

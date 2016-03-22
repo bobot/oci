@@ -34,7 +34,7 @@ BINARY=$(INTERNAL_BINARY) $(EXTERNAL_BINARY)
 
 LIBRARY=Oci_Master Oci_Runner Oci_Client
 
-TESTS = tests_runner launch_test
+TESTS = tests_runner tests_client tests_master
 
 LIB= Oci_Common.cmi Oci_Filename.cmi Oci_Std.cmi Oci_pp.cmi		\
 	Oci_Default_Masters.cmxa Oci_Default_Masters.a			\
@@ -50,12 +50,14 @@ TOCOMPILE= $(addprefix src/, $(addsuffix .native,$(BINARY)) $(LIB)) \
 all: compile $(addprefix bin/, $(EXTERNALLY_COMPILED_BINARY))
 
 compile: .merlin src/Oci_Version.ml META
-	@rm -rf bin/ lib/
+	@rm -rf bin/ lib/ bin-test/
 	$(OCAMLBUILD) $(TOCOMPILE)
-	@mkdir -m 777 -p bin/
+	@mkdir -m 777 -p bin/ bin-test/
 	@mkdir -p lib/oci/
 	@cp $(addprefix _build/,$(addprefix src/, $(addsuffix .native, $(BINARY)))) \
 	    bin
+	@cp $(addprefix _build/,$(addprefix tests/, $(addsuffix .native, $(TESTS)))) \
+	    bin-test
 	@cp $(addprefix _build/,$(addprefix src/, $(LIB))) META lib/oci
 
 install:
@@ -142,8 +144,12 @@ META: .config_stamp Makefile META.in
 	@sed -e "s/@(REQUIRES)/$(PACKAGES)/" -e "s/@(VERSION)/$(GIT_VERSION)/" $@.in > $@.tmp
 	@mv $@.tmp $@
 
-
 # We test that the library contains the needed modules
 bin/%:tests/library/%.ml force compile
 	OCAMLPATH=lib:$(OCAMLPATH) \
 	ocamlfind ocamlopt -thread -linkpkg -package oci.$(patsubst oci_default_%,%,$*) $< -o $@
+
+tests: compile
+	bin/Oci_Monitor.native --binaries bin-test --master	\
+	bin-test/tests_master.native --oci-data test-oci-data	\
+	--cpuinfo --verbose Debug

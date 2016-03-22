@@ -45,7 +45,8 @@ let rec transfer_from_source t r =
   >>= function
   | `Eof -> Ivar.fill t.next Eof; Deferred.unit
   | `Ok q ->
-    assert (Ivar.is_empty t.next); (** otherwise used after eof *)
+    assert (Ivar.is_empty t.next); (*
+ otherwise used after eof *)
     let new_next = Queue.fold
         ~f:(fun next v ->
             let new_next = Ivar.create () in

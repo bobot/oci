@@ -6,7 +6,7 @@ module Pp = Oci_pp
 include Log.Global
 
 let unlink_no_fail filename =
-  (** Sys.file_exists follows symlink *)
+  (* Sys.file_exists follows symlink *)
   Monitor.try_with ~here:[%here]
     (fun () -> Unix.lstat filename)
   >>= function
@@ -17,7 +17,7 @@ let unlink_no_fail filename =
 
 let unlink_no_fail_blocking filename =
   let open Core.Std in
-  (** Sys.file_exists follows symlink *)
+  (* Sys.file_exists follows symlink *)
   try
     ignore (Unix.lstat filename);
     Unix.unlink filename

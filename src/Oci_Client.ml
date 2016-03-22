@@ -273,8 +273,9 @@ module Cmdline = struct
       (Sexp.to_string_hum ((Or_error.sexp_of_t Unit.sexp_of_t) r));
     Deferred.return `Ok
 
-  let exec test ?(init=`Ok)
-      ?(fold=fun acc _ -> acc) input sexp_input sexp_output conn =
+  let exec ?(init=`Ok)
+      ?(fold=fun acc _ -> acc)
+      test input sexp_input sexp_output conn =
     if Sys.getenv "OCIFORGET" = None
     then exec_one ~init ~fold test input sexp_input sexp_output conn.Git.socket
     else forget test input sexp_input sexp_output conn.Git.socket
@@ -334,7 +335,6 @@ module Cmdline = struct
 
   let create_query
       ?(info_level=`Info)
-      _ccopt
       create_query_hook rootfs revspecs repo repos connection =
     Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs)
       connection.Git.socket rootfs
@@ -425,8 +425,8 @@ module Cmdline = struct
       "commits:%s" (Buffer.contents commits_cmdline);
     return { query with repos}
 
-  let run ccopt cq_hook rootfs revspecs (repo:string) connection =
-    create_query ccopt cq_hook rootfs revspecs repo !db_repos connection
+  let run cq_hook rootfs revspecs (repo:string) connection =
+    create_query cq_hook rootfs revspecs repo !db_repos connection
     >>= fun query ->
     let fold acc = function
       | `Ok (`Cmd (_,Ok _,_)) -> acc
@@ -439,8 +439,8 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp connection
 
-  let xpra ccopt cq_hook rootfs revspecs repo socket =
-    create_query ccopt cq_hook rootfs revspecs repo !db_repos socket
+  let xpra cq_hook rootfs revspecs repo socket =
+    create_query cq_hook rootfs revspecs repo !db_repos socket
     >>= fun query ->
     let repos =
       String.Map.change query.repos repo ~f:(function
@@ -459,7 +459,7 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.XpraGitRepo.Result.pp socket
 
-  let compare_n ccopt cq_hook rootfs revspecs
+  let compare_n cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
       output connection =
     match String.Map.find_exn !db_compare_n bench with
@@ -476,7 +476,7 @@ module Cmdline = struct
             ~data:git_repo in
         create_query
           ~info_level:`Debug
-          ccopt cq_hook rootfs revspecs repo_compare_n
+          cq_hook rootfs revspecs repo_compare_n
           repos connection
         >>= fun query ->
         Rpc.Pipe_rpc.dispatch_exn
@@ -556,7 +556,7 @@ module Cmdline = struct
       >>= fun () ->
       Deferred.return `Ok
 
-  let list_rootfs _copts rootfs socket =
+  let list_rootfs rootfs socket =
     let open Oci_Rootfs_Api in
     Deferred.List.fold rootfs
       ~init:`Ok
@@ -605,28 +605,6 @@ module Cmdline = struct
     Rpc.Connection.close socket
     >>= fun () ->
     return res
-
-  let run ccopt cq_hook rootfs revspecs repo =
-    connect ccopt (run ccopt cq_hook rootfs revspecs repo)
-
-  let xpra ccopt cq_hook rootfs revspecs repo =
-    connect ccopt (xpra ccopt cq_hook rootfs revspecs repo)
-
-  let compare_n ccopt cq_hook rootfs revspecs x_input y_input bench output =
-    connect ccopt (compare_n ccopt cq_hook rootfs revspecs
-                     x_input y_input bench output)
-
-  let list_rootfs ccopt rootfs =
-    connect ccopt (list_rootfs ccopt rootfs)
-
-  let add_packages ccopt rootfs packages =
-    connect ccopt (add_packages rootfs packages)
-
-  let create_rootfs
-      ccopt rootfs_tar meta_tar distribution release arch comment =
-    connect ccopt (create_rootfs rootfs_tar meta_tar
-                     distribution release arch comment)
-
 
   module Download_Rootfs = struct
     (** {2 GPG} *)
@@ -785,7 +763,7 @@ module Cmdline = struct
         ~f:(fun (key,_) -> print key.distrib key.release key.arch);
       Deferred.return `Ok
 
-    let download_rootfs ccopt distrib release arch comment =
+    let download_rootfs distrib release arch comment socket =
       let testdir = ".oci_tmp" in
       Unix.mkdir ~p:() testdir
       >>= fun () ->
@@ -805,9 +783,8 @@ module Cmdline = struct
       | Some build_id_url ->
         download_rootfs_meta ~dir:testdir ~gpg build_id_url
         >>= fun (rootfs_tar, meta_tar) ->
-        create_rootfs ccopt rootfs_tar (Some meta_tar)
-          distrib release arch comment
-
+        create_rootfs rootfs_tar (Some meta_tar)
+          distrib release arch comment socket
   end
 
   open Cmdliner
@@ -865,7 +842,7 @@ module Cmdline = struct
       `P "Return all informations about all the existing repositories or \
           the one optionally given as argument"] @ help_secs
     in
-    Term.(const list_rootfs $ copts_t $ rootfs),
+    Term.(const list_rootfs $ rootfs),
     Term.info "list-rootfs" ~sdocs:copts_sect ~doc ~man
 
   let create_rootfs_cmd =
@@ -907,7 +884,7 @@ module Cmdline = struct
           lxc download mirrors."]
       @ help_secs
     in
-    Term.(const create_rootfs $ copts_t $ rootfs_tar $ meta_tar $
+    Term.(const create_rootfs $ rootfs_tar $ meta_tar $
           distribution $ release $ arch $ comment),
     Term.info "create-rootfs" ~sdocs:copts_sect ~doc ~man
 
@@ -940,7 +917,7 @@ module Cmdline = struct
           lxc download mirrors."]
       @ help_secs
     in
-    Term.(const Download_Rootfs.download_rootfs $ copts_t $
+    Term.(const Download_Rootfs.download_rootfs $
           distribution $ release $ arch $ comment),
     Term.info "download-rootfs" ~sdocs:copts_sect ~doc ~man
 
@@ -970,7 +947,7 @@ module Cmdline = struct
       `S "DESCRIPTION";
       `P "Add the specified packages in the given rootfs"] @ help_secs
     in
-    Term.(const add_packages $ copts_t $ rootfs $ packages),
+    Term.(const add_packages $ rootfs $ packages),
     Term.info "add-package" ~sdocs:copts_sect ~doc ~man
 
   let cmdliner_revspecs init =
@@ -1012,10 +989,10 @@ module Cmdline = struct
       `P "Run the integration of the given repository with the given rootfs \
           using the specified commits."] @ help_secs
     in
-    [Term.(const run $ copts_t $ create_query_hook $ rootfs $
+    [Term.(const run $ create_query_hook $ rootfs $
            (cmdliner_revspecs String.Map.empty) $ repo),
      Term.info "run" ~doc ~sdocs:copts_sect ~man;
-     Term.(const xpra $ copts_t $ create_query_hook $ rootfs $
+     Term.(const xpra $ create_query_hook $ rootfs $
            (cmdliner_revspecs String.Map.empty) $ repo),
      Term.info "xpra" ~doc ~sdocs:copts_sect ~man]
 
@@ -1051,38 +1028,60 @@ module Cmdline = struct
           (TODO: find a name for x and y)."] @ help_secs
     in
     Term.(const compare_n $
-          copts_t $ create_query_hook $ rootfs $
+          create_query_hook $ rootfs $
           (cmdliner_revspecs String.Map.empty) $ x_input $ y_input $ bench
           $ output),
     Term.info "compare_n" ~doc ~sdocs:copts_sect ~man
 
   let default_cmd ?version ?doc name =
     let man = help_secs in
-    Term.(ret (const (fun _ -> `Help (`Pager, None)) $ copts_t)),
-    Term.info name ?version ~sdocs:copts_sect ?doc ~man
+    Term.(ret (const (`Help (`Pager, None)))),
+    Term.info name ?version ?doc ~man
 
-  let cmds create_query_hook =
+  let def_cmds_with_connection create_query_hook =
     [list_rootfs_cmd; create_rootfs_cmd;
      add_package_cmd;
-     list_download_rootfs_cmd; download_rootfs_cmd]@
+     download_rootfs_cmd]@
     (if String.Map.is_empty !db_compare_n
      then [] else [compare_n_cmd create_query_hook])@
     (run_xpra_cmd create_query_hook)
 
+  let def_cmds_without_connection =
+    [list_download_rootfs_cmd]
+
   type create_query_hook =
     (connection:Git.connection ->
-     query:query -> revspecs:revspecs -> 
+     query:query -> revspecs:revspecs ->
      (query * revspecs) Deferred.t) Cmdliner.Term.t
+
+  type cmds_without_connection =
+    [ `Error | `Ok ] Async.Std.Deferred.t Cmdliner.Term.t *
+    Cmdliner.Term.info
+
+  type cmds_with_connection =
+    (Git.connection ->
+     [ `Error | `Ok ] Async.Std.Deferred.t) Cmdliner.Term.t *
+    Cmdliner.Term.info
 
   let default_cmdline
       ?(create_query_hook=Term.const default_create_query_hook)
+      ?(cmds_without_connections=[])
+      ?(cmds_with_connections=[])
       ?doc ?version name =
+    let cmds =
+      List.map
+        ~f:(fun (f,i) ->
+            Term.(const (fun ccopt f -> connect ccopt f) $ copts_t $ f),i)
+        (def_cmds_with_connection create_query_hook@cmds_with_connections) @
+      (def_cmds_without_connection@cmds_without_connections)
+    in
     match Term.eval_choice (default_cmd ?version ?doc name)
-            (cmds create_query_hook) with
+            cmds with
     | `Error _ -> exit 1
-    | `Ok r -> begin r >>= function
-      | `Ok -> Shutdown.exit 0
-      | `Error -> Shutdown.exit 1
+    | `Ok r -> begin
+        r >>= function
+        | `Ok -> Shutdown.exit 0
+        | `Error -> Shutdown.exit 1
       end
     | `Help | `Version -> exit 0
 

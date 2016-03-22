@@ -239,11 +239,23 @@ module Cmdline: sig
 
   type create_query_hook =
     (connection:Git.connection ->
-     query:query -> revspecs:revspecs -> 
+     query:query -> revspecs:revspecs ->
      (query * revspecs) Deferred.t) Cmdliner.Term.t
+
+  type cmds_without_connection =
+    [ `Error | `Ok ] Async.Std.Deferred.t Cmdliner.Term.t *
+    Cmdliner.Term.info
+
+  type cmds_with_connection =
+    (Git.connection ->
+     [ `Error | `Ok ] Async.Std.Deferred.t) Cmdliner.Term.t *
+    Cmdliner.Term.info
+
 
   val default_cmdline:
     ?create_query_hook:create_query_hook (* experts only *) ->
+    ?cmds_without_connections:cmds_without_connection list ->
+    ?cmds_with_connections:cmds_with_connection list ->
     ?doc:string ->  ?version:string ->
     string -> unit Deferred.t
   (** parse cmdline, run, and quit *)
@@ -255,7 +267,16 @@ module Cmdline: sig
   val add_repo: string -> Git.repo -> unit
   val add_default_revspec_for_url:
     revspec:string -> url:string -> name:string -> unit
-
+  val exec:
+    ?init:([> `Ok ] as 'c) ->
+    ?fold:
+      ('c ->
+       [> `Error of Core_kernel.Error.t | `Incomplete | `Ok of 'b ] -> 'c) ->
+    ('a, 'b) Oci_Data.t ->
+    'a ->
+    ('a -> Sexplib.Type.t) ->
+    (Format.formatter -> 'b -> unit) ->
+    Git.connection -> 'c Async_kernel.Types.Deferred.t
 end
 
 

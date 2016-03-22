@@ -86,14 +86,14 @@ type conf = {
   running_processes: process Int.Table.t;
   cgroup: string option;
   cpuset_available: bool;
-  binaries: Oci_Filename.t;
+  binaries: Oci_Filename.t list;
 }
 
 let oci_wrapper conf =
-  Oci_Filename.concat conf.binaries "Oci_Wrapper.native"
+  Oci_Filename.concat (List.hd_exn conf.binaries) "Oci_Wrapper.native"
 
 let oci_simple_exec conf =
-  Oci_Filename.concat conf.binaries "Oci_Simple_Exec.native"
+  Oci_Filename.concat (List.hd_exn conf.binaries) "Oci_Simple_Exec.native"
 
 let cleanup_running_processes conf () =
   begin match conf.wait_to_artefact with
@@ -546,7 +546,7 @@ let cmd =
            ~doc:"Specify the master to use.")
   in
   let binaries =
-    Arg.(required & opt (some (abs_file `Dir)) None & info ["binaries"]
+    Arg.(non_empty & opt_all (abs_file `Dir) [] & info ["binaries"]
            ~docv:"DIR"
            ~doc:"Specify where the runners are.")
   in
