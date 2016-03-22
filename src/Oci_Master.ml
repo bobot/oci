@@ -300,7 +300,7 @@ let dispatch_runner_exn ?msg d r q =
         | {Oci_Log.data=Oci_Log.Extra res} ->
           Ivar.fill_if_empty r res;
           Oci_Log.line Oci_Log.Standard "result received"
-        | {Oci_Log.data=Oci_Log.End (Core_kernel.Result.Error err)} ->
+        | {Oci_Log.data=Oci_Log.End (Result.Error err)} ->
           Pipe.write_without_pushback log
             (Oci_Log.line Oci_Log.Error "error received");
           Error.raise err

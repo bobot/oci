@@ -512,7 +512,7 @@ let register_master
       (Rpc.Rpc.implement (Oci_Data.rpc data) simple_rpc);
   masters := Rpc.Implementations.add_exn !masters
       (Rpc.Pipe_rpc.implement (Oci_Data.log data)
-         (fun {rootfs} q ~aborted:_ ->
+         (fun {rootfs} q ->
             debug "%s log called from %s" name rootfs;
             Monitor.try_with_or_error ~here:[%here] ~name
               (fun () -> return (Oci_Log.read (f q)))

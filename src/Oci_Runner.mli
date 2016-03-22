@@ -104,26 +104,34 @@ val data_log: 'result t -> 'result -> unit
 
 val process_log: 'r t -> Process.t -> unit Deferred.t
 
+type 'a process_create
+  =  ?env         : Process.env  (** default is [`Extend []] *)
+  -> ?working_dir : string
+  -> prog         : string
+  -> args         : string list
+  -> unit
+  -> 'a Deferred.t
+
 val process_create:
-  'r t -> Process.t Or_error.t Deferred.t Process.with_create_args
-(** both Process.create and process_log *)
+  'r t -> Process.t Or_error.t process_create
+(** both process_create and process_log *)
 
 val print_cmd: string -> string list -> string
 
 val run: 'r t ->
-  Core.Std.Unix.Exit_or_signal.t Deferred.t Process.with_create_args
+  Core.Std.Unix.Exit_or_signal.t process_create
 
 exception TimeError
 
 val run_timed: 'r t ->
  (Core.Std.Unix.Exit_or_signal.t * Oci_Common.Timed.t)
-  Async.Std.Deferred.t Process.with_create_args
+  process_create
 
 exception CommandFailed
-val run_exn: 'r t -> unit Deferred.t Process.with_create_args
+val run_exn: 'r t -> unit process_create
 (** Same as {!run} but raise CommandFailed in case of error *)
 
 val run_timed_exn:
-  'r t -> Oci_Common.Timed.t Deferred.t Process.with_create_args
+  'r t -> Oci_Common.Timed.t process_create
 
 val oci_version: string

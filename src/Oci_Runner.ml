@@ -68,7 +68,7 @@ let start ~implementations =
 let implement data f =
   Rpc.Pipe_rpc.implement
     (Oci_Data.log data)
-    (fun connection q ~aborted:_ ->
+    (fun connection q ->
        let reader = Pipe.init (fun writer ->
            Monitor.try_with_or_error ~here:[%here]
              (fun () -> f {connection;log=writer} q)
@@ -83,7 +83,7 @@ exception StopQuery
 let implement_unit data f =
   Rpc.Pipe_rpc.implement
     (Oci_Data.log data)
-    (fun connection q ~aborted:_ ->
+    (fun connection q ->
        let reader = Pipe.init (fun writer ->
            Monitor.try_with
              ~here:[%here]
@@ -206,7 +206,15 @@ let process_log t p =
 let print_cmd prog args =
   prog ^ " " ^ (String.concat ~sep:", " args)
 
-let process_create t ?working_dir ?env ~prog ~args () =
+type 'a process_create
+  =  ?env         : Process.env
+  -> ?working_dir : string
+  -> prog         : string
+  -> args         : string list
+  -> unit
+  -> 'a Deferred.t
+
+let process_create t ?env ?working_dir ~prog ~args () =
   Deferred.Or_error.bind
     (Process.create ?working_dir ?env ~prog ~args ())
     (fun p ->
@@ -216,7 +224,7 @@ let process_create t ?working_dir ?env ~prog ~args () =
 
 exception CommandFailed
 
-let run t ?working_dir ?env ~prog ~args () =
+let run t ?env ?working_dir ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
   process_create t ?working_dir ?env ~prog ~args ()
   >>= fun p ->
@@ -231,7 +239,7 @@ let run t ?working_dir ?env ~prog ~args () =
       (Unix.Exit_or_signal.to_string_hum error);
     return r
 
-let run_exn t ?working_dir ?env ~prog ~args () =
+let run_exn t ?env ?working_dir ~prog ~args () =
   run t ?working_dir ?env ~prog ~args ()
   >>= function
   | Core_kernel.Std.Result.Ok () -> return ()
@@ -240,7 +248,7 @@ let run_exn t ?working_dir ?env ~prog ~args () =
 
 exception TimeError
 
-let run_timed t ?working_dir ?env ~prog ~args () =
+let run_timed t ?env ?working_dir ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
   let tmpfile = Filename.temp_file "time" ".sexp" in
   let args = "--output"::tmpfile::"--quiet"::"--format"::
@@ -276,7 +284,7 @@ let run_timed t ?working_dir ?env ~prog ~args () =
                timed)
   | (Core_kernel.Std.Result.Error (`Signal _),_) -> raise TimeError
 
-let run_timed_exn t ?working_dir ?env ~prog ~args () =
+let run_timed_exn t ?env ?working_dir ~prog ~args () =
   run_timed t ?working_dir ?env ~prog ~args ()
   >>= function
   | (Result.Ok (), timed) -> return timed
