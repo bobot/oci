@@ -41,6 +41,24 @@ let test_fibo conn q =
     >>= fun (q_1,q_2) ->
     return (q_1 + q_2)
 
+let test_collatz conn q =
+  match q with
+  | q when q < 0 -> return Int.min_value
+  | 0 -> return 1
+  | 1 -> return 1
+  | q ->
+    Oci_Runner.release_proc conn 1
+    >>= fun () ->
+    let collatz x =
+      if (x mod 2) = 0
+      then x/2
+      else succ (x*3)
+    in
+    Oci_Runner.dispatch_exn
+      conn Tests_api.test_collatz (collatz q)
+    >>= fun r ->
+    return (r + 1)
+
 let test_fibo_artefact_aux conn q =
   let save_fibo v =
     Unix.mkdir "/fibo"
@@ -122,38 +140,6 @@ let test_fibo_error_artefact conn q =
   >>= fun _ ->
   return (-1)
 
-let test_ocaml t (q:Tests_api.Ocaml_Query.t) =
-  Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
-  >>= fun () ->
-  Oci_Runner.git_clone t
-    ~user:Root
-    ~url:"https://github.com/ocaml/ocaml.git"
-    ~dst:"/ocaml"
-    ~commit:q.commit
-  >>= fun () ->
-  Oci_Runner.run_exn t ~working_dir:"/ocaml"
-    ~prog:"git"
-    ~args:["show";"--no-patch"] ()
-  >>= fun () ->
-  Oci_Runner.run_exn t ~working_dir:"/ocaml"
-    ~prog:"./configure"
-    ~args:[] ()
-  >>= fun () ->
-  Oci_Runner.run_exn t ~working_dir:"/ocaml"
-    ~prog:"make"
-    ~args:["world.opt"] ()
-  >>= fun () ->
-  (* Oci_Runner.test t ~working_dir:"/ocaml" *)
-  (*   ~prog:"make test" *)
-  (*   ~args:[] () *)
-  (* >>= fun b -> *)
-  Oci_Runner.run_exn t ~working_dir:"/ocaml"
-    ~prog:"make"
-    ~args:["install"] ()
-  >>= fun () ->
-  Oci_Runner.create_artefact t ~dir:"/usr"
-
-
 let () =
   never_returns begin
     Oci_Runner.start
@@ -169,6 +155,6 @@ let () =
         Oci_Runner.implement
           Tests_api.test_fibo_error_artefact test_fibo_error_artefact;
         Oci_Runner.implement
-          Tests_api.test_ocaml test_ocaml;
+          Tests_api.test_collatz test_collatz;
       ]
   end

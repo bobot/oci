@@ -52,19 +52,9 @@ let test_fibo_error_artefact = Oci_Data.register
     ~bin_query:Int.bin_t
     ~bin_result:Int.bin_t
 
-module Ocaml_Query = struct
 
-  type t = {
-    rootfs: Oci_Rootfs_Api.Rootfs.t;
-    commit: Oci_Common.Commit.t;
-  } [@@deriving sexp, bin_io, compare]
-
-  let hash = Hashtbl.hash
-
-end
-
-let test_ocaml = Oci_Data.register
-    ~name:"ocaml.compilation"
+let test_collatz = Oci_Data.register
+    ~name:"collatz"
     ~version:1
-    ~bin_query:Ocaml_Query.bin_t
-    ~bin_result:Oci_Common.Artefact.bin_t
+    ~bin_query:Int.bin_t
+    ~bin_result:Int.bin_t
