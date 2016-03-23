@@ -1146,7 +1146,7 @@ module Cmdline = struct
         ~deps:[]
         ~cmds:[
           run "./configure" [];
-          make ~j:4 ["world.opt"];
+          make ["world.opt"];
           make ["install"];
           run "mkdir" ["-p";"/usr/local/lib/ocaml/site-lib/stublibs/"];
           run "touch" ["/usr/local/lib/ocaml/site-lib/stublibs/.placeholder"];
@@ -1156,7 +1156,7 @@ module Cmdline = struct
 
     let ocamlfind = mk_repo
         "ocamlfind"
-        ~url:"git@git.frama-c.com:bobot/ocamlfind.git"
+        ~url:"https://gitlab.camlcity.org/gerd/lib-findlib.git"
         ~deps:[ocaml]
         ~cmds:[
           run "./configure" [];
@@ -1170,8 +1170,10 @@ module Cmdline = struct
         ~url:"https://github.com/ocaml/ocamlbuild.git"
         ~deps:[ocaml;ocamlfind]
         ~cmds:[
-          make [];
-          make ["install"];
+          (* don't compile and install ocamlbuild if it is already installed
+              (before ocaml 4.03) *)
+          run "sh" ["-c"; "which ocamlbuild || make"];
+          run "sh" ["-c"; "which ocamlbuild || make install"];
         ]
 
     let zarith = mk_repo
@@ -1197,7 +1199,7 @@ module Cmdline = struct
         "camlp4"
         ~url:"https://github.com/ocaml/camlp4.git"
         ~revspec:"4.02+6"
-        ~deps:[ocaml;ocamlfind]
+        ~deps:[ocaml;ocamlfind;ocamlbuild]
         ~cmds:[
           run "./configure" [];
           make ["all"];
@@ -1229,7 +1231,7 @@ module Cmdline = struct
     let cppo = mk_repo
         "cppo"
         ~url:"https://github.com/mjambon/cppo.git"
-        ~deps:[ocaml;ocamlfind]
+        ~deps:[ocaml;ocamlfind;ocamlbuild]
         ~cmds:[
           make [];
           make ["install"];
@@ -1252,7 +1254,7 @@ module Cmdline = struct
 
     let ounit =
       let r = Git.repo
-        ~deps:[ocaml.name;ocamlfind.name]
+        ~deps:[ocaml.name;ocamlfind.name;ocamlbuild.name]
         ~cmds:[
           mk_copy_file
             ~url:["http://forge.ocamlcore.org/frs/download.php/1258/\
@@ -1273,7 +1275,7 @@ module Cmdline = struct
         "cryptokit"
         ~url:"git@git.frama-c.com:bobot/CryptoKit.git"
         ~revspec:"87a8f3597c11381c2f7361b96f952913a4d66f3c"
-        ~deps:[ocaml;ocamlfind]
+        ~deps:[ocaml;ocamlfind;ocamlbuild]
         ~cmds:[
           make [];
           make ["install"];
