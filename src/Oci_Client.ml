@@ -1201,9 +1201,11 @@ module Cmdline = struct
         ~revspec:"4.02+6"
         ~deps:[ocaml;ocamlfind;ocamlbuild]
         ~cmds:[
-          run "./configure" [];
-          make ["all"];
-          make ["install";"install-META"]
+          (* don't compile and install camlp4 if it is already installed
+              (before ocaml 4.02) *)
+          run "sh" ["-c"; "which camlp4 || ./configure"];
+          run "sh" ["-c"; "which camlp4 || make all"];
+          run "sh" ["-c"; "which camlp4 || make install install-META"];
         ]
 
     let lablgtk = mk_repo
