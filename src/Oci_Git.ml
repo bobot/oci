@@ -63,21 +63,36 @@ let create_oci_ssh_sh () =
 let get_env () =
   `Extend ["GIT_SSH",oci_ssh_sh ()]
 
+let rec get_next_available_id () =
+  Git_Id.incr next_id;
+  let id = !next_id in
+  let dst = get_dir id in
+  Sys.file_exists_exn dst
+  >>= fun b ->
+  if b then get_next_available_id ()
+  else return (id,dst)
+
 let get_id url =
   match String.Table.find db url with
   | Some id -> id
   | None ->
     let id = Deferred.create (fun result ->
-        Git_Id.incr next_id;
-        let id = !next_id in
-        let dst = get_dir id in
+        get_next_available_id ()
+        >>> fun (id,dst) ->
         Monitor.try_with_or_error ~here:[%here] (fun () ->
             Async_shell.run "git"
               ~env:(get_env ())
               ["clone";"--mirror";"--bare";"--quiet";"--";url;dst]
             >>= fun () -> return id)
         >>> fun r ->
-        Ivar.fill result r
+        begin match r with
+          | Ok _ -> ()
+          | Error _ ->
+            (** We don't keep the error in the database,
+                So the cloning can be tried again later. *)
+            String.Table.remove db url
+        end;
+        Ivar.fill result r;
       ) in
     String.Table.add_exn db ~key:url ~data:id;
     id
