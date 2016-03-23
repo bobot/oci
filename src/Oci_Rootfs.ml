@@ -164,8 +164,9 @@ let add_packages (d:add_packages_query) =
              prog = "apt-get";
              args = ["update";
                      (* We disable privilege dropping because it work not well
-                         with the current hardlink overlay technique *)
-                     "--option";"APT::Sandbox::User=rot";
+                         with the current hardlink overlay technique.
+                        And we are already sandboxed. *)
+                     "--option";"APT::Sandbox::User=root";
                      "--option";"Acquire::Retries=3";
                     ];
              env = `Extend [];
