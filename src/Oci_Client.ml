@@ -208,7 +208,7 @@ module Gnuplot = struct
                 "set key rmargin width -4 samplen 2\n";
                 "plot \\\n"]
   let specification title =
-    sprintf "\"-\" using 1:2 with lines title \"%s\", \\\n" title
+    sprintf "\"-\" using 1:2 with steps title \"%s\", \\\n" title
 
   let print_header output writer datas =
     begin match output with
@@ -243,18 +243,17 @@ module Gnuplot = struct
         Pipe.write_if_open writer "e\n"
       )
 
-  let compute_datas timeout nbticks (l: (string * float list) list) =
-    let nbticks = float nbticks in
-    let interval = timeout /. nbticks in
-    let rec aux acc i proved = function
-      | [] -> List.rev acc
-      | _ when nbticks <= i -> List.rev acc
-      | a::l when a <= i*.interval ->
-        aux acc i (proved+1) l
-      | l (* next_tick < a *) ->
-        aux ((i*.interval,proved)::acc) (i+.1.) proved l
+  let compute_datas_timeout timeout _ (l: (string * float list) list) =
+    let rec aux acc current_value proved = function
+      | [] -> List.rev ((current_value,proved)::acc)
+      | a::_ when timeout < a ->
+        List.rev ((current_value,proved)::acc)
+      | a::l when Float.equal a current_value ->
+        aux acc current_value (proved+1) l
+      | a::l ->
+        aux ((current_value,proved)::acc) a (proved+1) l
     in
-    List.map l ~f:(fun (n,l) -> (n,aux [0.,0] interval 0
+    List.map l ~f:(fun (n,l) -> (n,aux [0.,0] 0. 0
                                    (List.sort ~cmp:Float.compare l)))
 
   let call_gnuplot filler =
