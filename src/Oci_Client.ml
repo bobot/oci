@@ -200,6 +200,87 @@ module Git = struct
     return (Or_error.ok_exn r)
 end
 
+module Gnuplot = struct
+
+  let header = ["set title \"$BENCHS\"\n";
+                "set xlabel \"time(s)\"\n";
+                "set ylabel \"problems proved\"\n";
+                "set key rmargin width -4 samplen 2\n";
+                "plot \\\n"]
+  let specification title =
+    sprintf "\"-\" using 1:2 with lines title \"%s\", \\\n" title
+
+  let print_header output writer datas =
+    begin match output with
+      | `Png(width,height,filename) ->
+        Pipe.write_if_open writer
+          (sprintf "set terminal pngcairo size %i, %i\n" width height)
+        >>= fun () ->
+        Pipe.write_if_open writer
+          (sprintf "set output \"%s\"\n" filename)
+      | `Svg(filename) ->
+        Pipe.write_if_open writer "set terminal svg\n"
+        >>= fun () ->
+        Pipe.write_if_open writer
+          (sprintf "set output \"%s\"\n" filename)
+      | `Qt ->
+        Pipe.write_if_open writer "set terminal qt persist\n"
+    end
+    >>= fun () ->
+    Deferred.List.iter ~f:(Pipe.write_if_open writer) header
+    >>= fun () ->
+    Deferred.List.iter datas
+      ~f:(fun (t,_) -> Pipe.write_if_open writer (specification t))
+    >>= fun () ->
+    Pipe.write_if_open writer "\n"
+
+  let print_datas writer datas =
+    Deferred.List.iter datas ~f:(fun (_,l) ->
+        Deferred.List.iter l ~f:(fun (x,y) ->
+            Pipe.write_if_open writer (sprintf "%f %i\n" x y)
+          )
+        >>= fun () ->
+        Pipe.write_if_open writer "e\n"
+      )
+
+  let compute_datas timeout nbticks (l: (string * float list) list) =
+    let nbticks = float nbticks in
+    let interval = timeout /. nbticks in
+    let rec aux acc i proved = function
+      | [] -> List.rev acc
+      | _ when nbticks <= i -> List.rev acc
+      | a::l when a <= i*.interval ->
+        aux acc i (proved+1) l
+      | l (* next_tick < a *) ->
+        aux ((i*.interval,proved)::acc) (i+.1.) proved l
+    in
+    List.map l ~f:(fun (n,l) -> (n,aux [0.,0] interval 0 l))
+
+  let call_gnuplot filler =
+    Process.create_exn ~prog:"gnuplot" ~args:["-"] ()
+    >>= fun p ->
+    let stdout = Reader.contents (Process.stdout p) in
+    let stderr = Reader.contents (Process.stderr p) in
+    filler (Writer.pipe (Process.stdin p))
+    >>= fun () ->
+    Writer.close (Process.stdin p)
+    >>= fun () ->
+    Process.wait p
+    >>= fun result ->
+    stdout
+    >>= fun stdout ->
+    stderr
+    >>= fun stderr ->
+    match result with
+    | Ok () -> Deferred.unit
+    | _ -> error "Gnuplot stopped unexpectedly with output:\n\
+                  stderr:\n\
+                  %s\n\
+                  stdout:\n\
+                  %s" stderr stdout;
+      Shutdown.exit 1
+end
+
 (** module to sort *)
 module Cmdline = struct
 
@@ -461,7 +542,7 @@ module Cmdline = struct
 
   let compare_n cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
-      output connection =
+      outputs connection =
     match String.Map.find_exn !db_compare_n bench with
     | CompareN(for_one,sexp_x,x_sexp,sexp_y,y_sexp,analyse) ->
       Reader.load_sexps_exn x_input sexp_x
@@ -549,10 +630,43 @@ module Cmdline = struct
           )
       >>= fun results ->
       let results = List.map results ~f:(fun (x,l) -> (x,List.filter_opt l)) in
-      let sexp =
-        List.sexp_of_t
-          (sexp_of_pair x_sexp (List.sexp_of_t Float.sexp_of_t)) in
-      Writer.save_sexp ~hum:true output (sexp results)
+      let datas = lazy begin
+        let results =
+          List.map ~f:(fun (x,l) -> Sexp.to_string (x_sexp x),l)
+            results
+        in
+        Gnuplot.compute_datas 2. 256 results
+      end in
+      let gnuplot call mode =
+        let datas = Lazy.force datas in
+        call (fun writer ->
+            Gnuplot.print_header mode writer datas
+            >>= fun () ->
+            Gnuplot.print_datas writer datas
+          )
+      in
+      Deferred.List.iter outputs ~f:(function
+          | `Sexp filename ->
+            let sexp =
+              List.sexp_of_t
+                (sexp_of_pair x_sexp (List.sexp_of_t Float.sexp_of_t)) in
+            Writer.save_sexp ~hum:true filename (sexp results)
+          | `Gnuplot filename ->
+            let call filler =
+              Writer.open_file filename
+              >>= fun writer ->
+              filler (Writer.pipe writer)
+              >>= fun () ->
+              Writer.close writer
+            in
+            gnuplot call (`Svg("foobar.svg"))
+          | `Png filename ->
+            gnuplot Gnuplot.call_gnuplot (`Png(640,480,filename))
+          | `Svg filename ->
+            gnuplot Gnuplot.call_gnuplot (`Svg(filename))
+          | `Qt ->
+            gnuplot Gnuplot.call_gnuplot `Qt
+        )
       >>= fun () ->
       Deferred.return `Ok
 
@@ -1016,10 +1130,31 @@ module Cmdline = struct
              ~docv:"Y"
              ~doc:"Give the list of y variables")
     in
-    let output =
-      Arg.(required & opt (some string) None & info ["output"]
-             ~docv:"OUT"
-             ~doc:"Specify the file to output the computing datas")
+    let output kind =
+      Arg.(value & opt (some string) None & info [sprintf "output-%s" kind]
+             ~docv:"FILE"
+             ~doc:(sprintf
+                     "Specify the file to output the computed datas \
+                      in %s format" kind))
+    in
+    let show_qt =
+      Arg.(value & vflag None [Some "", info ["show-qt"]
+             ~docv:"FILE"
+             ~doc:"Specify to show the graphic in a window"])
+    in
+    let outputs =
+      Term.(List.fold
+              ~init:(const [])
+              ~f:(fun acc (term,conv) ->
+                  const (fun acc -> function
+                      | None -> acc
+                      | Some v -> (conv v)::acc) $ acc $ term
+                )
+              [ output "sexp", (fun s -> `Sexp s);
+                output "png", (fun s -> `Png s);
+                output "svg", (fun s -> `Svg s);
+                output "gpl", (fun s -> `Gnuplot s);
+                show_qt, (fun _ -> `Qt)])
     in
     let doc = "run a specific benchmark" in
     let man = [
@@ -1030,7 +1165,7 @@ module Cmdline = struct
     Term.(const compare_n $
           create_query_hook $ rootfs $
           (cmdliner_revspecs String.Map.empty) $ x_input $ y_input $ bench
-          $ output),
+          $ outputs),
     Term.info "compare_n" ~doc ~sdocs:copts_sect ~man
 
   let default_cmd ?version ?doc name =
