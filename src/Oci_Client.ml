@@ -553,11 +553,20 @@ module Cmdline = struct
   let compare_n cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
       outputs summation connection =
+    let load_sexps input sexp =
+      Reader.load_sexps input sexp
+      >>= function
+      | Ok r -> return r
+      | Error err ->
+        error "Error during parsing of %s:\n%s"
+          input (Error.to_string_hum err);
+        Shutdown.exit 1
+    in
     match String.Map.find_exn !db_compare_n bench with
     | CompareN(for_one,sexp_x,x_sexp,sexp_y,y_sexp,analyse) ->
-      Reader.load_sexps_exn x_input sexp_x
+      load_sexps x_input sexp_x
       >>= fun lx ->
-      Reader.load_sexps_exn y_input sexp_y
+      load_sexps y_input sexp_y
       >>= fun ly ->
       let exec_one x y =
         for_one connection revspecs x y
