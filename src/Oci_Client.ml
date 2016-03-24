@@ -254,7 +254,8 @@ module Gnuplot = struct
       | l (* next_tick < a *) ->
         aux ((i*.interval,proved)::acc) (i+.1.) proved l
     in
-    List.map l ~f:(fun (n,l) -> (n,aux [0.,0] interval 0 l))
+    List.map l ~f:(fun (n,l) -> (n,aux [0.,0] interval 0
+                                   (List.sort ~cmp:Float.compare l)))
 
   let call_gnuplot filler =
     Process.create_exn ~prog:"gnuplot" ~args:["-"] ()
