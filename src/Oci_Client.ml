@@ -243,15 +243,25 @@ module Gnuplot = struct
         Pipe.write_if_open writer "e\n"
       )
 
-  let compute_datas_timeout timeout _ (l: (string * float list) list) =
-    let rec aux acc current_value proved = function
-      | [] -> List.rev ((current_value,proved)::acc)
+  let compute_datas_timeout timeout (l: (string * float list) list) =
+    let rec aux acc current proved = function
+      | [] -> List.rev ((current,proved)::acc)
       | a::_ when timeout < a ->
-        List.rev ((current_value,proved)::acc)
-      | a::l when Float.equal a current_value ->
-        aux acc current_value (proved+1) l
+        List.rev ((current,proved)::acc)
+      | a::l when Float.equal a current ->
+        aux acc current (proved+1) l
       | a::l ->
-        aux ((current_value,proved)::acc) a (proved+1) l
+        aux ((current,proved)::acc) a (proved+1) l
+    in
+    List.map l ~f:(fun (n,l) -> (n,aux [0.,0] 0. 0
+                                   (List.sort ~cmp:Float.compare l)))
+
+  let compute_datas_sort timeout (l: (string * float list) list) =
+    let rec aux acc current proved = function
+      | [] -> List.rev acc
+      | a::_ when timeout < a -> List.rev acc
+      | a::l ->
+        aux ((current,proved)::acc) (current+.a) (proved+1) l
     in
     List.map l ~f:(fun (n,l) -> (n,aux [0.,0] 0. 0
                                    (List.sort ~cmp:Float.compare l)))
@@ -542,7 +552,7 @@ module Cmdline = struct
 
   let compare_n cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
-      outputs connection =
+      outputs summation connection =
     match String.Map.find_exn !db_compare_n bench with
     | CompareN(for_one,sexp_x,x_sexp,sexp_y,y_sexp,analyse) ->
       Reader.load_sexps_exn x_input sexp_x
@@ -635,7 +645,9 @@ module Cmdline = struct
           List.map ~f:(fun (x,l) -> Sexp.to_string (x_sexp x),l)
             results
         in
-        Gnuplot.compute_datas 2. 256 results
+        match summation with
+        | `Timeout -> Gnuplot.compute_datas_timeout  2. results
+        | `Sort -> Gnuplot.compute_datas_sort  2. results
       end in
       let gnuplot call mode =
         let datas = Lazy.force datas in
@@ -1130,19 +1142,18 @@ module Cmdline = struct
              ~docv:"Y"
              ~doc:"Give the list of y variables")
     in
-    let output kind =
-      Arg.(value & opt (some string) None & info [sprintf "output-%s" kind]
-             ~docv:"FILE"
-             ~doc:(sprintf
-                     "Specify the file to output the computed datas \
-                      in %s format" kind))
-    in
-    let show_qt =
-      Arg.(value & vflag None [Some "", info ["show-qt"]
-             ~docv:"FILE"
-             ~doc:"Specify to show the graphic in a window"])
-    in
     let outputs =
+      let output kind =
+        Arg.(value & opt (some string) None & info [sprintf "output-%s" kind]
+               ~docv:"FILE"
+               ~doc:(sprintf
+                       "Specify the file to output the computed datas \
+                        in %s format" kind))
+      in
+      let show_qt =
+        let doc = "Specify to show the graphic in a window" in
+        Arg.(value & vflag None [Some "", info ["show-qt"] ~doc])
+      in
       Term.(List.fold
               ~init:(const [])
               ~f:(fun acc (term,conv) ->
@@ -1156,6 +1167,19 @@ module Cmdline = struct
                 output "gpl", (fun s -> `Gnuplot s);
                 show_qt, (fun _ -> `Qt)])
     in
+    let summation =
+      Arg.(value & vflag `Sort
+             [`Timeout, info ["summation-by-timeout"]
+                ~doc:"For a given time compute the number of run that finish \
+                      before that time. It is simpler than --summation-by-sort \
+                      but the end of the curve depends less of the time taken \
+                      by fast runs.";
+              `Sort, info ["summation-by-sort"]
+                ~doc:"For a given time compute the maximal number of \
+                      run that could be run sequentially in the given time. \
+                      It is the default.";
+             ])
+    in
     let doc = "run a specific benchmark" in
     let man = [
       `S "DESCRIPTION";
@@ -1165,7 +1189,7 @@ module Cmdline = struct
     Term.(const compare_n $
           create_query_hook $ rootfs $
           (cmdliner_revspecs String.Map.empty) $ x_input $ y_input $ bench
-          $ outputs),
+          $ outputs $ summation),
     Term.info "compare_n" ~doc ~sdocs:copts_sect ~man
 
   let default_cmd ?version ?doc name =
