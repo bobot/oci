@@ -201,12 +201,12 @@ module Cmdline: sig
 
   val cmdliner_revspecs: revspecs -> (revspecs Cmdliner.Term.t)
 
-  type ('x,'y) compare_n =
+  type ('x,'y) compare =
     Git.connection ->
     revspecs -> 'x -> 'y ->
     (revspecs * Git.repo * [`Exec of Git.exec ]) Deferred.t
 
-  val mk_compare_n:
+  val mk_compare:
     deps:repo List.t ->
     cmds:(Git.connection ->
           revspecs ->

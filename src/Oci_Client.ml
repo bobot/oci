@@ -442,22 +442,22 @@ module Cmdline = struct
 
   type query = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
   type revspecs = string option String.Map.t
-  type ('x,'y) compare_n =
+  type ('x,'y) compare =
     Git.connection ->
     revspecs -> 'x -> 'y ->
     (revspecs * Git.repo * [`Exec of Git.exec ]) Deferred.t
-  type exists_compare_n =
+  type exists_compare =
     | CompareN:
-        ('x,'y) compare_n * (Sexp.t -> 'x) * ('x -> Sexp.t) * (Sexp.t -> 'y) *
+        ('x,'y) compare * (Sexp.t -> 'x) * ('x -> Sexp.t) * (Sexp.t -> 'y) *
         ('y -> Sexp.t) *
         (Unix.Exit_or_signal.t -> Oci_Common.Timed.t -> float option)
-      -> exists_compare_n
-  let db_compare_n = ref String.Map.empty
+      -> exists_compare
+  let db_compare = ref String.Map.empty
 
-  let add_compare_n name compare_n sexp_x x_sexp sexp_y y_sexp analyse =
-    db_compare_n :=
-      String.Map.add !db_compare_n ~key:name
-        ~data:(CompareN(compare_n,sexp_x,x_sexp,sexp_y,y_sexp,analyse))
+  let add_compare name compare sexp_x x_sexp sexp_y y_sexp analyse =
+    db_compare :=
+      String.Map.add !db_compare ~key:name
+        ~data:(CompareN(compare,sexp_x,x_sexp,sexp_y,y_sexp,analyse))
 
   let default_create_query_hook ~connection:_
       ~query ~revspecs = Deferred.return (query, revspecs)
@@ -591,7 +591,7 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.XpraGitRepo.Result.pp socket
 
-  let compare_n cq_hook rootfs revspecs
+  let compare cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
       outputs summation connection =
     let load_sexps input sexp =
@@ -603,7 +603,7 @@ module Cmdline = struct
           input (Error.to_string_hum err);
         Shutdown.exit 1
     in
-    match String.Map.find_exn !db_compare_n bench with
+    match String.Map.find_exn !db_compare bench with
     | CompareN(for_one,sexp_x,x_sexp,sexp_y,y_sexp,analyse) ->
       load_sexps x_input sexp_x
       >>= fun lx ->
@@ -620,12 +620,12 @@ module Cmdline = struct
       let exec_one x y =
         for_one connection revspecs x y
         >>= function (revspecs, git_repo, `Exec exec) ->
-        let repo_compare_n = "Oci_Client.compare_n" in
-        let repos = String.Map.add !db_repos ~key:repo_compare_n
+        let repo_compare = "Oci_Client.compare" in
+        let repos = String.Map.add !db_repos ~key:repo_compare
             ~data:git_repo in
         create_query
           ~info_level:`Debug
-          cq_hook rootfs revspecs repo_compare_n
+          cq_hook rootfs revspecs repo_compare
           repos connection
         >>= fun query ->
         Rpc.Pipe_rpc.dispatch_exn
@@ -1179,9 +1179,9 @@ module Cmdline = struct
            (cmdliner_revspecs String.Map.empty) $ repo),
      Term.info "xpra" ~doc ~sdocs:copts_sect ~man]
 
-  let compare_n_cmd create_query_hook =
+  let compare_cmd create_query_hook =
     let bench =
-      let benchs = String.Map.keys !db_compare_n in
+      let benchs = String.Map.keys !db_compare in
       let benchs_enum = List.map ~f:(fun x -> (x,x)) benchs in
       Arg.(required & pos 0 (some (enum benchs_enum)) None & info []
              ~docv:"REPO_NAME"
@@ -1245,11 +1245,11 @@ module Cmdline = struct
       `P "Run the benchmark for comparing the x with the y\
           (TODO: find a name for x and y)."] @ help_secs
     in
-    Term.(const compare_n $
+    Term.(const compare $
           create_query_hook $ rootfs $
           (cmdliner_revspecs String.Map.empty) $ x_input $ y_input $ bench
           $ outputs $ summation),
-    Term.info "compare_n" ~doc ~sdocs:copts_sect ~man
+    Term.info "compare" ~doc ~sdocs:copts_sect ~man
 
   let default_cmd ?version ?doc name =
     let man = help_secs in
@@ -1260,8 +1260,8 @@ module Cmdline = struct
     [list_rootfs_cmd; create_rootfs_cmd;
      add_package_cmd;
      download_rootfs_cmd]@
-    (if String.Map.is_empty !db_compare_n
-     then [] else [compare_n_cmd create_query_hook])@
+    (if String.Map.is_empty !db_compare
+     then [] else [compare_cmd create_query_hook])@
     (run_xpra_cmd create_query_hook)
 
   let def_cmds_without_connection =
@@ -1332,12 +1332,12 @@ module Cmdline = struct
          ());
     id
 
-  let mk_compare_n
+  let mk_compare
       ~deps
       ~cmds
       ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y ~analyse
       name =
-    add_compare_n
+    add_compare
       name
       (fun conn revspecs x y ->
          cmds conn revspecs x y
