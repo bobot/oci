@@ -202,69 +202,110 @@ end
 
 module Gnuplot = struct
 
-  let header = ["set title \"$BENCHS\"\n";
-                "set xlabel \"time(s)\"\n";
-                "set ylabel \"problems proved\"\n";
-                "set key rmargin width -4 samplen 2\n";
-                "plot \\\n"]
-  let specification title =
-    sprintf "\"-\" using 1:2 with steps title \"%s\", \\\n" title
+  let print_output output writer =
+    match output with
+    | `Png(width,height,filename) ->
+      Pipe.write_if_open writer
+        (sprintf "set terminal pngcairo size %i, %i\n" width height)
+      >>= fun () ->
+      Pipe.write_if_open writer
+        (sprintf "set output \"%s\"\n" filename)
+    | `Svg(filename) ->
+      Pipe.write_if_open writer "set terminal svg\n"
+      >>= fun () ->
+      Pipe.write_if_open writer
+        (sprintf "set output \"%s\"\n" filename)
+    | `Qt ->
+      Pipe.write_if_open writer "set terminal qt persist\n"
 
-  let print_header output writer datas =
-    begin match output with
-      | `Png(width,height,filename) ->
-        Pipe.write_if_open writer
-          (sprintf "set terminal pngcairo size %i, %i\n" width height)
-        >>= fun () ->
-        Pipe.write_if_open writer
-          (sprintf "set output \"%s\"\n" filename)
-      | `Svg(filename) ->
-        Pipe.write_if_open writer "set terminal svg\n"
-        >>= fun () ->
-        Pipe.write_if_open writer
-          (sprintf "set output \"%s\"\n" filename)
-      | `Qt ->
-        Pipe.write_if_open writer "set terminal qt persist\n"
-    end
+  let print_datas writer data =
+    Deferred.List.iter data ~f:(fun (x,y) ->
+        Pipe.write_if_open writer (sprintf "%f %f\n" x y)
+      )
     >>= fun () ->
-    Deferred.List.iter ~f:(Pipe.write_if_open writer) header
+    Pipe.write_if_open writer "e\n"
+
+  let steps_filler datas mode writer =
+    print_output mode writer
+    >>= fun () ->
+    Pipe.write_if_open writer
+      "set title \"Comparison\"\n\
+       set xlabel \"time(s)\"\n\
+       set ylabel \"problems proved\"\n\
+       set key rmargin width -4 samplen 2\n\
+       plot \\\n"
     >>= fun () ->
     Deferred.List.iter datas
-      ~f:(fun (t,_) -> Pipe.write_if_open writer (specification t))
+      ~f:(fun (t,_) ->
+          Pipe.write_if_open writer
+            (sprintf "\"-\" using 1:2 with steps title \"%s\", \\\n" t))
     >>= fun () ->
     Pipe.write_if_open writer "\n"
-
-  let print_datas writer datas =
-    Deferred.List.iter datas ~f:(fun (_,l) ->
-        Deferred.List.iter l ~f:(fun (x,y) ->
-            Pipe.write_if_open writer (sprintf "%f %i\n" x y)
-          )
-        >>= fun () ->
-        Pipe.write_if_open writer "e\n"
+    >>= fun () ->
+    Deferred.List.iter datas ~f:(fun (_,data) ->
+        print_datas writer data
       )
 
   let compute_datas_timeout timeout (l: (string * float list) list) =
     let rec aux acc current proved = function
-      | [] -> List.rev ((current,proved)::acc)
+      | [] -> List.rev ((current,float proved)::acc)
       | a::_ when timeout < a ->
-        List.rev ((current,proved)::acc)
+        List.rev ((current,float proved)::acc)
       | a::l when Float.equal a current ->
         aux acc current (proved+1) l
       | a::l ->
-        aux ((current,proved)::acc) a (proved+1) l
+        aux ((current,float proved)::acc) a (proved+1) l
     in
-    List.map l ~f:(fun (n,l) -> (n,aux [0.,0] 0. 0
-                                   (List.sort ~cmp:Float.compare l)))
+    let r =
+      List.map l ~f:(fun (n,l) -> (n,aux [] 0. 0
+                                     (List.sort ~cmp:Float.compare l)))
+    in
+    steps_filler r
 
   let compute_datas_sort timeout (l: (string * float list) list) =
     let rec aux acc current proved = function
       | [] -> List.rev acc
       | a::_ when timeout < a -> List.rev acc
       | a::l ->
-        aux ((current,proved)::acc) (current+.a) (proved+1) l
+        aux ((current,float proved)::acc) (current+.a) (proved+1) l
     in
-    List.map l ~f:(fun (n,l) -> (n,aux [0.,0] 0. 0
-                                   (List.sort ~cmp:Float.compare l)))
+    let r =
+      List.map l ~f:(fun (n,l) -> (n,aux [0.,0.] 0. 0
+                                     (List.sort ~cmp:Float.compare l)))
+    in
+    steps_filler r
+
+  let error_measure = 0.04
+
+  let compute_datas_two timeout (a,la) (b,lb) =
+    let r = List.map2_exn la lb ~f:(fun x y ->
+        match x,y with
+        | None, _ | _, None -> None
+        | Some x, Some y -> Some (max error_measure (min timeout x),
+                                  max error_measure (min timeout y))
+      ) in
+    let r = List.filter_opt r in
+    (fun mode writer ->
+       print_output mode writer
+       >>= fun () ->
+       Pipe.write_if_open writer
+         (sprintf "set title \"Comparison\"\n\
+	           set logscale xy 10\n\
+	           set xrange [%f:%f]\n\
+                   set yrange [%f:%f]\n\
+                   set xlabel \"%s\"\n\
+                   set ylabel \"%s\"\n\
+                   set key rmargin width -4 samplen 2\n"
+            error_measure timeout error_measure timeout
+            a b)
+       >>= fun () ->
+       Pipe.write_if_open writer
+         (sprintf "plot \"-\" using 1:2,\\\n\
+          x+%f with lines linecolor rgbcolor \"green\", x-%f with lines \\\n\
+          linecolor rgbcolor \"green\"\n" error_measure error_measure)
+       >>= fun () ->
+       print_datas writer r
+    )
 
   let call_gnuplot filler =
     Process.create_exn ~prog:"gnuplot" ~args:["-"] ()
@@ -566,6 +607,14 @@ module Cmdline = struct
     | CompareN(for_one,sexp_x,x_sexp,sexp_y,y_sexp,analyse) ->
       load_sexps x_input sexp_x
       >>= fun lx ->
+      begin match summation with
+        | `Two when List.length lx <> 2 ->
+          error "When using --compare-two, --x-input should \
+                 contain only two elements";
+          Shutdown.exit 1
+        | _ -> Deferred.unit
+      end
+      >>= fun () ->
       load_sexps y_input sexp_y
       >>= fun ly ->
       let exec_one x y =
@@ -648,48 +697,47 @@ module Cmdline = struct
             return (x,res)
           )
       >>= fun results ->
-      let results = List.map results ~f:(fun (x,l) -> (x,List.filter_opt l)) in
-      let datas = lazy begin
+      let lost_run =
+        List.exists results ~f:(fun (_,l) ->
+            List.exists l ~f:(fun x -> x = None))
+      in
+      let filler = lazy begin
         let results =
           List.map ~f:(fun (x,l) -> Sexp.to_string (x_sexp x),l)
             results
         in
-        match summation with
-        | `Timeout -> Gnuplot.compute_datas_timeout  2. results
-        | `Sort -> Gnuplot.compute_datas_sort  2. results
+        let filter_results r =
+          List.map r ~f:(fun (x,l) -> (x, List.filter_opt l))
+        in
+        match summation,results with
+        | `Timeout,_ ->
+          Gnuplot.compute_datas_timeout  2. (filter_results results)
+        | `Sort,_ -> Gnuplot.compute_datas_sort  2. (filter_results results)
+        | `Two,[a;b] -> Gnuplot.compute_datas_two 2. a b
+        | `Two, _ -> assert false (* The previous test must forbid this case *)
       end in
-      let gnuplot call mode =
-        let datas = Lazy.force datas in
-        call (fun writer ->
-            Gnuplot.print_header mode writer datas
-            >>= fun () ->
-            Gnuplot.print_datas writer datas
-          )
-      in
       Deferred.List.iter outputs ~f:(function
           | `Sexp filename ->
             let sexp =
               List.sexp_of_t
-                (sexp_of_pair x_sexp (List.sexp_of_t Float.sexp_of_t)) in
+                (sexp_of_pair x_sexp
+                   (List.sexp_of_t (Option.sexp_of_t Float.sexp_of_t))) in
             Writer.save_sexp ~hum:true filename (sexp results)
           | `Gnuplot filename ->
-            let call filler =
-              Writer.open_file filename
-              >>= fun writer ->
-              filler (Writer.pipe writer)
-              >>= fun () ->
-              Writer.close writer
-            in
-            gnuplot call (`Svg("foobar.svg"))
+            Writer.open_file filename
+            >>= fun writer ->
+            (Lazy.force filler) (`Svg("foobar.svg")) (Writer.pipe writer)
+            >>= fun () ->
+            Writer.close writer
           | `Png filename ->
-            gnuplot Gnuplot.call_gnuplot (`Png(640,480,filename))
+            Gnuplot.call_gnuplot ((Lazy.force filler) (`Png(640,480,filename)))
           | `Svg filename ->
-            gnuplot Gnuplot.call_gnuplot (`Svg(filename))
+            Gnuplot.call_gnuplot ((Lazy.force filler) (`Svg(filename)))
           | `Qt ->
-            gnuplot Gnuplot.call_gnuplot `Qt
+            Gnuplot.call_gnuplot ((Lazy.force filler) `Qt)
         )
       >>= fun () ->
-      Deferred.return `Ok
+      Deferred.return (if lost_run then `Error else `Ok)
 
   let list_rootfs rootfs socket =
     let open Oci_Rootfs_Api in
@@ -1187,6 +1235,8 @@ module Cmdline = struct
                 ~doc:"For a given time compute the maximal number of \
                       run that could be run sequentially in the given time. \
                       It is the default.";
+              `Two, info ["compare-two"]
+                ~doc:"Compare each run individually";
              ])
     in
     let doc = "run a specific benchmark" in
