@@ -23,7 +23,7 @@
 open Core.Std
 open Oci_Std
 
-let version = 10
+let version = 11
 
 module CompileGitRepoRunner = struct
 
@@ -40,7 +40,9 @@ module CompileGitRepoRunner = struct
     env : [ `Replace of (string * string) list
           | `Extend of (string * string) list];
     proc_requested : int;
-    working_dir: Oci_Filename.t (** Relative path *)
+    working_dir: Oci_Filename.t (** Relative path *);
+    timelimit: Time.Span.t option;
+    memlimit: Byte_units.t option;
   } [@@deriving sexp, bin_io, compare]
   (** `Proc replaced by number of processus *)
 

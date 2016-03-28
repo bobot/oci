@@ -124,6 +124,7 @@ val run: 'r t ->
 exception TimeError
 
 val run_timed: 'r t ->
+ ?timelimit:Time.Span.t -> (* soft limit, wall clock *)
  (Core.Std.Unix.Exit_or_signal.t * Oci_Common.Timed.t)
   process_create
 

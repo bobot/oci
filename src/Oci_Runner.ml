@@ -248,7 +248,7 @@ let run_exn t ?env ?working_dir ~prog ~args () =
 
 exception TimeError
 
-let run_timed t ?env ?working_dir ~prog ~args () =
+let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
   let tmpfile = Filename.temp_file "time" ".sexp" in
   let args = "--output"::tmpfile::"--quiet"::"--format"::
@@ -259,7 +259,23 @@ let run_timed t ?env ?working_dir ~prog ~args () =
   process_create t ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
-  Process.wait p
+  let w = Process.wait p in
+  begin
+    match timelimit with
+    | None -> Deferred.unit
+    | Some timelimit ->
+      Deferred.choose [
+        Deferred.choice w (fun _ -> `Done);
+        Deferred.choice (after timelimit) (fun _ -> `Timeout);
+      ]
+      >>= function
+      | `Timeout ->
+        ignore (Signal.send Signal.kill (`Pid (Process.pid p)));
+        Deferred.unit
+      | `Done -> Deferred.unit
+  end
+  >>= fun () ->
+  w
   >>= fun r ->
   Reader.file_contents tmpfile
   >>= fun content ->

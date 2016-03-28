@@ -42,7 +42,9 @@ module Git: sig
     env : [ `Replace of (string * string) list
           | `Extend of (string * string) list];
     proc_requested : int;
-    working_dir: Oci_Filename.t (** Relative path *)
+    working_dir: Oci_Filename.t (** Relative path *);
+    timelimit: Time.Span.t option;
+    memlimit: Byte_units.t option;
   }
   type gitclone type gitcopyfile type copyfile
   type cmd = [
@@ -57,12 +59,16 @@ module Git: sig
     ?env:env ->
     ?proc_requested:int ->
     ?working_dir:Oci_Filename.filename ->
+    ?timelimit:Time.Span.t ->
+    ?memlimit:Byte_units.t ->
     string -> [> `Exec of exec ]
 
   val run:
     ?env:env ->
     ?proc_requested:int ->
     ?working_dir:Oci_Filename.filename ->
+    ?timelimit:Time.Span.t ->
+    ?memlimit:Byte_units.t ->
     string -> string list -> [> `Exec of exec ]
 
   val make:
@@ -70,6 +76,8 @@ module Git: sig
     ?vars:(string * string) list ->
     ?working_dir:Oci_Filename.filename ->
     ?env :env ->
+    ?timelimit:Time.Span.t ->
+    ?memlimit:Byte_units.t ->
     string list ->
     [> `Exec of exec ]
 

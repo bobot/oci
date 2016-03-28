@@ -42,18 +42,20 @@ module Git = struct
       ?(env=`Extend [])
       ?(proc_requested=1)
       ?(working_dir=Oci_Filename.current_dir)
+      ?timelimit
+      ?memlimit
       cmd =
     `Exec {Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd;
-           args;proc_requested;working_dir;env}
+           args;proc_requested;working_dir;env;timelimit;memlimit}
 
-  let run ?env ?proc_requested ?working_dir cmd args =
-    exec ?env ?working_dir ?proc_requested
+  let run ?env ?proc_requested ?working_dir ?timelimit ?memlimit cmd args =
+    exec ?env ?working_dir ?proc_requested ?timelimit ?memlimit
       cmd ~args:(List.map args ~f:(fun s -> `S s))
 
   let mk_proc s =
     `Proc (formatted_proc s)
 
-  let make ?(j=1) ?(vars=[]) ?working_dir ?env targets =
+  let make ?(j=1) ?(vars=[]) ?working_dir ?env ?timelimit ?memlimit targets =
     exec
       "make"
       ~args:((mk_proc "--jobs=%i") ::
@@ -61,7 +63,7 @@ module Git = struct
              List.map targets ~f:(fun s -> `S s))
       ?env
       ~proc_requested:j
-      ?working_dir
+      ?working_dir ?timelimit ?memlimit 
 
   let git_clone ~url ?(dir=Oci_Filename.current_dir) commit =
     `GitClone
@@ -120,7 +122,9 @@ module Git = struct
     env : [ `Replace of (string * string) list
           | `Extend of (string * string) list];
     proc_requested : int;
-    working_dir: Oci_Filename.t (** Relative path *)
+    working_dir: Oci_Filename.t (** Relative path *);
+    timelimit: Time.Span.t option;
+    memlimit: Byte_units.t option;
   }
 
   let compile_and_tests t repos =

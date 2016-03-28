@@ -44,6 +44,35 @@ let create_dir t (q:Query.t) =
   >>= fun () ->
   return working_dir
 
+let memory_resource =
+  match Core.Std.Unix.RLimit.virtual_memory with
+  | Ok r -> r
+  | Error _ -> Core.Std.Unix.RLimit.data_segment
+
+(** work because we don't run tests in parallel,
+    and because we suppose this runner doesn't take too much memory *)
+let memlimit f m =
+  let setrlimit m =
+    In_thread.syscall_exn ~name:"setrlimit"
+      Core.Std.Unix.RLimit.(fun () ->
+          set memory_resource m)
+  in
+  let getrlimit () =
+    In_thread.syscall_exn ~name:"getrlimit"
+      Core.Std.Unix.RLimit.(fun () ->
+          get memory_resource)
+  in
+  getrlimit ()
+  >>= fun old ->
+  setrlimit {old with cur= Limit (Int64.of_float (Byte_units.bytes m))}
+  >>= fun () ->
+  f ()
+  >>= fun r ->
+  setrlimit old
+  >>= fun () ->
+  return r
+
+
 let run_cmds t kind working_dir
     (x:Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd) =
   match x with
@@ -84,11 +113,19 @@ let run_cmds t kind working_dir
                                 CompileGitRepoRunner.Formatted_proc.get s) in
                    Printf.sprintf fmt got)
          in
-         Oci_Runner.run_timed t
-           ~working_dir:(Oci_Filename.make_absolute working_dir
-                           cmd.working_dir)
-           ~prog:cmd.cmd ~args
-           ~env:(cmd.env :> Async.Std.Process.env) ()
+         let wrap f =
+           match cmd.memlimit with
+           | None -> f ()
+           | Some m -> memlimit f m
+         in
+         wrap (fun () ->
+             Oci_Runner.run_timed t
+               ?timelimit:cmd.timelimit
+               ~working_dir:(Oci_Filename.make_absolute working_dir
+                               cmd.working_dir)
+               ~prog:cmd.cmd ~args
+               ~env:(cmd.env :> Async.Std.Process.env) ()
+           )
          >>= fun r ->
          match kind, r with
          | `Test, (r,i) ->
