@@ -550,12 +550,6 @@ let load () =
   |> Stack.fold ~f:(fun acc (f,_) -> f ()::acc) ~init:[]
   |> Deferred.all_unit
 
-let exec_in_namespace parameters =
-  Rpc.Rpc.dispatch_exn
-    Oci_Artefact_Api.exec_in_namespace
-    (get_conf ()).conn_monitor
-    parameters
-
 exception RunnerClosed
 
 let add_artefact_api init =
@@ -702,59 +696,69 @@ let start_runner ~debug_info ~binary_name =
   let cgroup = sprintf "runner%i" runner_id in
   let initial_state = {id=runner_id;
                        conn=`Init;rootfs;used_procs;cgroup;closed=false} in
-  Unix.mkdir ~p:() (Oci_Filename.concat rootfs "oci")
-  >>= fun () ->
-  let etc = (Oci_Filename.concat rootfs "etc") in
-  Unix.mkdir ~p:() etc
-  (* >>= fun () -> *)
-  (* Async_shell.run "cp" ["/etc/resolv.conf";"-t";etc] *)
-  >>= fun () ->
-  Async_shell.run "chown" [User.pp_chown (master_user Root);"-R";"--";rootfs]
-  >>= fun () ->
-  let binary =
-    Oci_Filename.concat (get_conf ()).binaries
-      (Oci_Filename.add_extension binary_name "native") in
-  let named_pipe = Oci_Filename.concat "oci" "oci_runner" in
-  let parameters : Oci_Wrapper_Api.parameters = {
-    runner_id;
-    rootfs = rootfs;
-    idmaps =
-      Oci_Wrapper_Api.idmaps
-        ~first_user_mapped:conf.conf_monitor.first_user_mapped
-        ~in_user:runner_user
-        [Root,1000;User,1];
-    command = binary;
-    argv = [named_pipe];
-    env =
-      ["PATH","/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"];
-    runuid = 0;
-    rungid = 0;
-    bind_system_mount = true;
-    prepare_network = false;
-    workdir = None;
-    cgroup = Some cgroup;
-    initial_cpuset = Some initial_cpuset;
-  } in
-  info "Start runner %i %s:" runner_id binary_name;
-  info " %s" debug_info;
-  let r =
+  let close_state () =
+    initial_state.conn <- `Closed;
+    initial_state.used_procs <- release_all_proc initial_state.used_procs;
+    if conf.conf_monitor.cleanup_rootfs
+    then Async_shell.run "rm" ["-rf";"--";rootfs]
+    else return ()
+  in
+  Monitor.try_with_or_error begin fun () ->
+    Unix.mkdir ~p:() (Oci_Filename.concat rootfs "oci")
+    >>= fun () ->
+    let etc = (Oci_Filename.concat rootfs "etc") in
+    Unix.mkdir ~p:() etc
+    (* >>= fun () -> *)
+    (* Async_shell.run "cp" ["/etc/resolv.conf";"-t";etc] *)
+    >>= fun () ->
+    Async_shell.run "chown" [User.pp_chown (master_user Root);"-R";"--";rootfs]
+    >>= fun () ->
+    let binary =
+      Oci_Filename.concat (get_conf ()).binaries
+        (Oci_Filename.add_extension binary_name "native") in
+    let named_pipe = Oci_Filename.concat "oci" "oci_runner" in
+    let parameters : Oci_Wrapper_Api.parameters = {
+      runner_id;
+      rootfs = rootfs;
+      idmaps =
+        Oci_Wrapper_Api.idmaps
+          ~first_user_mapped:conf.conf_monitor.first_user_mapped
+          ~in_user:runner_user
+          [Root,1000;User,1];
+      command = binary;
+      argv = [named_pipe];
+      env =
+        ["PATH","/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"];
+      runuid = 0;
+      rungid = 0;
+      bind_system_mount = true;
+      prepare_network = false;
+      workdir = None;
+      cgroup = Some cgroup;
+      initial_cpuset = Some initial_cpuset;
+    } in
+    info "Start runner %i %s:" runner_id binary_name;
+    info " %s" debug_info;
+    let exec_in_namespace parameters =
+      Rpc.Rpc.dispatch_exn
+        Oci_Artefact_Api.exec_in_namespace
+        (get_conf ()).conn_monitor
+        parameters in
     Oci_Artefact_Api.start_in_namespace
       ~exec_in_namespace ~parameters
       ~implementations:conf.api_for_runner
       ~initial_state
       ~named_pipe:(Oci_Filename.concat rootfs named_pipe) ()
-  in
-  r
-  >>= fun (result,conn) ->
+  end
+  >>= function
+  | Error error ->
+    close_state ()
+    >>= fun () ->
+    Error.raise error
+  | Ok (result,conn) ->
   begin
     result
-    >>> fun _ -> begin
-      initial_state.conn <- `Closed;
-      initial_state.used_procs <- release_all_proc initial_state.used_procs;
-      if conf.conf_monitor.cleanup_rootfs
-      then Async_shell.run "rm" ["-rf";"--";rootfs]
-      else return ()
-    end >>> fun () ->
+    >>> fun _ -> close_state () >>> fun () ->
     ()
   end;
   initial_state.conn <- `Ok conn;
