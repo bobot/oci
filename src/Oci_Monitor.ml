@@ -235,6 +235,8 @@ let kill_runner conf i =
     >>= function
     | `Done -> return ()
     | `Kill ->
+      debug "Sending kill to runner %i pid %s"
+        i (Pid.to_string process_info.wrapped);
       match Signal.send Signal.kill (`Pid process_info.wrapped) with
       | `No_such_process -> return ()
       | `Ok ->
