@@ -386,7 +386,7 @@ let run
           (Signal.to_string s)
       else begin
         info "Shutting down: monitor received %s" (Signal.to_string s);
-        don't_wait_for (Oci_Artefact_Api.oci_shutdown ())
+        don't_wait_for (Oci_Artefact_Api.oci_shutdown 0)
       end
     );
   compute_conf ~oci_data ~cgroup ~binaries ~cpuset_available

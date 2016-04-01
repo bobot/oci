@@ -222,8 +222,10 @@ let oci_at_shutdown,oci_shutdown,oci_shutting_down =
   let s = Stack.create () in
   let r = ref false in
   (fun d -> Stack.push s d),
-  (fun () ->
-     debug "Shutting down";
+  (fun status ->
+     if status = 0
+     then debug "Shutting down"
+     else error "Shutting down expectantly";
      r := true;
      s
      |> Stack.fold ~init:[] ~f:(fun acc d -> d ()::acc)
@@ -232,6 +234,6 @@ let oci_at_shutdown,oci_shutdown,oci_shutting_down =
      debug "Shutting down tasks finished";
      Log.Global.flushed ()
      >>= fun () ->
-     Shutdown.exit 0
+     Shutdown.exit status
   ),
   (fun () -> !r)

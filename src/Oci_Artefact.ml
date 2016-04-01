@@ -126,7 +126,14 @@ let stop_runner r =
   | Some conn ->
     conn
     >>= fun conn ->
-    Rpc.Rpc.dispatch Oci_Artefact_Api.rpc_stop_runner conn ()
+    Deferred.choose [
+      Deferred.choice
+        (Clock.after (Time.Span.create ~sec:1 ()))
+        (fun () -> `Timeout);
+      Deferred.choice
+        (Rpc.Rpc.dispatch Oci_Artefact_Api.rpc_stop_runner conn ())
+        (fun _ -> `Dispatched)
+    ]
     >>= fun _ ->
     Rpc.Rpc.dispatch_exn Oci_Artefact_Api.rpc_kill_runner
       conf.conn_monitor r.id
@@ -769,7 +776,7 @@ let conn_monitor () =
     Rpc.Implementations.create_exn
       ~implementations:[
         Rpc.Rpc.implement Oci_Artefact_Api.rpc_stop_runner
-          (fun () () -> Oci_Artefact_Api.oci_shutdown ())
+          (fun () () -> Oci_Artefact_Api.oci_shutdown 0)
       ]
       ~on_unknown_rpc:`Raise in
   let named_pipe = Sys.argv.(1) in
@@ -791,6 +798,12 @@ let run () =
   begin
     conn_monitor ()
     >>> fun conn_monitor ->
+    don't_wait_for begin
+      Rpc.Connection.close_reason conn_monitor
+      >>= fun reason ->
+      error "Monitor connection closed: %s" (Info.to_string_hum reason);
+      Oci_Artefact_Api.oci_shutdown 1
+    end;
     Rpc.Rpc.dispatch_exn Oci_Artefact_Api.get_configuration conn_monitor ()
     >>> fun conf_monitor ->
     let conf = {
@@ -894,7 +907,7 @@ let run () =
     >>> fun server ->
     Shutdown.at_shutdown (fun () ->
         Deferred.ignore (Clock.with_timeout
-                           (Time.Span.create ~sec:10 ())
+                           (Time.Span.create ~sec:1 ())
                            (Tcp.Server.close server)));
     Unix.chmod socket ~perm:0o777
     >>> fun () ->
