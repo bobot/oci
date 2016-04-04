@@ -97,6 +97,13 @@ let start_in_namespace
       writer
     >>= fun conn ->
     let conn = Result.ok_exn conn in
+    Deferred.upon
+      (Rpc.Connection.close_reason conn)
+      (fun reason ->
+         debug "Connection in %s{.in/.out} is closed : %s"
+           named_pipe
+           (Info.to_string_hum reason)
+      );
     return conn
   in
   let error = exec_in_namespace (parameters:Oci_Wrapper_Api.parameters) in
@@ -225,7 +232,7 @@ let oci_at_shutdown,oci_shutdown,oci_shutting_down =
   (fun status ->
      if status = 0
      then debug "Shutting down"
-     else error "Shutting down expectantly";
+     else error "Shutting down unexpectedly";
      r := true;
      s
      |> Stack.fold ~init:[] ~f:(fun acc d -> d ()::acc)
