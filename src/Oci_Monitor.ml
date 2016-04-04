@@ -49,7 +49,7 @@ let get_etc_sub_config ~user ~file =
   | `Eof ->
     eprintf "This user doesn't have subuid or subgid configured (cf %s) \n%!"
       file;
-    Shutdown.exit 1
+    Oci_Artefact_Api.oci_shutdown 1
   | `Ok start_len -> return start_len
 
 let stderr_pipe = Writer.pipe (Lazy.force Writer.stderr)
@@ -255,7 +255,7 @@ let compute_conf ~oci_data ~cgroup ~binaries ~cpuset_available =
     eprintf
       "This user doesn't have enough subuid or \
        subgid configured (1001 needed)\n%!";
-    Shutdown.exit 1
+    Oci_Artefact_Api.oci_shutdown 1
   end
   else
     let first_user_mapped = {User.uid=ustart;gid=gstart} in
@@ -284,10 +284,10 @@ let start_master ~conf ~master ~oci_data ~binaries
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
   begin match proc with
     | [] -> error "We must have at least two group of processor";
-      Shutdown.exit 1
+      Oci_Artefact_Api.oci_shutdown 1
     | [_] -> error "We have only one group of processor,\
                      you should not use cpuinfo";
-      Shutdown.exit 1
+      Oci_Artefact_Api.oci_shutdown 1
     | master_proc::procs -> return (master_proc,procs)
   end
   >>= fun (master_proc,proc) ->
@@ -364,11 +364,11 @@ let start_master ~conf ~master ~oci_data ~binaries
     Deferred.unit
   | Ok () ->
     info "master stopped unexpectedly but normally";
-    Shutdown.exit 1
+    Oci_Artefact_Api.oci_shutdown 1
   | Error s ->
     info "master stopped unexpectedly with error:%s"
       (Error.to_string_hum s);
-    Shutdown.exit 1
+    Oci_Artefact_Api.oci_shutdown 1
 
 let run
     master binaries oci_data identity_file
@@ -634,7 +634,10 @@ let () =
   don't_wait_for begin
     match Term.eval cmd with
     | `Error _ -> exit 1
-    | `Ok r -> begin r >>= fun () -> Shutdown.exit 2 end
+    | `Ok r -> begin r >>= fun () ->
+        error "Stopped in an impossible way";
+        Oci_Artefact_Api.oci_shutdown 2
+      end
     | `Help | `Version -> exit 0
   end
 
