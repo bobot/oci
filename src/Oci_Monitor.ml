@@ -356,22 +356,19 @@ let start_master ~conf ~master ~oci_data ~binaries
     ()
   >>= fun (error,conn) ->
   conf.wait_to_artefact <- Some (error >>= fun _ -> return ());
-  choose [
-    choice error (function
-        | Ok () when Oci_Artefact_Api.oci_shutting_down () ->
-          info "master stopped for shutdown"
-        | Ok () ->
-          info "master stopped unexpectedly but normally";
-          Shutdown.shutdown 1
-        | Error s ->
-          info "master stopped unexpectedly with error:%s"
-            (Error.to_string_hum s);
-          Shutdown.shutdown 1
-      );
-    choice begin
-      conn >>= fun conn -> conf.conn_to_artefact <- Some conn; never ()
-    end (fun _ -> ());
-  ]
+  Deferred.upon conn (fun conn -> conf.conn_to_artefact <- Some conn);
+  error
+  >>= function
+  | Ok () when Oci_Artefact_Api.oci_shutting_down () ->
+    info "master stopped for shutdown";
+    Deferred.unit
+  | Ok () ->
+    info "master stopped unexpectedly but normally";
+    Shutdown.exit 1
+  | Error s ->
+    info "master stopped unexpectedly with error:%s"
+      (Error.to_string_hum s);
+    Shutdown.exit 1
 
 let run
     master binaries oci_data identity_file

@@ -2,6 +2,8 @@ _build/
 /.git_version
 /src/Oci_Version.ml
 /bin
+/bin-test
+/lib
 /.merlin
 /doc/*.html
 *.tmp
