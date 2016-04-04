@@ -171,41 +171,55 @@ let exec_in_namespace =
     Process.create ~prog:(oci_wrapper conf) ~args:[named_pipe] ()
     >>! fun wrapper ->
     debug "Oci_Wrapper started";
-    (* possible race for the addition to running_process *)
     send_process_to_stderr wrapper;
     Writer.close (Process.stdin wrapper)
     >>= fun () ->
-    Writer.open_file named_pipe_in
-    >>= fun writer ->
-    Unix.unlink named_pipe_in
-    >>= fun () ->
-    Writer.write_bin_prot writer
-      Oci_Wrapper_Api.bin_writer_parameters
-      parameters;
-    Writer.close writer
-    >>= fun () ->
-    debug "Oci_Wrapper configuration sent";
-    Reader.open_file named_pipe_out
-    >>= fun reader ->
-    Unix.unlink named_pipe_out
-    >>= fun () ->
-    Reader.read_bin_prot reader Pid.bin_reader_t
-    >>= function
-    | `Eof ->
+    let read_wrapped_pid =
+      Writer.open_file named_pipe_in
+      >>= fun writer ->
+      Unix.unlink named_pipe_in
+      >>= fun () ->
+      Writer.write_bin_prot writer
+        Oci_Wrapper_Api.bin_writer_parameters
+        parameters;
+      Writer.close writer
+      >>= fun () ->
+      debug "Oci_Wrapper configuration sent";
+      Reader.open_file named_pipe_out
+      >>= fun reader ->
+      Unix.unlink named_pipe_out
+      >>= fun () ->
+      Reader.read_bin_prot reader Pid.bin_reader_t
+      >>= fun res ->
       Reader.close reader
       >>= fun () ->
+      return res
+    in
+    let wrapper_wait = Process.wait wrapper in
+    Deferred.choose
+      [Deferred.choice wrapper_wait
+         (fun res -> Error res);
+       Deferred.choice read_wrapped_pid
+         (fun wrapped -> Ok wrapped)
+      ]
+    >>= function
+    | Error res ->
+      let res = Unix.Exit_or_signal.to_string_hum res in
+      error "Oci_wrapper stopped before sending wrapped pid %s:\n%s\n"
+        res
+        (Sexp.to_string_hum (Oci_Wrapper_Api.sexp_of_parameters parameters));
+      return (Or_error.error_string res)
+    | Ok `Eof ->
       error "The pid of the wrapped program can't be read";
       return (Or_error.error_string "Wrapper error: can't get pid")
-    | `Ok wrapped ->
+    | Ok (`Ok wrapped) ->
       debug "Oci_Wrapper: runner %i has pid %s"
         parameters.runner_id (Pid.to_string wrapped);
       let process_info = {
-        wrapper; wrapped; wrapper_wait = Process.wait wrapper;
+        wrapper; wrapped; wrapper_wait;
       } in
       Int.Table.add_exn conf.running_processes ~key:parameters.runner_id
         ~data:process_info;
-      Reader.close reader
-      >>= fun () ->
       process_info.wrapper_wait
       >>= fun res ->
       debug "Wrapped program %s for runner %i ended" (Pid.to_string wrapped)
@@ -213,12 +227,12 @@ let exec_in_namespace =
       Int.Table.remove conf.running_processes parameters.runner_id;
       match res with
       | Ok () -> return (Or_error.return ())
-      | Error _ as s ->
+      | Error _ as res ->
+        let res = Unix.Exit_or_signal.to_string_hum res in
         error "The following program stopped with this error %s:\n%s\n"
-          (Unix.Exit_or_signal.to_string_hum s)
+          res
           (Sexp.to_string_hum (Oci_Wrapper_Api.sexp_of_parameters parameters));
-        return (Or_error.error_string
-                  (Unix.Exit_or_signal.to_string_hum s))
+        return (Or_error.error_string res)
 
 let kill_runner conf i =
   match Int.Table.find conf.running_processes i with
@@ -366,7 +380,7 @@ let start_master ~conf ~master ~oci_data ~binaries
     info "master stopped unexpectedly but normally";
     Oci_Artefact_Api.oci_shutdown 1
   | Error s ->
-    info "master stopped unexpectedly with error:%s"
+    info "master stopped unexpectedly with error: %s"
       (Error.to_string_hum s);
     Oci_Artefact_Api.oci_shutdown 1
 
