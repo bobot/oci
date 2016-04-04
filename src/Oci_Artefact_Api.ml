@@ -233,14 +233,20 @@ let oci_at_shutdown,oci_shutdown,oci_shutting_down =
      if status = 0
      then debug "Shutting down"
      else error "Shutting down unexpectedly";
-     r := true;
-     s
-     |> Stack.fold ~init:[] ~f:(fun acc d -> d ()::acc)
-     |> Deferred.all_unit
-     >>= fun () ->
-     debug "Shutting down tasks finished";
-     Log.Global.flushed ()
-     >>= fun () ->
-     Shutdown.exit status
+     if !r then begin
+       debug "Already shutting down";
+       never ()
+     end
+     else begin
+         r := true;
+         s
+         |> Stack.fold ~init:[] ~f:(fun acc d -> d ()::acc)
+         |> Deferred.all_unit
+         >>= fun () ->
+         debug "Shutting down tasks finished";
+         Log.Global.flushed ()
+         >>= fun () ->
+         Shutdown.exit status
+     end
   ),
   (fun () -> !r)
