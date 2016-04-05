@@ -41,6 +41,7 @@ let () =
   Tcp.connect (Tcp.to_file Sys.argv.(1))
   >>> fun (_,reader,writer) ->
   Rpc.Connection.create
+    ~heartbeat_config:Oci_Artefact_Api.heartbeat_config
     ~implementations
     ~connection_state:(fun _ -> ())
     ~description:(Info.of_string "Oci_Simple_Exec <-> Master")

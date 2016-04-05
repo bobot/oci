@@ -782,6 +782,7 @@ module Cmdline = struct
     Tcp.connect (Tcp.to_file ccopt.socket)
     >>= fun (_,reader,writer) ->
     Rpc.Connection.create
+      ~heartbeat_config:Oci_Artefact_Api.heartbeat_config
       ~connection_state:(fun _ -> ())
       ~description:(Info.of_string "Client <-> Master")
       reader writer

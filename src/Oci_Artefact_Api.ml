@@ -57,6 +57,11 @@ let exec_in_namespace = Rpc.Rpc.create
     ~bin_query:Oci_Wrapper_Api.bin_parameters
     ~bin_response:(Or_error.bin_t Unit.bin_t)
 
+let heartbeat_config =
+  Rpc.Connection.Heartbeat_config.create
+    ~timeout:(Time_ns.Span.create ~min:10 ())
+    ~send_every:(Time_ns.Span.create ~sec:10 ())
+
 let start_in_namespace
     ?implementations ~initial_state
     ~exec_in_namespace ~parameters ~named_pipe () =
@@ -92,6 +97,7 @@ let start_in_namespace
     Rpc.Connection.create
       ~connection_state:(fun _ -> initial_state)
       ~description
+      ~heartbeat_config:heartbeat_config
       ?implementations
       reader
       writer

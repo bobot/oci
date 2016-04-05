@@ -49,6 +49,7 @@ let start ~implementations =
     Writer.open_file (named_pipe^".out")
     >>> fun writer ->
     Rpc.Connection.create
+      ~heartbeat_config:Oci_Artefact_Api.heartbeat_config
       ~implementations
       ~connection_state:(fun c -> c)
       ~description:(Info.createf "Runner (%s) <-> Master" Sys.executable_name)

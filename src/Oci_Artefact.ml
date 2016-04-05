@@ -789,6 +789,7 @@ let conn_monitor () =
     ~implementations
     ~connection_state:(fun _ -> ())
     ~description
+    ~heartbeat_config:Oci_Artefact_Api.heartbeat_config
     reader writer
   >>= fun conn ->
   let conn = Result.ok_exn conn in
