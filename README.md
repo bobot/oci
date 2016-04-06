@@ -1,9 +1,20 @@
 ## OCI ##
 
-[Installation instructions](INSTALL.md). 
+OCI is a framework for continuous integrations and benchmarks. At the
+base it is a container manager and at the top a tools that allows to
+compile, tests, and compare compilation and run of inter-dependent git
+repositories.
 
-# Technical #
+## Installation ##
 
-See [doc](doc/design.md) for the ultimate goal and
-[first step](doc/first_step.md) for an intermediate goal already useful.
+Simply run
 
+```
+opam pin add oci --kind=git "https://github.com/bobot/oci.git#master"
+```
+
+For more precise [installation instructions](INSTALL.md).
+
+# First step #
+
+TODO (move some part of [installation instructions](INSTALL.md), here)

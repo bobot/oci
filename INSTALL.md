@@ -1,15 +1,30 @@
 ## Installation instructions ##
 
-### Requirements ###
-
-#### System utilities
+### System Requirements ###
 
 - shadow (aka uidmap on Debian)
 - cgmanager (optional)
-- xpra (optional, useful to get access to a shell in the container when things
-  go wrong)
+- xpra (optional, useful to get access to a shell in the container when tests
+go wrong)
+- linux (>= 3.18)
 
-#### OCaml
+### Installation with opam
+
+There will be an opam package for oci. Thus, you will be able to install
+it directly through opam with the following command:
+
+```
+opam install oci
+```
+
+or for the developpement version
+
+```
+opam pin add oci --kind=git "https://github.com/bobot/oci.git#master"
+```
+
+### Installation without opam ###
+#### Package requirements ####
 The following opam packages are required to compile the various components of
 OCI:
 
@@ -39,16 +54,7 @@ done by explicitly asking `opam upgrade pkg` to tell that you truly want the
 latest version of `pkg`. Repeat that for all packages until
 `opam upgrade` stays silent.
 
-
-#### opam package
-
-There is now an opam package for oci. Thus, you should be able to install
-it directly through opam with the following command:
-```
-opam pin add oci --kind=git "git@git.frama-c.com:bobot/oci.git#master"
-```
-
-### Compilation step
+#### Compilation step
 
 You can customize some part of the compilation process by adding a `.config`
 file in the top directory of oci. It is included by `Makefile` if it exists.
@@ -59,13 +65,20 @@ be handled by `ocamlfind`.
 - `make`
 - `make install`
 
-### Compilation of Oci_client
-
-You have now an Oci server and the basic blocks for creating clients that
-will actually run tasks. Client for launching Frama-C's tests is in
-the project `frama-c/oci_client` on gitlab. Clone the repository, and do
-`make` and `make install` in it. Again, `.config` can be used to customize
-the compilation or installation process.
+### Tests
+- You don't need to install oci for the simple tests
+- Be sure that your kernel can provide unprivileged usernamespaces:
+`sysctl kernel.unprivileged_userns_clone=1` as root if
+needed
+- In the repository create the directory for the permanent database and the containers
+temporary directories
+```
+mkdir test-oci-data
+```
+- In the repository:
+```
+bin/Oci_Monitor.native --binaries bin --binaries bin-test --master bin-test/tests_master.native --oci-data test-oci-data
+```
 
 ### Usage
 
@@ -82,8 +95,6 @@ sudo cgm chown all oci $(id -u) $(id -g)
 cgm movepid all oci $$
 ```
 
-- Get the ssh key necessary to access Frama-C's gitlab repository (ask
-  @bobot or @virgile)
 - launch a new monitor
 
 ```shell
@@ -91,7 +102,6 @@ cgm movepid all oci $$
       --oci-data=/path/to/data \
       --binaries=INSTALLED_LIB/bin \
       --master=INSTALLED_LIB/bin/oci_default_master \
-      --identity-file=oci-ssh-key
 ```
 
 - Get a list of available rootfs from lxc, and download an appropriate one
@@ -101,7 +111,7 @@ cgm movepid all oci $$
   where `rootfs-opts` can be chosen among `--arch`, `--distribution` and
   `--release` if you're not satisfied with default ones. This should get you
   the ID of the created rootfs (typically `0`)
-- Add necessary packages to the initial rootfs:
+- Add necessary packages (for usual ocaml package with gui) to the initial rootfs:
   ```shell
   bf_client add-package --rootfs ID --socket OCI_DATA/oci.socket \
   autotools-dev binutils-dev libiberty-dev libncurses5-dev pkg-config \
