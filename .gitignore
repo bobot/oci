@@ -8,6 +8,7 @@ _build/
 /doc/*.html
 *.tmp
 /oci-data/
+/test-oci-data/
 /tests/library/*.cm*
 /tests/library/*.o
 /META

@@ -153,3 +153,13 @@ tests: compile
 	bin/Oci_Monitor.native --binaries bin-test --master	\
 	bin-test/tests_master.native --oci-data test-oci-data	\
 	--cpuinfo --verbose Debug
+
+.PHONY: headers
+
+define make-header
+git ls-files | xargs git check-attr $1 | sed -n -e "s/^\([^:]*\): $1: set/\1/p" \
+| xargs headache -c licences/headache_config.txt -h licences/$2
+endef
+headers:
+	$(call make-header,header-cea,CEA_LGPL)
+	$(call make-header,header-why3,WHY3_LGPL)
