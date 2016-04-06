@@ -954,4 +954,5 @@ let run () =
     >>> fun () ->
     ()
   end;
+  Scheduler.report_long_cycle_times ();
   Scheduler.go ()
