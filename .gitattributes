@@ -4,3 +4,9 @@ tests/**/*.ml header-cea
 tests/**/*.mli header-cea
 src/Oci_pp.ml -header-cea header-why3
 src/Oci_pp.mli -header-cea header-why3
+
+.in_git_repository export-ignore
+.gitignore export-ignore
+.gitattribute export-ignore
+.gitlab-ci.yml export-ignore
+.package export-ignore

@@ -56,12 +56,11 @@ latest version of `pkg`. Repeat that for all packages until
 
 #### Compilation step
 
-You can customize some part of the compilation process by adding a `.config`
-file in the top directory of oci. It is included by `Makefile` if it exists.
-In particular, you can set the `PREFIX` variable to an appropriate path if
-you don't want to install the binaries under `/usr/local/bin`. Libraries will
+You can customize some part of the compilation process by running
+`./configure` in the top directory of oci. Libraries will
 be handled by `ocamlfind`.
 
+- `./configure`
 - `make`
 - `make install`
 

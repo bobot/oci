@@ -23,10 +23,11 @@
 open Core.Std
 
 include FilePath
+open Core.Std
 
 (* include FilePath.UnixPath *)
 
-type t = string [@@deriving sexp, bin_io, compare]
+type t = String.t [@@deriving sexp, bin_io, compare]
 
 let pp = String.pp
 

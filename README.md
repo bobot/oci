@@ -17,4 +17,3 @@ For more precise [installation instructions](INSTALL.md).
 
 # First step #
 
-TODO (move some part of [installation instructions](INSTALL.md), here)

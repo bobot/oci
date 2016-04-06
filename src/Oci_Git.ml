@@ -305,7 +305,7 @@ let commit_of_revspec ~url ~revspec =
          >>= fun () ->
          Async_shell.run_one
            ~working_dir:src
-           ~expect:[0;1] (** perhapse it should be expect:[0] and use the
+           ~expect:[0;1] (* perhapse it should be expect:[0] and use the
                              none output *)
            "git" ["rev-parse";"--verify";"-q";revspec^"^{commit}"]
          >>= fun s -> return (Option.map ~f:Oci_Common.Commit.of_string_exn s)

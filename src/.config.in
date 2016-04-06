@@ -1,0 +1,6 @@
+LIB_INSTALL_DIR ?= @ocamlfind_install_dir@
+DESTDIR ?=
+PREFIX ?= $(DESTDIR)/@prefix@
+DATADIR ?= $(DESTDIR)/@datadir@
+VARDIR ?= $(DESTDIR)/@localstatedir@
+OCIUSER ?= @ociuser@

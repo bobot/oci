@@ -564,12 +564,15 @@ let cmd =
            ~doc:"Specify the master to use.")
   in
   let binaries =
-    Arg.(non_empty & opt_all (abs_file `Dir) [] & info ["binaries"]
+    Arg.(non_empty & opt_all (abs_file `Dir)
+           [Oci_Filename.make_absolute Oci_Version.lib_install_dir "bin"]
+         & info ["binaries"]
            ~docv:"DIR"
            ~doc:"Specify where the runners are.")
   in
   let oci_data =
-    Arg.(required & opt (some (abs_file `Dir)) None & info ["oci-data"]
+    let def = Oci_Version.var_dir in
+    Arg.(value & opt (abs_file `Dir) def & info ["oci-data"]
            ~docv:"DIR"
            ~doc:"Specify where the OCI should store its files.")
   in
@@ -646,7 +649,7 @@ let cmd =
   Term.(const run $ master $ binaries $ oci_data $
         identity_file $ verbosity $ keep_runner_rootfs $ cgroup $
         (Term.(const parse_proc $ proc $ cpus $ cpuinfo))),
-  Term.info "Oci_Monitor" ~doc ~man
+  Term.info "Oci_Monitor" ~doc ~man ~version:Oci_Version.version
 
 
 let () =
@@ -660,4 +663,5 @@ let () =
     | `Help | `Version -> exit 0
   end
 
+let () = Scheduler.report_long_cycle_times ()
 let () = never_returns (Scheduler.go ())
