@@ -19,7 +19,7 @@ INTERNAL_BINARY=Oci_Copyhard Oci_Default_Master	\
 	Oci_Wrapper  Oci_Cmd_Runner Oci_Simple_Exec  \
 	Oci_Generic_Masters_Runner
 
-EXTERNAL_BINARY=Oci_Monitor
+EXTERNAL_BINARY=Oci_Monitor Oci_Master_Tools
 #For testing the library
 EXTERNALLY_COMPILED_BINARY=oci_default_master oci_default_client
 
@@ -59,13 +59,15 @@ compile: .merlin src/Oci_Version.ml META
 install:
 	rm -rf $(LIB_INSTALL_DIR)/bin
 	ocamlfind remove oci
-	@mkdir -p $(VARDIR)
-	@chown $(OCIUSER): $(VARDIR)
+	@mkdir -p $(VARDIR)/oci-data
+	@chown $(OCIUSER): $(VARDIR)/oci-data
 	ocamlfind install oci lib/oci/*
 	@mkdir -p $(LIB_INSTALL_DIR)/bin $(BINDIR)
 	install $(addprefix bin/, $(addsuffix .native, $(INTERNAL_BINARY))) $(LIB_INSTALL_DIR)/bin
 	install bin/oci_default_master $(LIB_INSTALL_DIR)/bin
 	install bin/Oci_Monitor.native $(BINDIR)/oci_monitor
+	install bin/Oci_Master_Tools.native $(BINDIR)/oci_master_tools
+	install bin/Oci_Master_Tools.native $(VARDIR)/oci_master_tools
 	install bin/oci_default_client $(BINDIR)/oci_default_client
 
 uninstall:
@@ -84,6 +86,7 @@ src/Oci_Version.ml: .config Makefile
 	@echo "let prefix = \"$(prefix)\"" >> $@.tmp
 	@echo "let lib_install_dir = \"$(LIB_INSTALL_DIR)\"" >> $@.tmp
 	@echo "let var_dir = \"$(VARDIR)\"" >> $@.tmp
+	@echo "let default_oci_data = Filename.concat var_dir \"oci-data\" " >> $@.tmp
 	@echo "let oci_user = \"$(OCIUSER)\"" >> $@.tmp
 	@chmod a=r $@.tmp
 	@mv -f $@.tmp $@
@@ -128,7 +131,7 @@ clean:
 META: .config_stamp Makefile META.in
 	@echo "Generating META file"
 	@rm -f $@.tmp
-	@sed -e "s/@(REQUIRES)/$(PACKAGES)/" -e "s/@(VERSION)/$(GIT_VERSION)/" $@.in > $@.tmp
+	@sed -e "s/@(REQUIRES)/$(PACKAGES)/" -e "s/@(VERSION)/$(VERSION)/" $@.in > $@.tmp
 	@mv $@.tmp $@
 
 # We test that the library contains the needed modules

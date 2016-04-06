@@ -87,13 +87,20 @@ type conf = {
   cgroup: string option;
   cpuset_available: bool;
   binaries: Oci_Filename.t list;
+  oci_wrapper: Oci_Filename.t;
 }
 
-let oci_wrapper conf =
-  Oci_Filename.concat (List.hd_exn conf.binaries) "Oci_Wrapper.native"
-
-let oci_simple_exec conf =
-  Oci_Filename.concat (List.hd_exn conf.binaries) "Oci_Simple_Exec.native"
+let find_binary l binary_name =
+  Deferred.List.find_map l ~f:(fun dir ->
+      let abs = Oci_Filename.concat dir binary_name in
+      Sys.file_exists_exn abs
+      >>= fun b ->
+      return (if b then Some abs else None)
+    )
+  >>= function
+  | None -> error "Can't find binary %s in binaries directories" binary_name;
+    Shutdown.exit 1
+  | Some p -> return p
 
 let cleanup_running_processes conf () =
   begin match conf.wait_to_artefact with
@@ -168,7 +175,7 @@ let exec_in_namespace =
     >>= fun () ->
     Unix.mkfifo named_pipe_out
     >>= fun () ->
-    Process.create ~prog:(oci_wrapper conf) ~args:[named_pipe] ()
+    Process.create ~prog:(conf.oci_wrapper) ~args:[named_pipe] ()
     >>! fun wrapper ->
     debug "Oci_Wrapper started";
     send_process_to_stderr wrapper;
@@ -228,7 +235,6 @@ let exec_in_namespace =
       match res, Oci_Artefact_Api.oci_shutting_down () with
       | Ok (),_ -> return (Or_error.return ())
       | Error (`Signal s), true when s = Signal.kill ->
-        let res = Unix.Exit_or_signal.to_string_hum res in
         debug "Runner %i received kill signal for shutdown"
           parameters.runner_id;
         return (Or_error.error_string "Shutdown")
@@ -263,6 +269,8 @@ let kill_runner conf i =
 
 
 let compute_conf ~oci_data ~cgroup ~binaries ~cpuset_available =
+  find_binary binaries "Oci_Wrapper.native"
+  >>= fun oci_wrapper ->
   User_and_group.for_this_process_exn ()
   >>= fun ug ->
   let current_user = {User.uid=Unix.getuid ();gid=Unix.getgid ()} in
@@ -286,6 +294,7 @@ let compute_conf ~oci_data ~cgroup ~binaries ~cpuset_available =
                 cgroup;
                 cpuset_available;
                 binaries;
+                oci_wrapper;
                } in
     Async_shell.run "mkdir" ["-p";"--";oci_data]
     >>= fun () ->
@@ -300,6 +309,8 @@ let compute_conf ~oci_data ~cgroup ~binaries ~cpuset_available =
 let start_master ~conf ~master ~oci_data ~binaries
     ~proc ~verbosity ~cleanup_rootfs
     ~identity_file =
+  find_binary binaries master
+  >>= fun master ->
   let named_pipe = Oci_Filename.concat oci_data "oci_master" in
   begin match proc with
     | [] -> error "We must have at least two group of processor";
@@ -343,7 +354,6 @@ let start_master ~conf ~master ~oci_data ~binaries
              >>= fun identity_file ->
              return {Oci_Artefact_Api.binaries;
                      oci_data;
-                     oci_simple_exec = oci_simple_exec conf;
                      first_user_mapped = conf.first_user_mapped;
                      debug_level = verbosity = `Debug;
                      cleanup_rootfs;
@@ -559,9 +569,10 @@ let log_level =
 
 let cmd =
   let master =
-    Arg.(required & opt (some (abs_file `Exec)) None & info ["master"]
+    let def = "oci_default_master" in
+    Arg.(value & opt string def & info ["master"]
            ~docv:"EXEC"
-           ~doc:"Specify the master to use.")
+           ~doc:"Specify the master to use. Must be in the binaries.")
   in
   let binaries =
     Arg.(non_empty & opt_all (abs_file `Dir)
@@ -571,7 +582,7 @@ let cmd =
            ~doc:"Specify where the runners are.")
   in
   let oci_data =
-    let def = Oci_Version.var_dir in
+    let def = Oci_Version.default_oci_data in
     Arg.(value & opt (abs_file `Dir) def & info ["oci-data"]
            ~docv:"DIR"
            ~doc:"Specify where the OCI should store its files.")
@@ -657,8 +668,7 @@ let () =
     match Term.eval cmd with
     | `Error _ -> exit 1
     | `Ok r -> begin r >>= fun () ->
-        error "Stopped in an impossible way";
-        Oci_Artefact_Api.oci_shutdown 2
+        Oci_Artefact_Api.oci_shutdown 0
       end
     | `Help | `Version -> exit 0
   end

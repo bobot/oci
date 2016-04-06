@@ -30,7 +30,6 @@ open Oci_Std
 type artefact_api = {
   binaries : Oci_Filename.t list;
   oci_data : Oci_Filename.t;
-  oci_simple_exec : Oci_Filename.t;
   first_user_mapped: User.t;
   debug_level : Bool.t;
   cleanup_rootfs: Bool.t;

@@ -1003,7 +1003,8 @@ module Cmdline = struct
       Arg.(last & vflag_all [`Info] [quiet; verbose])
     in
     let socket =
-      let def = Oci_Filename.make_absolute Oci_Version.var_dir "oci.socket" in
+      let def =
+        Oci_Filename.make_absolute Oci_Version.default_oci_data "oci.socket" in
       Arg.(value & opt file def & info ["socket"]
              ~docv:"FILE"
              ~doc:"specify the pathname of the unix socket of the server"
