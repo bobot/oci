@@ -20,6 +20,8 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Core.Std
+
 include FilePath
 
 (* include FilePath.UnixPath *)

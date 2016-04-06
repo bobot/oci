@@ -20,6 +20,8 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Core.Std
+
 type idmap = {
   extern_id: Oci_Common.User.t;
   intern_id: Oci_Common.User.t;
