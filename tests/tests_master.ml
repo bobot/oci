@@ -27,25 +27,30 @@ let binary_name = "tests_runner"
 module MasterInt = Oci_Master.Make(Int)(Int)
 
 let () =
-  MasterInt.create_master_and_runner
+  MasterInt.create_master_and_reusable_runner
     Tests_api.test_succ
     ~error:(fun _ -> Int.min_value)
     ~binary_name
+    ~hashable_key:Unit.hashable
+    ~extract_key:(fun _ -> ())
     (Oci_Master.dispatch_runner_exn Tests_api.test_succ)
 
-
 let () =
-  MasterInt.create_master_and_runner
+  MasterInt.create_master_and_reusable_runner
     Tests_api.test_fibo
     ~error:(fun _ -> Int.min_value)
     ~binary_name
+    ~hashable_key:Unit.hashable
+    ~extract_key:(fun _ -> ())
     (Oci_Master.dispatch_runner_exn Tests_api.test_fibo)
 
 let () =
-  MasterInt.create_master_and_runner
+  MasterInt.create_master_and_reusable_runner
     Tests_api.test_collatz
     ~error:(fun _ -> Int.min_value)
     ~binary_name
+    ~hashable_key:Unit.hashable
+    ~extract_key:(fun _ -> ())
     (Oci_Master.dispatch_runner_exn Tests_api.test_collatz)
 
 let () =

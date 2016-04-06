@@ -27,6 +27,7 @@ open Async.Std
 type t = Oci_Common.Artefact.t
 
 type runner
+val runner_id: runner -> int
 
 val create:
   prune:Oci_Filename.t list ->
@@ -60,9 +61,15 @@ val register_saver:
 
 val run: unit -> never_returns
 
+type slot
+
+val alloc_slot: unit -> slot Async.Std.Deferred.t
+
 val start_runner:
+  ?slot:slot ->
   debug_info:string ->
   binary_name:string ->
+  unit ->
   (unit Or_error.t Deferred.t * runner) Async.Std.Deferred.t
 (** Start the given runner in a namespace and start an Rpc connection.
     `start_runner ~binary_name` start the executable
@@ -70,6 +77,9 @@ val start_runner:
 
 val runner_conn: runner -> Async.Std.Rpc.Connection.t Deferred.t option
 val runner_conn_or_never: runner -> Async.Std.Rpc.Connection.t Deferred.t
+
+val freeze_runner: runner -> unit Deferred.t
+val unfreeze_runner: runner -> slot -> unit Deferred.t
 
 val stop_runner: runner -> unit Deferred.t
 

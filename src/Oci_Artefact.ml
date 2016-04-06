@@ -62,6 +62,10 @@ type runner = {
   mutable closed: bool;
 }
 
+let runner_id r = r.id
+
+type slot = Int.t list * Int.t
+
 let runner_conn r =
   match r.conn with
   | `Init -> assert false (* absurd: Nothing use the connection before
@@ -321,14 +325,13 @@ let create_proc procs =
   List.iter procs ~f:(give_to_global writer);
   pipes
 
-let create_used_procs () =
+let alloc_slot () =
   let conf = get_conf () in
   let (reader, _) = conf.proc in
   Pipe.read reader
   >>= function
   | `Eof | `Ok [] -> assert false
-  | `Ok (e::l) ->
-  return (mk_running l [e] [], [e])
+  | `Ok (e::l) -> return (l,e)
 
 let get_proc local_procs nb =
   let conf = get_conf () in
@@ -409,6 +412,29 @@ let release_proc local_procs nb =
     assert (used <> []);
     release_in_local_pool nb alloc used got []
 
+let semifreeze_proc local_procs =
+  let conf = get_conf () in
+  let (_, writer)  = conf.proc in
+  match local_procs with
+  | SemiFreezed ->
+    local_procs, []
+  | Running(alloc,used,got) ->
+    let released = (alloc@used)::got in
+    List.iter released ~f:(give_to_global writer);
+    mk_semifreezed, released
+
+let unfreeze_proc local_procs (alloc',used') =
+  let conf = get_conf () in
+  let (_, writer)  = conf.proc in
+  match local_procs with
+  | SemiFreezed ->
+    mk_running alloc' [used'] [], [used']
+  | Running _ ->
+    (** already unfreezed, give back to the global pool the given slot *)
+    let released = [used'::alloc'] in
+    List.iter released ~f:(give_to_global writer);
+    local_procs, []
+
 let release_all_proc local_procs =
   let conf = get_conf () in
   let (_, writer)  = conf.proc in
@@ -433,6 +459,15 @@ let update_cpuset d =
     cpuset = get_used_cpu d.used_procs;
   }
 
+let freeze_runner d =
+  let used_procs, _ = semifreeze_proc d.used_procs in
+  d.used_procs <- used_procs;
+  update_cpuset d
+
+let unfreeze_runner d slot =
+  let used_procs, _ = unfreeze_proc d.used_procs slot in
+  d.used_procs <- used_procs;
+  update_cpuset d
 
 (** {2 Management} *)
 let masters =
@@ -692,12 +727,17 @@ let add_artefact_api init =
       );
   ]
 
-let start_runner ~debug_info ~binary_name =
+let start_runner ?slot ~debug_info ~binary_name () =
   let conf = get_conf () in
   conf.last_runner_id <- conf.last_runner_id + 1;
   let runner_id = conf.last_runner_id in
-  create_used_procs ()
-  >>= fun (used_procs,initial_cpuset) ->
+  begin match slot with
+    | None -> alloc_slot ()
+    | Some slot -> return slot
+  end
+  >>= fun (alloc,e) ->
+  let used_procs = mk_running alloc [e] [] in
+  let initial_cpuset = get_used_cpu used_procs in
   let rootfs = Oci_Filename.concat (get_conf ()).runners
       (Oci_Filename.mk (string_of_int runner_id)) in
   let cgroup = sprintf "runner%i" runner_id in

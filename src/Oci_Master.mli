@@ -49,6 +49,16 @@ module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
     (runner -> Query.t -> Result.t Deferred.t) ->
     unit
 
+  val create_master_and_reusable_runner:
+    (Query.t,Result.t) Oci_Data.t ->
+    ?binary_name:string ->
+    ?error:(Error.t -> Result.t) ->
+    hashable_key:'k Hashtbl.Hashable.t ->
+    extract_key:(Query.t -> 'k) ->
+    ?timeout:Time.Span.t ->
+    (runner -> Query.t -> Result.t Deferred.t) ->
+    unit
+
 end
 
 val dispatch_runner:
@@ -133,9 +143,13 @@ val register_saver:
   saver:(unit -> unit Deferred.t) ->
   unit
 
+type slot
+
 val start_runner:
   debug_info:string ->
   binary_name:string ->
+  ?slot:slot ->
+  unit ->
   (unit Or_error.t Deferred.t * runner) Async.Std.Deferred.t
 (** Start the given runner in a namespace and start an Rpc connection.
     `start_runner ~binary_name` start the executable
@@ -145,8 +159,24 @@ val start_runner:
     connection is established.
 *)
 
+val reusable_runner:
+  hashable_key:'k Hashtbl.Hashable.t ->
+  debug_info:('k -> string) ->
+  binary_name:('k -> string) ->
+  ?timeout:Time.Span.t ->
+  ?error:('k -> 'd -> Error.t -> 'a) ->
+  (runner -> 'k -> 'd -> 'a Deferred.t) ->
+  (* partial application *)
+  'k -> 'd -> 'a Deferred.t
+
+
 val stop_runner: runner -> unit Deferred.t
 (** Ask or force the runner to stop *)
+
+val alloc_slot: unit -> slot Async.Std.Deferred.t
+
+val freeze_runner: runner -> unit Deferred.t
+val unfreeze_runner: runner -> slot -> unit Deferred.t
 
 val permanent_directory:
   ('query,'result) Oci_Data.t -> Oci_Filename.t Deferred.t

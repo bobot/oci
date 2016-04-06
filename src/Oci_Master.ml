@@ -33,9 +33,13 @@ let register = Oci_Artefact.register_master
 let register_saver = Oci_Artefact.register_saver
 
 let run () = Oci_Artefact.run ()
-let start_runner ~debug_info ~binary_name =
-  Oci_Artefact.start_runner ~debug_info ~binary_name
+let start_runner ~debug_info ~binary_name ?slot () =
+  Oci_Artefact.start_runner ~debug_info ~binary_name ?slot ()
 let stop_runner runner = Oci_Artefact.stop_runner runner
+type slot = Oci_Artefact.slot
+let alloc_slot = Oci_Artefact.alloc_slot
+let freeze_runner = Oci_Artefact.freeze_runner
+let unfreeze_runner = Oci_Artefact.unfreeze_runner
 let permanent_directory = Oci_Artefact.permanent_directory
 
 type exists_log =
@@ -77,7 +81,7 @@ let simple_register_saver ?(init=(fun () -> return ())) ~basename
 
 let simple_runner ~debug_info ~binary_name
     ?error f =
-  start_runner ~debug_info ~binary_name
+  start_runner ~debug_info ~binary_name ()
   >>= fun (err,runner) ->
   choose [
     choice (err >>= function
@@ -90,10 +94,117 @@ let simple_runner ~debug_info ~binary_name
     choice begin
       Monitor.protect ~here:[%here]
         ~finally:(fun () -> stop_runner runner)
-        ~name:"create_master_and_runner"
+        ~name:"simple_runner"
         (fun () -> f runner)
     end (fun x -> x);
   ]
+
+
+type reusable = {
+  runner: runner;
+  wait: unit Or_error.t Deferred.t;
+}
+
+let reusable_id r = Oci_Artefact.runner_id r.runner
+
+let reusable_runner
+    ~(hashable_key:'k Hashtbl.Hashable.t)
+    ~debug_info
+    ~binary_name
+    ?(timeout=Time.Span.create ~sec:10 ())
+    ?error
+    (f:runner -> 'k -> 'd -> 'a Deferred.t) =
+  let h = Hashtbl.create ~hashable:hashable_key () in
+  let scheduled (_,event) =
+    match Clock.Event.status event with
+    | `Aborted _ ->
+      Log.Global.error "reusable runner aborted still in reusable list";
+      false
+    | `Scheduled_at _ -> true
+    | `Happened _ -> false in
+  Clock.run_at_intervals
+    ~continue_on_error:true
+    (Time.Span.create ~min:1 ())
+    (fun () -> Hashtbl.filter_map_inplace h
+        ~f:(fun l -> let l = List.filter ~f:scheduled l in
+             if List.is_empty l then None else Some l));
+  (* partial application *)
+  fun k d ->
+    let debug_info = debug_info k in
+    alloc_slot ()
+    >>= fun slot ->
+    let rec find_available () =
+      match Hashtbl.find h k with
+      | None | Some [] ->
+        start_runner
+          ~debug_info
+          ~binary_name:(binary_name k)
+          ~slot ()
+        >>= fun (err,runner) ->
+        let reusable = {runner;wait=err} in
+        Log.Global.debug "Reusable runner %i started for %s"
+          (reusable_id reusable)
+          debug_info;
+        return reusable
+      | Some ((reusable,event)::l) ->
+        if l = []
+        then Hashtbl.set h ~key:k ~data:l
+        else Hashtbl.remove h k;
+        match Clock.Event.abort event () with
+        | `Previously_happened _ -> find_available ()
+        | `Previously_aborted _ ->
+          Log.Global.error "Reusable runner %i aborted still in reusable list"
+            (reusable_id reusable);
+          find_available ()
+        | `Ok ->
+          match Deferred.peek reusable.wait with
+          | None ->
+            Log.Global.debug "Reuse runner %i for %s"
+              (reusable_id reusable)
+              debug_info;
+            unfreeze_runner reusable.runner slot
+            >>= fun () ->
+            return reusable
+          | Some e ->
+            Log.Global.error "Reusable runner %i stopped when idle: %s"
+              (reusable_id reusable)
+              (Sexp.to_string_hum ([%sexp_of: (unit,Error.t) Result.t] e));
+            find_available ()
+    in
+    find_available ()
+    >>= fun reusable ->
+    choose [
+      choice (reusable.wait >>= function
+        | Ok () -> never ()
+        | Error s -> return s)
+        (match error with
+         | None -> (fun e -> invalid_argf "error %s" (Error.to_string_hum e) ())
+         | Some error -> error k d
+        );
+      choice begin
+        Monitor.protect ~here:[%here]
+          ~finally:(fun () ->
+              freeze_runner reusable.runner
+              >>= fun () ->
+              let event = Clock.Event.run_after timeout (fun () ->
+                    stop_runner reusable.runner
+                    >>> fun () ->
+                    reusable.wait
+                    >>> function
+                    | Ok () -> ()
+                    | Error e ->
+                      Log.Global.error
+                        "A reusable runner stopped with error after timeout: %s"
+                        (Sexp.to_string_hum ([%sexp_of: Error.t] e));
+                ) () in
+              Hashtbl.add_multi h ~key:k ~data:(reusable,event);
+              Deferred.unit
+            )
+          ~name:"reusable_runner"
+          (fun () -> f reusable.runner k d)
+      end (fun x -> x);
+    ]
+
 
 let simple_master f q =
   Oci_Log.init_writer (fun log ->
@@ -228,8 +339,22 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
   let create_master_and_runner data ?(binary_name=Oci_Data.name data) ?error f =
     create_master data (fun q -> simple_runner
                          ~debug_info:(Oci_Data.name data)
-                           ~binary_name ?error
-                           (fun conn -> f conn q))
+                         ~binary_name ?error
+                         (fun runner -> f runner q))
+
+  let create_master_and_reusable_runner
+      data ?(binary_name=Oci_Data.name data) ?error
+      ~hashable_key ~extract_key ?timeout f =
+    let reusable =
+      reusable_runner
+        ~hashable_key
+        ~debug_info:(fun _ -> Oci_Data.name data)
+        ~binary_name:(fun _ -> binary_name)
+        ?timeout
+        ?error:(Option.map ~f:(fun error _ _ -> error) error)
+        (fun runner _ q -> f runner q)
+    in
+    create_master data (fun q -> reusable (extract_key q) q)
 
 end
 

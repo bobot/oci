@@ -225,9 +225,14 @@ let exec_in_namespace =
       debug "Wrapped program %s for runner %i ended" (Pid.to_string wrapped)
         parameters.runner_id;
       Int.Table.remove conf.running_processes parameters.runner_id;
-      match res with
-      | Ok () -> return (Or_error.return ())
-      | Error _ as res ->
+      match res, Oci_Artefact_Api.oci_shutting_down () with
+      | Ok (),_ -> return (Or_error.return ())
+      | Error (`Signal s), true when s = Signal.kill ->
+        let res = Unix.Exit_or_signal.to_string_hum res in
+        debug "Runner %i received kill signal for shutdown"
+          parameters.runner_id;
+        return (Or_error.error_string "Shutdown")
+      | Error _ as res, _ ->
         let res = Unix.Exit_or_signal.to_string_hum res in
         error "The following program stopped with this error %s:\n%s\n"
           res
