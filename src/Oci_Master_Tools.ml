@@ -87,12 +87,12 @@ let run_inside f =
 
 
 let exec prog args =
-  run_inside (
-    never_returns
-      (Unix.exec
-         ~prog
-         ~env:(`Replace default_env)
-         ~args:(prog::args) ()))
+  run_inside (fun () ->
+      never_returns
+        (Unix.exec
+           ~prog
+           ~env:(`Replace default_env)
+           ~args:(prog::args) ()))
 
 let clean dryrun =
   let prog = "rm" in
