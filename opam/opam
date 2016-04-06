@@ -9,13 +9,15 @@ bug-reports: "https://github.com/bobot/oci/issues"
 license: "LGPL-2+ with OCaml linking exception"
 
 build: [
-  [make "PREFIX=%{prefix}%"]
+  ["./.configure_or_autoconf" "--prefix=%{prefix}%"]
+  [make]
 ]
 install: [
-  [make "install" "PREFIX=%{prefix}%"]
+  [make "install"]
 ]
 remove: [
-  [make "uninstall" "PREFIX=%{prefix}%"]
+  ["./.configure_or_autoconf" "--prefix=%{prefix}%"]
+  [make "uninstall"]
 ]
 
 depends: [

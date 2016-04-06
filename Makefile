@@ -128,7 +128,7 @@ clean:
 	@echo FLG -w $(OCAML_WARN_ERROR) >> .merlin.tmp
 	@mv .merlin.tmp .merlin
 
-META: .config_stamp Makefile META.in
+META: .config Makefile META.in
 	@echo "Generating META file"
 	@rm -f $@.tmp
 	@sed -e "s/@(REQUIRES)/$(PACKAGES)/" -e "s/@(VERSION)/$(VERSION)/" $@.in > $@.tmp
@@ -154,8 +154,11 @@ headers:
 	$(call make-header,header-cea,CEA_LGPL)
 	$(call make-header,header-why3,WHY3_LGPL)
 
-.config: configure
-	./config.status
+.config: config.status
+	./config.status --file .config
+
+config.status: configure
+	./config.status --recheck
 
 GIT_TARNAME = oci-$(VERSION)
 archive:

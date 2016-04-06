@@ -1,0 +1,7 @@
+#!/bin/sh -eu
+
+if test \! -e ./configure; then
+ autoconf
+fi
+
+exec ./configure "$@"
