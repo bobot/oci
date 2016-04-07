@@ -35,7 +35,8 @@ LIB= Oci_Common.cmi Oci_Filename.cmi Oci_Std.cmi Oci_pp.cmi		\
 	Oci_Rootfs.cmi Oci_Rootfs_Api.cmi Oci_Cmd_Runner_Api.cmi	\
 	$(addsuffix .cmxa, $(LIBRARY)) 					\
 	$(addsuffix .cmi, $(LIBRARY)) 					\
-	$(addsuffix .a,	$(LIBRARY))
+	$(addsuffix .a,	$(LIBRARY)) 					\
+	liboci_stubs.a
 
 TOCOMPILE= $(addprefix src/, $(addsuffix .native,$(BINARY)) $(LIB)) \
 	$(addprefix tests/, $(addsuffix .native,$(TESTS)))

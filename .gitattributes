@@ -1,3 +1,4 @@
+src/**/*.c header-cea
 src/**/*.ml header-cea
 src/**/*.mli header-cea
 tests/**/*.ml header-cea

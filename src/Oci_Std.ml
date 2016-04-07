@@ -79,3 +79,5 @@ let read_if_exists file bin_reader_t f =
        | `Eof -> return ()
        | `Ok r -> f r
     )
+
+external oci_test: unit -> unit = "oci_test"

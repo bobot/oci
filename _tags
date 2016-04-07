@@ -5,3 +5,6 @@
 <test-oci-data>: -traverse
 <src/wrapper/Oci_Wrapper.*>: -package(async), -package(async_shell), -package(cmdliner)
 <*.tmp> : -traverse
+
+<src/*.cm{x,}a>: use_liboci_stubs
+<{src,tests}/*.native>: link_liboci_stubs
