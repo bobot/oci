@@ -1,7 +1,9 @@
 'Test':
   script:
   - eval `opam config env`
+  - autoconf
+  - ./configure
   - make
-  tags: 
+  tags:
   except:
   - tags
