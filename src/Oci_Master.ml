@@ -113,7 +113,7 @@ let reusable_runner
     ~binary_name
     ?(timeout=Time.Span.create ~sec:10 ())
     ?error
-    (f:runner -> 'k -> 'd -> 'a Deferred.t) =
+    (f: first:bool -> runner -> 'k -> 'd -> 'a Deferred.t) =
   let h = Hashtbl.create ~hashable:hashable_key () in
   let scheduled (_,event) =
     match Clock.Event.status event with
@@ -145,7 +145,7 @@ let reusable_runner
         Log.Global.debug "Reusable runner %i started for %s"
           (reusable_id reusable)
           debug_info;
-        return reusable
+        return (reusable,true)
       | Some ((reusable,event)::l) ->
         if l = []
         then Hashtbl.set h ~key:k ~data:l
@@ -164,7 +164,7 @@ let reusable_runner
               debug_info;
             unfreeze_runner reusable.runner slot
             >>= fun () ->
-            return reusable
+            return (reusable,false)
           | Some e ->
             Log.Global.error "Reusable runner %i stopped when idle: %s"
               (reusable_id reusable)
@@ -172,7 +172,7 @@ let reusable_runner
             find_available ()
     in
     find_available ()
-    >>= fun reusable ->
+    >>= fun (reusable,first) ->
     choose [
       choice (reusable.wait >>= function
         | Ok () -> never ()
@@ -201,7 +201,7 @@ let reusable_runner
               Deferred.unit
             )
           ~name:"reusable_runner"
-          (fun () -> f reusable.runner k d)
+          (fun () -> f ~first reusable.runner k d)
       end (fun x -> x);
     ]
 
@@ -352,7 +352,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
         ~binary_name:(fun _ -> binary_name)
         ?timeout
         ?error:(Option.map ~f:(fun error _ _ -> error) error)
-        (fun runner _ q -> f runner q)
+        (fun ~first runner _ q -> f ~first runner q)
     in
     create_master data (fun q -> reusable (extract_key q) q)
 

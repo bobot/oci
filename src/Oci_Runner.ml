@@ -278,10 +278,16 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
   >>= fun () ->
   w
   >>= fun r ->
-  Reader.file_contents tmpfile
+  (* even if we use quiet time can add "Command terminated by signal ..."*)
+  Reader.file_lines tmpfile
   >>= fun content ->
   Sys.remove tmpfile
   >>= fun () ->
+  let content =
+    match List.find content ~f:(fun s -> s.[0] = '(') with
+    | None -> raise TimeError
+    | Some s -> s
+  in
   let timed = Sexp.of_string_conv
       (String.strip content)
       Oci_Common.Timed.t_of_sexp in

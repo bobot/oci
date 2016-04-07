@@ -56,7 +56,7 @@ module Make (Query: Hashtbl.Key_binable) (Result : Binable.S) : sig
     hashable_key:'k Hashtbl.Hashable.t ->
     extract_key:(Query.t -> 'k) ->
     ?timeout:Time.Span.t ->
-    (runner -> Query.t -> Result.t Deferred.t) ->
+    (first:bool -> runner -> Query.t -> Result.t Deferred.t) ->
     unit
 
 end
@@ -165,7 +165,7 @@ val reusable_runner:
   binary_name:('k -> string) ->
   ?timeout:Time.Span.t ->
   ?error:('k -> 'd -> Error.t -> 'a) ->
-  (runner -> 'k -> 'd -> 'a Deferred.t) ->
+  (first:bool -> runner -> 'k -> 'd -> 'a Deferred.t) ->
   (* partial application *)
   'k -> 'd -> 'a Deferred.t
 

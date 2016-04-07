@@ -28,7 +28,7 @@ module Artefact = struct
   let to_string = Int.to_string
   let pp = Int.pp
   let empty = -1 (** special value *)
-
+  let hash = Int.hash
 
   let of_int_exn i = if i < 0 then invalid_arg "Artefact.of_int" else i
 

@@ -64,16 +64,16 @@ install:
 	ocamlfind install oci lib/oci/*
 	@mkdir -p $(LIB_INSTALL_DIR)/bin $(BINDIR)
 	install $(addprefix bin/, $(addsuffix .native, $(INTERNAL_BINARY))) $(LIB_INSTALL_DIR)/bin
-	install bin/oci_default_master $(LIB_INSTALL_DIR)/bin
-	install bin/Oci_Monitor.native $(BINDIR)/oci_monitor
-	install bin/Oci_Master_Tools.native $(BINDIR)/oci_master_tools
-	install bin/Oci_Master_Tools.native $(VARDIR)/oci_master_tools
-	install bin/oci_default_client $(BINDIR)/oci_default_client
+	install bin/oci_default_master $(LIB_INSTALL_DIR)/bin/oci-default-master
+	install bin/Oci_Monitor.native $(BINDIR)/oci-monitor
+	install bin/Oci_Master_Tools.native $(BINDIR)/oci-master-tools
+	install bin/Oci_Master_Tools.native $(VARDIR)/oci-master-tools
+	install bin/oci_default_client $(BINDIR)/oci-default-client
 
 uninstall:
 	rm -rf $(LIB_INSTALL_DIR)/bin
 	ocamlfind remove oci
-	rm -f $(BINDIR)/oci_monitor $(BINDIR)/oci_default_client
+	rm -f $(addprefix $(BINDIR),oci-monitor oci-default-client oci-master-tools)
 
 #force allows to always run the rules that depends on it
 .PHONY: force

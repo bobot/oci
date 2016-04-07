@@ -569,7 +569,7 @@ let log_level =
 
 let cmd =
   let master =
-    let def = "oci_default_master" in
+    let def = "oci-default-master" in
     Arg.(value & opt string def & info ["master"]
            ~docv:"EXEC"
            ~doc:"Specify the master to use. Must be in the binaries.")

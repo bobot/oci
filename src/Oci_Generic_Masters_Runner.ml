@@ -27,9 +27,6 @@ open Oci_Generic_Masters_Api.CompileGitRepoRunner
 
 let create_dir t (q:Query.t) =
   let working_dir = "/checkout" in
-  Oci_Runner.cha_log t "Link Rootfs";
-  Oci_Runner.link_artefact t q.rootfs.rootfs ~dir:"/"
-  >>= fun () ->
   Oci_Runner.cha_log t "Link Artefacts";
   Deferred.List.iter
     ~f:(fun artefact ->
@@ -154,6 +151,9 @@ let compile_git_repo_runner t q =
   >>= fun artefact ->
   Oci_Runner.data_log t (`Artefact artefact);
   Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests
+  >>= fun () ->
+  Oci_Runner.run_exn t ~prog:"umount" ~args:[working_dir] ()
+
 
 (*
 let tmux_runner t q =

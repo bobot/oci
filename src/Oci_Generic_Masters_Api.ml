@@ -23,7 +23,7 @@
 open Core.Std
 open Oci_Std
 
-let version = 11
+let version = 12
 
 module CompileGitRepoRunner = struct
 
@@ -104,7 +104,6 @@ module CompileGitRepoRunner = struct
 
   module Query = struct
     type t = {
-      rootfs: Oci_Rootfs_Api.Rootfs.t;
       cmds: cmds;
       tests: cmds;
       artefacts: Oci_Common.Artefact.t list;

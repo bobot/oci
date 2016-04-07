@@ -25,7 +25,7 @@ module Artefact : sig
   val to_string: t -> string
   val pp: t Oci_pp.printer
   val empty: t
-
+  val hash: t -> int
   (* For Oci_Artefact.ml *)
   val of_int_exn: int -> t
 

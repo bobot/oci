@@ -49,6 +49,82 @@ let cmds_with_connections =
     test "collatz" Tests_api.test_collatz;
   ]
 
+(** CI tests *)
+open Oci_Client.Git
+
+
+let oci_sort_url =
+  "https://github.com/bobot/oci-repository-for-tutorial.git"
+
+let oci_sort = mk_repo
+    "oci-sort"
+    ~url:oci_sort_url
+    ~deps:Oci_Client.Cmdline.Predefined.[ocaml;ocamlbuild;ocamlfind]
+    ~cmds:[
+      run "autoconf" [];
+      run "./configure" [];
+      make [];
+      make ["install"];
+    ]
+    ~tests:[
+      make ["tests"];
+    ]
+
+(** benchmark tests *)
+
+let () = mk_compare
+    ~deps:[oci_sort]
+    ~x_of_sexp:Oci_Common.Commit.t_of_sexp
+    ~sexp_of_x:Oci_Common.Commit.sexp_of_t
+    ~y_of_sexp:Oci_Filename.t_of_sexp
+    ~sexp_of_y:Oci_Filename.sexp_of_t
+    ~cmds:(fun conn revspecs x y ->
+        let revspecs =
+          String.Map.add revspecs ~key:"oci-sort"
+            ~data:(Some (Oci_Common.Commit.to_string x)) in
+        commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
+        >>= fun master ->
+        return
+          (revspecs,
+           [Oci_Client.Git.git_copy_file ~url:oci_sort_url ~src:y
+              ~dst:(Oci_Filename.basename y)
+              (Option.value_exn ~here:[%here] master)],
+           (run
+              ~memlimit:(Byte_units.create `Megabytes 500.)
+              ~timelimit:(Time.Span.create ~sec:10 ())
+              "oci-sort" [Oci_Filename.basename y])))
+    ~analyse:(fun _  timed ->
+        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    "oci-sort"
+
+
+let () = mk_compare
+    ~deps:[oci_sort]
+    ~x_of_sexp:[%of_sexp: (String.t * String.t) List.t]
+    ~sexp_of_x:[%sexp_of: (String.t * String.t) List.t]
+    ~y_of_sexp:Oci_Filename.t_of_sexp
+    ~sexp_of_y:Oci_Filename.sexp_of_t
+    ~cmds:(fun conn revspecs x y ->
+        let revspecs = List.fold_left x ~init:revspecs
+            ~f:(fun acc (repo,rev) ->
+                String.Map.add acc ~key:repo ~data:(Some rev)) in
+          commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
+          >>= fun master ->
+          return
+            (revspecs,
+             [Oci_Client.Git.git_copy_file ~url:oci_sort_url ~src:y
+                ~dst:(Oci_Filename.basename y)
+                (Option.value_exn ~here:[%here] master)],
+             (run
+              ~memlimit:(Byte_units.create `Megabytes 500.)
+              ~timelimit:(Time.Span.create ~sec:10 ())
+              "oci-sort" [Oci_Filename.basename y]))
+      )
+    ~analyse:(fun _  timed ->
+        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    "oci-sort_ocaml"
+
+
 let () =
   don't_wait_for (Oci_Client.Cmdline.default_cmdline
                     ~cmds_with_connections

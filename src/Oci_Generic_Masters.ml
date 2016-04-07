@@ -90,44 +90,88 @@ let compile_deps =
     in
     return result
 
-let run_git_repo rpc map_type q log =
+let exec_runner map_type rpc log runner todo =
+  let log' = Pipe.init (fun log' ->
+      Oci_Master.dispatch_runner_log log' rpc runner todo)
+  in
+  Pipe.transfer log' log
+    ~f:(Oci_Log.map_line map_type)
+
+let artefact_list_hashable =
+  {Hashtbl.Hashable.sexp_of_t =
+     [%sexp_of: (string * Oci_Common.Artefact.t list)];
+   hash = (fun (s,al) -> 5 * String.hash s +
+                         List.fold_left al ~init:65535
+                           ~f:(fun acc e ->
+                               7*(Oci_Common.Artefact.hash e) + 9 * acc));
+   compare = [%compare: (string * Oci_Common.Artefact.t list)];
+  }
+
+
+let run_runner =
+  let reusable = Oci_Master.reusable_runner
+      ~debug_info:(fun (name,_) -> sprintf "Run Repo %s" name)
+      ~hashable_key:artefact_list_hashable
+      ~binary_name:(fun _ -> binary_name)
+      (fun ~first runner _
+        (log,(todo:Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.t)) ->
+         let todo = if first then todo else {todo with artefacts = []} in
+         exec_runner
+          (fun (x : Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.t) ->
+             (x :> Oci_Generic_Masters_Api.CompileGitRepo.Result.t))
+          Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc
+          log runner todo)
+  in
+  fun name log todo ->
+    match (todo:Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.t) with
+    | { save_artefact = false (* todo precise the criteria *) } ->
+      reusable (name,todo.Oci_Generic_Masters_Api.
+                       CompileGitRepoRunner.Query.artefacts)
+        (log,todo)
+    | _ ->
+    Oci_Master.simple_runner
+      ~debug_info:(sprintf "Run Repo %s" name)
+      ~binary_name
+      (fun runner -> exec_runner
+          (fun (x : Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.t) ->
+             (x :> Oci_Generic_Masters_Api.CompileGitRepo.Result.t))
+          Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc
+          log
+          runner todo)
+
+let xpra_runner name log todo =
+  Oci_Master.simple_runner
+    ~debug_info:(sprintf "Xpra Repo %s" name)
+    ~binary_name
+    (fun runner ->
+       exec_runner
+         (fun (x : Oci_Generic_Masters_Api.XpraRunner.Result.t) ->
+            (x :> Oci_Generic_Masters_Api.XpraGitRepo.Result.t))
+         Oci_Generic_Masters_Api.XpraRunner.rpc
+         log
+         runner todo)
+
+let run_git_repo q log get_runner =
   compile_deps q
   >>= function
   | `Artefact results ->
     let repo = String.Map.find_exn q.repos q.name in
-    Oci_Master.simple_runner
-      ~debug_info:(sprintf "Repo %s" q.name)
-      ~binary_name
-      begin
-      fun runner ->
-        let log' = Pipe.init (fun log' ->
-            Oci_Master.dispatch_runner_log log' rpc runner {
-              Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.rootfs =
-                q.rootfs;
-              cmds=repo.cmds;
-              tests=repo.tests;
-              save_artefact = repo.save_artefact;
-              artefacts = results;
-            })
-        in
-        Pipe.transfer log' log
-          ~f:(Oci_Log.map_line map_type)
-    end
+    let todo = {
+      Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.cmds=repo.cmds;
+      tests=repo.tests;
+      save_artefact = repo.save_artefact;
+      artefacts = q.rootfs.rootfs::results;
+    } in
+    get_runner q.name log todo
   | `Dependency_error s ->
     Pipe.write log (Oci_Log.data (`Dependency_error s))
   | `Error err -> Error.raise err
 
 let compile_git_repo q log =
-  run_git_repo Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc
-    (fun (x : Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.t) ->
-       (x :> Oci_Generic_Masters_Api.CompileGitRepo.Result.t))
-    q log
+  run_git_repo q log run_runner
 
 let xpra_git_repo q log =
-  run_git_repo Oci_Generic_Masters_Api.XpraRunner.rpc
-    (fun (x : Oci_Generic_Masters_Api.XpraRunner.Result.t) ->
-       (x :> Oci_Generic_Masters_Api.XpraGitRepo.Result.t))
-    q log
+  run_git_repo q log xpra_runner
 
 let init_compile_git_repo () =
   MasterCompileGitRepoArtefact.create_master_unit
