@@ -207,7 +207,7 @@ end
 module Gnuplot = struct
 
   let print_output output writer =
-    match output with
+    begin match output with
     | `Png(width,height,filename) ->
       Pipe.write_if_open writer
         (sprintf "set terminal pngcairo size %i, %i\n" width height)
@@ -221,6 +221,7 @@ module Gnuplot = struct
         (sprintf "set output \"%s\"\n" filename)
     | `Qt ->
       Pipe.write_if_open writer "set terminal qt persist\n"
+    end
 
   let print_datas writer data =
     Deferred.List.iter data ~f:(fun (x,y) ->
@@ -242,7 +243,8 @@ module Gnuplot = struct
     Deferred.List.iter datas
       ~f:(fun (t,_) ->
           Pipe.write_if_open writer
-            (sprintf "\"-\" using 1:2 with steps title \"%s\", \\\n" t))
+            (sprintf "\"-\" using 1:2 with steps title \"%s\" noenhanced,\
+                      \\\n" t))
     >>= fun () ->
     Pipe.write_if_open writer "\n"
     >>= fun () ->
@@ -297,14 +299,14 @@ module Gnuplot = struct
 	           set logscale xy 10\n\
 	           set xrange [%f:%f]\n\
                    set yrange [%f:%f]\n\
-                   set xlabel \"%s\"\n\
-                   set ylabel \"%s\"\n\
+                   set xlabel \"%s\" noenhanced\n\
+                   set ylabel \"%s\" noenhanced\n\
                    set key rmargin width -4 samplen 2\n"
             error_measure timeout error_measure timeout
             a b)
        >>= fun () ->
        Pipe.write_if_open writer
-         (sprintf "plot \"-\" using 1:2,\\\n\
+         (sprintf "plot \"-\" using 1:2 title \"bench\",\\\n\
           x+%f with lines linecolor rgbcolor \"green\", x-%f with lines \\\n\
           linecolor rgbcolor \"green\"\n" error_measure error_measure)
        >>= fun () ->
@@ -648,10 +650,10 @@ module Cmdline = struct
                       compare_exec exec exec' = 0
                   ->
                   debug
-                    "[Result] %s@\n%s@."
-                    (Sexp.to_string_hum (
-                        Oci_Generic_Masters_Api.CompileGitRepo.
-                          Query.sexp_of_t query))
+                    "[Result] %s@."
+                    (* (Sexp.to_string_hum ( *)
+                    (*     Oci_Generic_Masters_Api.CompileGitRepo. *)
+                    (*       Query.sexp_of_t query)) *)
                     (Oci_pp.string_of
                        Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
                   return (analyse result time)
