@@ -112,16 +112,10 @@ type 'a process_create
   -> unit
   -> 'a Deferred.t
 
-val process_create:
-  'r t -> Process.t Or_error.t process_create
-(** both process_create and process_log *)
-
 val print_cmd: string -> string list -> string
 
 val run: 'r t ->
   Core.Std.Unix.Exit_or_signal.t process_create
-
-exception TimeError
 
 val run_timed: 'r t ->
  ?timelimit:Time.Span.t -> (* soft limit, wall clock *)

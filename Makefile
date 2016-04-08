@@ -27,7 +27,7 @@ BINARY=$(INTERNAL_BINARY) $(EXTERNAL_BINARY)
 
 LIBRARY=Oci_Master Oci_Runner Oci_Client
 
-TESTS = tests_runner tests_client tests_master
+TESTS = tests_runner tests_client tests_master tests_time
 
 LIB= Oci_Common.cmi Oci_Filename.cmi Oci_Std.cmi Oci_pp.cmi		\
 	Oci_Default_Masters.cmxa Oci_Default_Masters.a			\

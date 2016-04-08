@@ -215,23 +215,15 @@ type 'a process_create
   -> unit
   -> 'a Deferred.t
 
-let process_create t ?env ?working_dir ~prog ~args () =
-  Deferred.Or_error.bind
-    (Process.create ?working_dir ?env ~prog ~args ())
-    (fun p ->
-       process_log t p
-       >>= fun () ->
-       Deferred.Or_error.return p)
-
 exception CommandFailed
 
 let run t ?env ?working_dir ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
-  process_create t ?working_dir ?env ~prog ~args ()
+  Process.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
-  Process.wait p
-  >>= fun r ->
+  Deferred.both (process_log t p) (Process.wait p)
+  >>= fun ((),r) ->
   match r with
   | Core_kernel.Std.Result.Ok () -> return r
   | Core_kernel.Std.Result.Error _ as error ->
@@ -247,65 +239,38 @@ let run_exn t ?env ?working_dir ~prog ~args () =
   | Core_kernel.Std.Result.Error _ ->
     raise CommandFailed
 
-exception TimeError
-
 let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
-  let tmpfile = Filename.temp_file "time" ".sexp" in
-  let args = "--output"::tmpfile::"--quiet"::"--format"::
-             "((cpu_kernel %Ss)(cpu_user %Us)(wall_clock %es))"::
-             prog::args
-  in
-  let prog = "/usr/bin/time" in
-  process_create t ?working_dir ?env ~prog ~args ()
+  let start = Unix.gettimeofday () in
+  Process.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
-  let w = Process.wait p in
+  let w = Oci_Std.wait4 (Process.pid p) in
+  let w = Deferred.both (process_log t p) w in
   begin
     match timelimit with
     | None -> Deferred.unit
     | Some timelimit ->
+      let timelimit = Time.Span.(scale timelimit 1.1 + create ~sec:1 ()) in
       Deferred.choose [
         Deferred.choice w (fun _ -> `Done);
         Deferred.choice (after timelimit) (fun _ -> `Timeout);
       ]
       >>= function
       | `Timeout ->
-        ignore (Signal.send Signal.kill (`Pid (Process.pid p)));
+        Signal.send_i Signal.kill (`Pid (Process.pid p));
         Deferred.unit
       | `Done -> Deferred.unit
   end
   >>= fun () ->
   w
-  >>= fun r ->
-  (* even if we use quiet time can add "Command terminated by signal ..."*)
-  Reader.file_lines tmpfile
-  >>= fun content ->
-  Sys.remove tmpfile
-  >>= fun () ->
-  let content =
-    match List.find content ~f:(fun s -> s.[0] = '(') with
-    | None -> raise TimeError
-    | Some s -> s
+  >>= fun ((),(r,ru)) ->
+  let stop = Unix.gettimeofday () in
+  let timed = {Oci_Common.Timed.cpu_kernel = Time.Span.of_float ru.stime;
+               Oci_Common.Timed.cpu_user = Time.Span.of_float ru.utime;
+               Oci_Common.Timed.wall_clock = Time.Span.of_float (stop -. start)}
   in
-  let timed = Sexp.of_string_conv
-      (String.strip content)
-      Oci_Common.Timed.t_of_sexp in
-  match r, timed with
-    | _, `Error (exn,_) ->
-    let error = Error.of_exn exn in
-    err_log t "time output parsing failed executing %s: %s"
-      (print_cmd prog args)
-      (Error.to_string_hum error);
-    raise TimeError
-  | Result.Ok (), `Result timed -> return (r,timed)
-  | (Core_kernel.Std.Result.Error (`Exit_non_zero i) as r,`Result timed)
-    when i < 128 -> return (r,timed)
-  | (Core_kernel.Std.Result.Error (`Exit_non_zero i),`Result timed)
-    -> return (Core_kernel.Std.Result.Error
-                 (`Signal (Signal.of_system_int (i-128))),
-               timed)
-  | (Core_kernel.Std.Result.Error (`Signal _),_) -> raise TimeError
+  return (r,timed)
 
 let run_timed_exn t ?env ?working_dir ~prog ~args () =
   run_timed t ?working_dir ?env ~prog ~args ()
