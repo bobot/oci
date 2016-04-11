@@ -1,0 +1,2 @@
+((oci-sort master)(oci-sort-ocamlparam (Some "_,O3="))(ocaml-configure (-flambda)))
+((oci-sort master)(oci-sort-ocamlparam (Some "_,O2="))(ocaml-configure (-flambda)))

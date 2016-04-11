@@ -187,7 +187,45 @@ end
 
 module Cmdline: sig
 
-  type repo = {name:string;url:string}
+  module WP: sig
+    type 'a param
+    module ParamValue: sig
+      type t [@@deriving sexp]
+      val mem : t -> 'a param -> bool
+      val find : t -> 'a param -> 'a option
+      val find_def : t -> 'a param -> 'a
+      val set : t -> 'a param -> 'a -> t
+      val replace_by: t -> t -> t
+    end
+    type 'a with_param
+
+
+    val const: 'a -> 'a with_param
+    val ( !! ): 'a -> 'a with_param
+
+    val ( $ ): ('a -> 'b) with_param -> 'a with_param -> 'b with_param
+
+    val param: 'a param -> 'a with_param
+    val ( !? ): 'a param -> 'a with_param
+    val ( $? ): ('a -> 'b) with_param -> 'a param -> 'b with_param
+
+    val connection: Git.connection with_param
+
+    val print: ('a -> string Async.Std.Deferred.t) -> 'a with_param
+      -> 'a with_param
+
+    val mk_param :
+      default:'a ->
+      ?sexp_of:('a -> Sexplib.Sexp.t) ->
+      ?of_sexp:(Async.Std.Sexp.t -> 'a) ->
+      ?cmdliner:'a Core.Std.Univ_map.data Core.Std.Univ_map.data
+        Cmdliner.Term.t ->
+      'b Core.Std.String.Table.key_ -> 'a param
+
+  end
+
+  type repo_param = Git.repo Deferred.t WP.with_param
+  type repo = string
 
   val mk_repo:
     ?revspec:string ->
@@ -195,7 +233,7 @@ module Cmdline: sig
     deps:repo list ->
     cmds:Git.cmd list ->
     ?tests:Git.cmd list ->
-    string (* name *) -> repo
+    string (* name *) -> repo * string WP.param
 
   val mk_copy_file:
     url:string list ->
@@ -205,21 +243,21 @@ module Cmdline: sig
     Git.cmd
 
   type query = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
-  type revspecs = string option String.Map.t
 
-  val cmdliner_revspecs: revspecs -> (revspecs Cmdliner.Term.t)
+  val cmdliner_revspecs: WP.ParamValue.t -> (WP.ParamValue.t Cmdliner.Term.t)
 
   type ('x,'y) compare =
     Git.connection ->
-    revspecs -> 'x -> 'y ->
-    (revspecs * Git.repo * [`Exec of Git.exec ]) Deferred.t
+    WP.ParamValue.t -> 'x -> 'y ->
+    (WP.ParamValue.t * repo_param * [`Exec of Git.exec ]) Deferred.t
 
   val mk_compare:
     deps:repo List.t ->
     cmds:(Git.connection ->
-          revspecs ->
+          WP.ParamValue.t ->
           'x -> 'y ->
-          (revspecs * Git.cmd list * [ `Exec of Git.exec ]) Deferred.t) ->
+          (WP.ParamValue.t * Git.cmd list * [ `Exec of Git.exec ]) Deferred.t)
+    ->
     x_of_sexp:(Sexp.t -> 'x) ->
     sexp_of_x:('x -> Sexp.t) ->
     y_of_sexp:(Sexp.t -> 'y) ->
@@ -246,9 +284,9 @@ module Cmdline: sig
   end
 
   type create_query_hook =
-    (connection:Git.connection ->
-     query:query -> revspecs:revspecs ->
-     (query * revspecs) Deferred.t) Cmdliner.Term.t
+    connection:Git.connection ->
+    root:repo -> revspecs:WP.ParamValue.t ->
+    (repo * WP.ParamValue.t) Deferred.t
 
   type cmds_without_connection =
     [ `Error | `Ok ] Async.Std.Deferred.t Cmdliner.Term.t *
@@ -261,7 +299,7 @@ module Cmdline: sig
 
 
   val default_cmdline:
-    ?create_query_hook:create_query_hook (* experts only *) ->
+    ?create_query_hook:create_query_hook Cmdliner.Term.t (* experts only *) ->
     ?cmds_without_connections:cmds_without_connection list ->
     ?cmds_with_connections:cmds_with_connection list ->
     ?doc:string ->  ?version:string ->
@@ -269,12 +307,8 @@ module Cmdline: sig
   (** parse cmdline, run, and quit *)
 
   (** {2 Experts only} *)
-  val git_clone: ?dir:Oci_Filename.t -> string -> Git.cmd
-  val git_copy_file:
-    src:Oci_Filename.t -> dst:Oci_Filename.t -> string -> Git.cmd
   val add_repo: string -> Git.repo -> unit
-  val add_default_revspec_for_url:
-    revspec:string -> url:string -> name:string -> unit
+  val add_repo_with_param: string -> repo_param -> unit
   val exec:
     ?init:([> `Ok ] as 'c) ->
     ?fold:
@@ -285,6 +319,15 @@ module Cmdline: sig
     ('a -> Sexplib.Type.t) ->
     (Format.formatter -> 'b -> unit) ->
     Git.connection -> 'c Async_kernel.Types.Deferred.t
+  val mk_commit_param:
+    url:string ->
+    string ->
+    Core.Std.String.t WP.param ->
+    Oci_Common.Commit.t Async.Std.Deferred.t WP.with_param
+  val mk_revspec_param:
+    ?revspec:Core.Std.String.t ->
+    'a Core.Std.String.Table.key_ -> Core.Std.String.t WP.param
+
 end
 
 
