@@ -1,3 +1,5 @@
+:toc:
+
 == OCI
 
 OCI is a framework for continuous integrations and benchmarks. At the
@@ -632,3 +634,21 @@ difference is too small to really matter.
 image:tests/images/tests_oci_sort3_1.png[
 "Graphic example 3",
 link="tests/images/tests_oci_sort3_1.png"]
+
+=== Use of Cgroup
+
+For more precise cgroup one can ask OCI to use cgroup for placing the
+runners (the compilation, tests, ...) on different cpus. For that you
+need cgmanager and run inside the terminal that will run `oci_monitor`:
+
+[source,sh]
+----
+sudo cgm create all oci
+sudo cgm chown all oci $(id -u) $(id -g)
+cgm movepid all oci $PPID
+----
+
+And run `oci-monitor` with the option `--cgroup "."`
+
+[source,sh]
+oci-monitor --cgroup "."
