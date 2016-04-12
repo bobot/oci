@@ -52,9 +52,22 @@ let cmds_with_connections =
 (** CI tests *)
 open Oci_Client.Git
 
-
 let oci_sort_url =
   "https://github.com/bobot/oci-repository-for-tutorial.git"
+
+let oci_sort_bak = mk_repo
+    "oci-sort_bak"
+    ~url:oci_sort_url
+    ~deps:Oci_Client.Cmdline.Predefined.[ocaml;ocamlbuild;ocamlfind]
+    ~cmds:[
+      run "autoconf" [];
+      run "./configure" [];
+      make [];
+      make ["install"];
+    ]
+    ~tests:[
+      make ["tests"];
+    ]
 
 let oci_sort_ocamlparam =
   WP.mk_param ~default:None "oci-sort-ocamlparam"

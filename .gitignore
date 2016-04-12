@@ -18,3 +18,4 @@ _build/
 /autom4te.cache/
 /.config
 /.config_stamp
+/README.html

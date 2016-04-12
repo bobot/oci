@@ -1,0 +1,634 @@
+== OCI
+
+OCI is a framework for continuous integrations and benchmarks. At the
+base it is a container manager and at the top a tools that allows to
+compile, tests, and compare compilation and run of inter-dependent git
+repositories.
+
+=== Installation
+
+Simply run
+
+[source,sh]
+opam pin add oci --kind=git "https://github.com/bobot/oci.git#master"
+
+
+For more precise [installation instructions](INSTALL.md).
+
+=== Tutorial
+
+The goal of the tutorial is to introduce use of OCI of the predefined
+rules of OCI. It doesn't describe the framework part of OCI.
+
+[NOTE]
+===============================
+The server uses advanced features of linux that need to be activated in
+some distribution (debian but not ubuntu) before starting the server
+(once by boot):
+
+[source,sh]
+sudo sysctl kernel.unprivileged_userns_clone=1
+===============================
+
+One interacts with OCI using clients that connects to a server.
+Starting the server with the default configuration is done by:
+
+[source,sh]
+oci-monitor
+
+
+[NOTE]
+===============================
+By default the server keeps its data in the `--localstatedir`
+configured during the installation of oci, usually `$prefix/var`. If
+you want to remove them you should use:
+
+[source,sh]
+oci-master-tools clean
+
+A copy of this binary is kept in `$prefix/var`for convenience.
+===============================
+
+
+At first we will use the default OCI client `oci-default-client`.
+
+The first step is to install a rootfs, ie a small distribution that
+would be executed inside a container. You could create your own image
+but the linuxcontainer project (https://linuxcontainers.org/[LXC])
+maintains a set of prebuilt image. You can see the list with:
+
+[source,sh]
+oci-default-client list-download-rootfs
+
+Now we are going to download an image (`debian, jessie, amd64`)`. The
+image is about 100Mo big. It can be long but you have to do it
+only once:
+
+[source,sh]
+oci-default-client download-rootfs --distrib debian --release jessie \
+    --arch amd64
+
+The output is
+
+[source,log]
+----
+2016-04-12 10:44:08.497949+02:00 Info Download the index.
+2016-04-12 10:44:09.378128+02:00 Info Index downloading done.
+
+2016-04-12 10:44:09.379359+02:00 Info Downloading rootfs.
+
+[10:47:20] Extract meta archive: [...]/.oci_tmp/meta.tar.xz
+[10:47:20] Extract rootfs archive: [...]/.oci_tmp/rootfs.tar.xz
+[10:47:26] Create artefact
+[10:47:33] New rootfs created
+[Result] ((id 0)
+ (info
+  ((distribution debian) (release jessie) (arch amd64) (packages ())
+   (comment default)))
+ (rootfs 0))
+----
+
+The `(id 0)` indicates the number of the rootfs. Since the creation of
+a rootfs depends on the outside (internet) we can't refer it with
+`debian,testing,amd64`.
+
+Now we are installing packages needed for the compilation of the
+repository we are going to use in this tutorial:
+
+[source,sh]
+oci-default-client add-package --rootfs 0 autotools-dev binutils-dev \
+ libiberty-dev libncurses5-dev pkg-config zlib1g-dev git gcc         \
+ build-essential m4 autoconf
+
+[source,log]
+----
+[10:51:54] Runner started
+[10:51:54] dispatch runner Oci_Cmd_Runner_Api.copy_to
+[10:51:54] Copy artefact 0 to /
+[10:52:02] result received
+[10:52:02] dispatch runner Oci_Cmd_Runner_Api.get_internet
+[10:52:02] Get internet
+[10:52:02] result received
+[10:52:02] Update Apt Database
+[10:52:02] dispatch runner Oci_Cmd_Runner_Api.run
+[10:52:02] apt-get update, --option, APT::Sandbox::User=root, --option, Acquire::Retries=3
+[...]
+[10:52:06] apt-get install, --yes, --option, Apt::Install-Recommends=false, --option, APT::Sandbox::User=root, --option, Acquire::Retries=3, autotools-dev, binutils-dev, libiberty-dev, libncurses5-dev, pkg-config, zlib1g-dev, git, gcc, build-essential, m4, autoconf
+[...]
+[10:52:42] Create artefact /
+[10:52:54] result received
+[10:52:54] New rootfs created
+[Result] ((id 1)
+ (info
+  ((distribution debian) (release jessie) (arch amd64)
+   (packages
+    (autotools-dev binutils-dev libiberty-dev libncurses5-dev pkg-config
+     zlib1g-dev git gcc build-essential m4 autoconf))
+   (comment default)))
+ (rootfs 1))
+----
+
+At the end we see that this rootfs will have the number `1` (`(id 1)`).
+
+CAUTION: If the command fail because of problem to download a file,
+just try again.
+
+TIP: Instead of relying on the package of the distribution we could
+add all this package as repository of OCI, but since we don't want to
+test or benchmark with different versions of these package. It is
+simpler like that.
+
+Now we can compile our first repository. In the usability of OCI there
+is nothing specific to ocaml. However the rules for some ocaml related
+repositories are predefined. The compilation of ocaml can be run with
+the command, the first step of oci is to download the ocaml git
+repository (it can take some time):
+
+[source,sh]
+oci-default-client run --rootfs 1 ocaml
+
+[source,log]
+----
+2016-04-12 11:00:10.919814+02:00 Info Check the revspecs:
+2016-04-12 11:06:13.563312+02:00 Info configuration: --rootfs 1 --ocaml bdf3b0fac7dd2c93f80475c9f7774b62295860c1
+[11:06:13] dispatch runner Oci_Generic_Masters.compile_git_repo_runner
+[11:06:13] Link Artefacts
+[11:06:13] Link artefact 1 to /
+[11:06:13] mount -t, tmpfs, tmpfs, /checkout
+[11:06:13] Clone repository at bdf3b0fac7dd2c93f80475c9f7774b62295860c1
+[11:06:13] Git clone https://github.com/ocaml/ocaml.git in /oci/git_clone/0
+[11:06:13] git -C, /checkout, -c, advice.detachedHead=false, checkout, --detach, bdf3b0fac7dd2c93f80475c9f7774b62295860c1
+[11:06:14] HEAD is now at bdf3b0f... increment version number after tagging 4.02.3
+[11:06:14] ./configure 
+[...]
+[11:09:21] Create artefact /
+[Result] New artefact 2 created
+[11:09:22] umount /checkout
+----
+
+The git commit number `bdf3b0fac7dd2c93f80475c9f7774b62295860c1` is
+the default one (corresponds to 4.02.3). The command line option
+`--ocaml 4.03` can be added for using the current tip of the `4.03`
+branch of ocaml.
+
+Lets suppose that we have a very nice tool that sort lists, oci-sort,
+that is developed in
+https://github.com/bobot/oci-repository-for-tutorial[oci-repository-for-tutorial].
+We want to test it continuously and to benchmark it. We just have to
+create an ml file `oci_sort_client.ml` with the following content that
+describe how to find, to compile and test our repository.
+
+.oci_sort_client.ml
+[source,caml]
+----
+open Core.Std
+open Async.Std
+
+open Oci_Client.Git
+open Oci_Client.Cmdline
+
+let oci_sort_url = "https://github.com/bobot/oci-repository-for-tutorial.git"
+
+let oci_sort,oci_sort_revspec = mk_repo
+    "oci-sort"
+    ~url:oci_sort_url
+    ~revspec:"master"
+    ~deps:Oci_Client.Cmdline.Predefined.[ocaml;ocamlbuild;ocamlfind]
+    ~cmds:[
+      run "autoconf" [];
+      run "./configure" [];
+      make [];
+      make ["install"];
+    ]
+    ~tests:[
+      make ["tests"];
+    ]
+
+let () =
+  don't_wait_for (Oci_Client.Cmdline.default_cmdline
+                    ~doc:"Oci client for oci-sort"
+                    ~version:Oci_Client.oci_version
+                    "oci_sort_client");
+  never_returns (Scheduler.go ())
+----
+
+This file is compiled with:
+
+[source,sh]
+ocamlfind ocamlopt -thread -linkpkg -package oci.client \
+   oci_sort_client.ml -o oci-sort-client
+
+The obtained command `oci-sort-client` have the same subcommand and
+options than `oci-default-client` with the addition for the subcommand
+`run`:
+* the positional argument `oci-sort` for requesting the compilation
+  and testing of `oci-sort`
+* the optional argument `--oci-sort` that specify the revision of
+  `oci-sort` to use
+
+To compile the `oci-sort` with the current state of the default branch
+`master`.
+
+[source,sh]
+----
+./oci-sort-client run --rootfs 1 oci-sort
+----
+
+[source,log]
+----
+2016-04-12 11:16:08.818239+02:00 Info Check the revspecs:
+2016-04-12 11:16:14.147274+02:00 Info configuration: --rootfs 1 --ocaml bdf3b0fac7dd2c93f80475c9f7774b62295860c1 --ocamlbuild 93681343df7f42e4621f6c81d5f4d3678f7af1e4 --ocamlfind f902fbd26fba3de09c1ce475c676ef27500a1f2a --oci-sort f5df503023e461dae8a6a98e37b3038219963295
+[11:16:14] dispatch master Oci_Generic_Masters.compile_git_repo ocaml
+[11:16:14] dispatch master Oci_Generic_Masters.compile_git_repo ocamlbuild
+[11:16:14] dispatch master Oci_Generic_Masters.compile_git_repo ocamlfind
+[11:16:14] Dependency ocaml done
+[11:16:20] Dependency ocamlfind done
+[11:16:21] Dependency ocamlbuild done
+[11:16:21] dispatch runner Oci_Generic_Masters.compile_git_repo_runner
+[11:16:21] Link Artefacts
+[11:16:21] Link artefact 1 to /
+[11:16:21] Link artefact 3 to /
+[11:16:21] Link artefact 4 to /
+[11:16:21] Link artefact 2 to /
+[11:16:21] mount -t, tmpfs, tmpfs, /checkout
+[11:16:21] Clone repository at f5df503023e461dae8a6a98e37b3038219963295
+[11:16:21] Git clone https://github.com/bobot/oci-repository-for-tutorial.git in /oci/git_clone/0
+[11:16:21] git -C, /checkout, -c, advice.detachedHead=false, checkout, --detach, f5df503023e461dae8a6a98e37b3038219963295
+[11:16:21] HEAD is now at f5df503... Optimize comparison function!
+[11:16:21] autoconf 
+[Result] Ok in {kernel:8ms; user:200ms; wall:230.331ms}
+[11:16:22] ./configure 
+[11:16:22] configure: creating ./config.status
+[11:16:22] config.status: creating .config
+[Result] Ok in {kernel:16ms; user:44ms; wall:214.345ms}
+[11:16:22] make --jobs=1
+[11:16:22] Generating Merlin file
+[11:16:22] ocamlbuild  -no-sanitize -no-links -tag debug -use-ocamlfind -cflags -w,+a-4-9-18-41-30-42-44-40 -cflags -warn-error,+5+10+8+12+20+11 -cflag -bin-annot -j 8 -tag thread -tag principal -I src  src/sort.native
+[11:16:22] ocamlfind ocamldep -modules src/sort.ml > src/sort.ml.depends
+[11:16:22] ocamlfind ocamlc -c -w +a-4-9-18-41-30-42-44-40 -warn-error +5+10+8+12+20+11 -bin-annot -g -principal -thread -I src -o src/sort.cmo src/sort.ml
+[11:16:22] ocamlfind ocamlopt -c -w +a-4-9-18-41-30-42-44-40 -warn-error +5+10+8+12+20+11 -bin-annot -g -principal -thread -I src -o src/sort.cmx src/sort.ml
+[11:16:22] + ocamlfind ocamlopt -c -w +a-4-9-18-41-30-42-44-40 -warn-error +5+10+8+12+20+11 -bin-annot -g -principal -thread -I src -o src/sort.cmx src/sort.ml
+[11:16:22] findlib: [WARNING] Interface sort.cmi occurs in several directories: /usr/local/lib/ocaml, src
+[11:16:22] ocamlfind ocamlopt -linkpkg -g -thread src/sort.cmx -o src/sort.native
+[11:16:22] # No parallelism done
+[Result] Ok in {kernel:4ms; user:60ms; wall:110.469ms}
+[11:16:22] make --jobs=1, install
+[11:16:22] install bin/sort.native "/usr/local/bin"/oci-sort
+[Result] Ok in {kernel:0s; user:0s; wall:4.73595ms}
+[11:16:22] Create artefact /
+[Result] New artefact 5 created
+[11:16:22] make --jobs=1, tests
+[11:16:22] ocamlbuild  -no-sanitize -no-links -tag debug -use-ocamlfind -cflags -w,+a-4-9-18-41-30-42-44-40 -cflags -warn-error,+5+10+8+12+20+11 -cflag -bin-annot -j 8 -tag thread -tag principal -I src  src/sort.native
+[11:16:22] # No parallelism done
+[11:16:22] DEBUG_OCI_SORT=yes bin/sort.native tests/simple_example.sort
+[11:16:22] [2;0;4;6;2;3;8;2;4;7;8;3;8;5;9;8;8;5;6;8;7;0;2;1;8;8;8;1;1;0;0;1;9;8;4;8;7;5;
+[11:16:22]  2;7;9;0;1;6;4;2;0;5;3;1;0;6;8;1;4;2;5;9;8;8;3;4;5;6;4;8;2;4;6;8;4;2;3;7;0;1;
+[11:16:22]  8;4;8;1;2;9;4;1;5;3;4;3;7;7;4;4;1;9;1;3;4;1;5;3;]
+[11:16:22] [0;0;0;0;0;0;0;0;1;1;1;1;1;1;1;1;1;1;1;1;1;2;2;2;2;2;2;2;2;2;2;3;3;3;3;3;3;3;
+[11:16:22]  3;3;4;4;4;4;4;4;4;4;4;4;4;4;4;4;4;5;5;5;5;5;5;5;5;6;6;6;6;6;6;7;7;7;7;7;7;7;
+[11:16:22]  8;8;8;8;8;8;8;8;8;8;8;8;8;8;8;8;8;8;9;9;9;9;9;9;]
+[11:16:22] sum_before: 443
+[11:16:22]  sum_after: 443
+[Result] Ok in {kernel:0s; user:12ms; wall:25.8262ms}
+[11:16:22] umount /checkout
+----
+
+Automatically the dependencies of `oci-sort`, `ocaml`, `ocamlfind`,
+`ocamlbuild`, are compiled. The results of their installation, the
+artefact, are hardlinked (`Link artefact`).
+
+The following command allow to see the saved log, even if the master
+of `oci-sort`, `ocamlbuild`` or `ocamlfind` change. You can replace
+the last `oci-sort` by `ocamlfind` or `ocamlbuild` to see the log of
+their compilation.
+
+[source,sh]
+----
+./oci-sort-client run --rootfs 1                               \
+   --ocaml bdf3b0fac7dd2c93f80475c9f7774b62295860c1            \
+   --ocamlbuild 93681343df7f42e4621f6c81d5f4d3678f7af1e4       \
+   --ocamlfind f902fbd26fba3de09c1ce475c676ef27500a1f2a        \
+   --oci-sort f5df503023e461dae8a6a98e37b3038219963295         \
+   oci-sort
+----
+
+The compilation of `oci-sort` can be tested with different version of
+`ocaml`
+
+[source,sh]
+----
+./oci-sort-client run --rootfs 1 --ocaml 4.03 oci-sort
+----
+
+[source,sh]
+----
+./oci-sort-client run --rootfs 1 --ocaml trunk oci-sort
+----
+
+Now we want to benchmark different
+https://github.com/bobot/oci-repository-for-tutorial/commits/master[versions]
+of `oci-sort`.
+
+So we had to `oci_sort_client.ml` before the last `let () =` the following code:
+
+.oci_sort_client.ml
+[source,caml]
+----
+let () = mk_compare
+    ~deps:[oci_sort]
+    ~x_of_sexp:Oci_Common.Commit.t_of_sexp
+    ~sexp_of_x:Oci_Common.Commit.sexp_of_t
+    ~y_of_sexp:Oci_Filename.t_of_sexp
+    ~sexp_of_y:Oci_Filename.sexp_of_t
+    ~cmds:(fun conn revspecs x y ->
+        let revspecs = WP.ParamValue.set revspecs
+            oci_sort_revspec (Oci_Common.Commit.to_string x) in
+        commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
+        >>= fun master ->
+        return
+          (revspecs,
+           [Oci_Client.Git.git_copy_file ~url:oci_sort_url ~src:y
+              ~dst:(Oci_Filename.basename y)
+              (Option.value_exn ~here:[%here] master)],
+           (run
+              ~memlimit:(Byte_units.create `Megabytes 500.)
+              ~timelimit:(Time.Span.create ~sec:10 ())
+              "oci-sort" [Oci_Filename.basename y])))
+    ~analyse:(fun _  timed ->
+        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    "oci-sort"
+----
+
+After recompilation, `oci-sort-client` gains for the subcommand
+`compare` the positional option `oci-sort`.
+
+We create two files that configure the benchmark:
+
+.tests_oci_sort1.commits
+[source,txt]
+----
+master
+master~1
+master~2
+----
+
+.tests_oci_sort1.bench
+[source,txt]
+----
+tests/example_1000000_0.sort
+tests/example_1000000_1.sort
+tests/example_1000000_2.sort
+tests/example_1000000_3.sort
+tests/example_1000000_4.sort
+tests/example_1000000_5.sort
+tests/example_1000000_6.sort
+tests/example_1000000_7.sort
+tests/example_1000000_8.sort
+tests/example_1000000_9.sort
+tests/example_100000_0.sort
+tests/example_100000_1.sort
+tests/example_100000_2.sort
+tests/example_100000_3.sort
+tests/example_100000_4.sort
+tests/example_100000_5.sort
+tests/example_100000_6.sort
+tests/example_100000_7.sort
+tests/example_100000_8.sort
+tests/example_100000_9.sort
+tests/example_10000_0.sort
+tests/example_10000_1.sort
+tests/example_10000_2.sort
+tests/example_10000_3.sort
+tests/example_10000_4.sort
+tests/example_10000_5.sort
+tests/example_10000_6.sort
+tests/example_10000_7.sort
+tests/example_10000_8.sort
+tests/example_10000_9.sort
+tests/example_1000_0.sort
+tests/example_1000_1.sort
+tests/example_1000_2.sort
+tests/example_1000_3.sort
+tests/example_1000_4.sort
+tests/example_1000_5.sort
+tests/example_1000_6.sort
+tests/example_1000_7.sort
+tests/example_1000_8.sort
+tests/example_1000_9.sort
+tests/example_100_0.sort
+tests/example_100_1.sort
+tests/example_100_2.sort
+tests/example_100_3.sort
+tests/example_100_4.sort
+tests/example_100_5.sort
+tests/example_100_6.sort
+tests/example_100_7.sort
+tests/example_100_8.sort
+tests/example_100_9.sort
+tests/example_10_0.sort
+tests/example_10_1.sort
+tests/example_10_2.sort
+tests/example_10_3.sort
+tests/example_10_4.sort
+tests/example_10_5.sort
+tests/example_10_6.sort
+tests/example_10_7.sort
+tests/example_10_8.sort
+tests/example_10_9.sort
+----
+
+
+The following command compile the needed version of `oci-sort`, run
+the benchmarks and show the resulting graphics in a new window
+(gnuplot required in the host computer)
+
+[source,sh]
+oci-sort-client compare --rootfs 1 oci-sort             \
+   --x-input tests_oci_sort1.commits                    \
+   --y-input tests_oci_sort1.bench                      \
+   --show-qt --output-png tests_oci_sort1_1.png
+
+image:tests/images/tests_oci_sort1_1.png[
+"Graphic example 1",
+link="tests/images/tests_oci_sort1_1.png"]
+
+The comparison can be done at another version of the dependencies
+(here the `ocaml` version is set to the branch `4.03`):
+
+[source,sh]
+oci-sort-client compare --rootfs 1 oci-sort             \
+   --x-input tests_oci_sort1.commits                    \
+   --y-input tests_oci_sort1.bench                      \
+   --show-qt --ocaml 4.03
+
+Now, we would like to benchmark using the new flambda optimisation
+pass which is activated through a configure option of ocaml. The
+predefined OCI rule for ocaml adds an option for that
+`--ocaml-configure`. So we just have to run:
+
+
+[source,sh]
+oci-sort-client compare --rootfs 1 oci-sort             \
+   --x-input tests_oci_sort1.commits                    \
+   --y-input tests_oci_sort1.bench                      \
+   --show-qt --ocaml 4.03 --ocaml-configure=-flambda
+
+
+Since ocaml have not yet been compiled with this particular
+configuration, it is automatically done. You can see it in another
+terminal by running:
+
+[source,sh]
+oci-sort-client run --rootfs 1 ocaml --ocaml 4.03 --ocaml-configure=-flambda
+
+If we want to compare with and without flambda, we need to change the
+format of the `--x-input`. Currently it takes only the `oci-sort`
+version, now we want to add at least `ocaml-configure`.
+`Oci_Client.Cmdline` defines `WP.ParamValue.t` which can store all the
+arguments that configure repositories (`ocaml`, `--ocaml-configure`,
+`oci-sort`, ...) and an sexpr is provided for it. So we can replace in
+`oci_sort_client.ml` the `let () = mk_compare ...` by the following:
+
+[source,caml]
+----
+let () = mk_compare
+    ~deps:[oci_sort]
+    ~x_of_sexp:WP.ParamValue.t_of_sexp
+    ~sexp_of_x:WP.ParamValue.sexp_of_t
+    ~y_of_sexp:Oci_Filename.t_of_sexp
+    ~sexp_of_y:Oci_Filename.sexp_of_t
+    ~cmds:(fun conn revspecs x y ->
+        let revspecs = WP.ParamValue.replace_by revspecs x in
+          commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
+          >>= fun master ->
+          return
+            (revspecs,
+             [Oci_Client.Git.git_copy_file ~url:oci_sort_url ~src:y
+                ~dst:(Oci_Filename.basename y)
+                (Option.value_exn ~here:[%here] master)],
+             (run
+              ~memlimit:(Byte_units.create `Megabytes 500.)
+              ~timelimit:(Time.Span.create ~sec:10 ())
+              "oci-sort" [Oci_Filename.basename y]))
+      )
+    ~analyse:(fun _  timed ->
+        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    "oci-sort"
+----
+
+Moreover we need to be able to give the option `-O2` or `-O3` to
+`ocamlopt` during the compilation of `oci-sort`. We will do that by
+setting the variable `OCAMLPARAM`. For that purpose we will add a new
+option, and parameterize the rule for building `oci-sort`.
+
+WARNING: The API for adding new options and to parameterize rule
+is a little to complicated and we can hope
+to simplify it in the futur.
+
+We replace the `let oci_sort, ... ` by:
+
+[source,caml]
+----
+open Cmdliner
+
+let oci_sort_ocamlparam =
+  WP.mk_param ~default:None "oci-sort-ocamlparam"
+    ~sexp_of:[%sexp_of: string option]
+    ~of_sexp:[%of_sexp: string option]
+    ~cmdliner:Arg.(value & opt (some string) None
+                   & info ["oci-sort-ocamlparam"]
+                     ~docv:"ARG"
+                     ~doc:"Determine the argument to give to ocaml \
+                           OCAMLPARAM")
+let oci_sort_revspec = mk_revspec_param "oci-sort"
+
+let oci_sort =
+  add_repo_with_param "oci-sort"
+    WP.(const (fun commit ocamlparam ->
+        commit >>= fun commit ->
+        return (Oci_Client.Git.repo
+                  ~deps:Oci_Client.Cmdline.Predefined.[ocaml;ocamlbuild;
+                                                       ocamlfind]
+                  ~cmds:[
+                    Oci_Client.Git.git_clone ~url:oci_sort_url commit;
+                    run "autoconf" [];
+                    run "./configure" [];
+                    make ?env:(match ocamlparam with
+                        | None -> None
+                        | Some v -> Some (`Extend ["OCAMLPARAM", v])) [];
+                    make ["install"];
+                  ]
+                  ~tests:[
+                    make ["tests"];
+                  ]
+                  ()))
+        $ mk_commit_param ~url:oci_sort_url "oci-sort" oci_sort_revspec
+        $? oci_sort_ocamlparam);
+  "oci-sort"
+----
+
+And we are going to use the following `tests_oci_sort2.commits`:
+
+[source,txt]
+----
+((oci-sort-ocamlparam (Some "_,O3=")))
+((oci-sort-ocamlparam (Some "_,O2=")))
+()
+----
+
+After recompilation, the benchmark is done with:
+
+[source,sh]
+----
+./oci-sort-client compare --rootfs 1 oci-sort             \
+   --x-input tests_oci_sort2.commits                      \
+   --y-input tests_oci_sort1.bench                        \
+   --show-qt --ocaml 4.03 --ocaml-configure=-flambda      \
+   --oci-sort "master~2"
+----
+
+image:tests/images/tests_oci_sort2_1.png[
+"Graphic example 2",
+link="tests/images/tests_oci_sort2_1.png"]
+
+
+
+Currently the result of the comparison have been drawn using the
+default. But other options exists:
+
+--summation-by-sort::
+           For a given time compute the maximal number of run that could be
+           run sequentially in the given time. It is the default.
+
+--summation-by-timeout::
+           For a given time compute the number of run that finish before that
+           time. It is simpler than --summation-by-sort but the end of the
+           curve depends less of the time taken by fast runs.
+--compare-two
+           Compare each run individually
+
+
+The option `--compare-two` works only if there are only two x-inputs.
+
+.test_oci_sort3.commits:
+[source,txt]
+----
+((oci-sort master~2)(oci-sort-ocamlparam (Some "_,O3="))(ocaml-configure (-flambda)))
+((oci-sort master~2)(ocaml-configure (-flambda)))
+----
+
+There are one point for each benchs. Inside the two green line the
+difference is too small to really matter.
+
+
+[source,sh]
+----
+./oci-sort-client compare --rootfs 1 oci-sort             \
+   --x-input tests_oci_sort3.commits                      \
+   --y-input tests_oci_sort1.bench                        \
+   --show-qt --ocaml 4.03 --compare-two
+----
+
+image:tests/images/tests_oci_sort3_1.png[
+"Graphic example 3",
+link="tests/images/tests_oci_sort3_1.png"]
