@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT(OCI, 0.3~dev)
+AC_INIT(OCI, 0.3)
 
 ocamlfind_install_dir=$(ocamlfind printconf destdir)/oci
 
