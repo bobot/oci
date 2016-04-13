@@ -1,12 +1,13 @@
 opam-version: "1.2"
 name: "oci"
-version: "0.3"
+version: "0.4~dev"
 maintainer: "francois.bobot@cea.fr"
 authors: ["François Bobot"]
 homepage: "https://github.com/bobot/oci"
 dev-repo: "https://github.com/bobot/oci"
 bug-reports: "https://github.com/bobot/oci/issues"
 license: "LGPL-2+ with OCaml linking exception"
+os: ["linux"]
 
 build: [
   ["./.configure_or_autoconf" "--prefix=%{prefix}%"]
@@ -22,6 +23,7 @@ remove: [
 
 depends: [
    "ocamlfind"
+   "cmdliner"
    "async_shell" {= "113.33.00"}
    "core" {= "113.33.00"}
    "core_extended"
