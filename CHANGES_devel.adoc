@@ -1,0 +1,2 @@
+
+* Fix file-descriptor leaks in saved log reading

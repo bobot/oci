@@ -166,6 +166,8 @@ module Make(S: sig
             ~using:(Unpack_buffer.create_bin_prot
                       (bin_reader_line S.bin_reader_t)) in
         Pipe.transfer_id pipe w
+        >>= fun () ->
+        Reader.close reader
       )
 
   let read id =
