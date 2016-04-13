@@ -54,13 +54,13 @@ let get_etc_sub_config ~user ~file =
 
 let stderr_pipe = Writer.pipe (Lazy.force Writer.stderr)
 
-let send_to_stderr reader =
-  let reader = Reader.pipe reader in
-  Pipe.transfer_id reader stderr_pipe
+let send_to_stderr name reader =
+  let reader = Reader.lines reader in
+  Pipe.transfer ~f:(fun x -> name^x^"\n") reader stderr_pipe
 
-let send_process_to_stderr process =
-  don't_wait_for (send_to_stderr (Process.stdout process));
-  don't_wait_for (send_to_stderr (Process.stderr process))
+let send_process_to_stderr name process =
+  don't_wait_for (send_to_stderr name (Process.stdout process));
+  don't_wait_for (send_to_stderr name (Process.stderr process))
 
 let () =
   Oci_Artefact_Api.oci_at_shutdown (fun () ->
@@ -178,7 +178,7 @@ let exec_in_namespace =
     Process.create ~prog:(conf.oci_wrapper) ~args:[named_pipe] ()
     >>! fun wrapper ->
     debug "Oci_Wrapper started";
-    send_process_to_stderr wrapper;
+    send_process_to_stderr (sprintf "[R%i]" parameters.runner_id)  wrapper;
     Writer.close (Process.stdin wrapper)
     >>= fun () ->
     let read_wrapped_pid =
