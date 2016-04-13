@@ -7,7 +7,6 @@ homepage: "https://github.com/bobot/oci"
 dev-repo: "https://github.com/bobot/oci"
 bug-reports: "https://github.com/bobot/oci/issues"
 license: "LGPL-2+ with OCaml linking exception"
-os: ["linux"]
 
 build: [
   ["./.configure_or_autoconf" "--prefix=%{prefix}%"]
@@ -32,4 +31,4 @@ depends: [
    "ppx_sexp_conv" "ppx_bin_prot" "ppx_here" "ppx_fields_conv" "ppx_compare"
 ]
 
-available: [ ocaml-version = "4.02.1" | ocaml-version >= "4.02.3" ]
+available: [ ( ocaml-version = "4.02.1" | ocaml-version >= "4.02.3" ) & os = "linux" ]
