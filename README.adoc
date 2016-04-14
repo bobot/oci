@@ -2,10 +2,10 @@
 
 == OCI
 
-OCI is a framework for continuous integrations and benchmarks. At the
-base it is a container manager and at the top a tools that allows to
-compile, tests, and compare compilation and run of inter-dependent git
-repositories.
+OCI is a framework for continuous integrations and benchmarks. At its
+heart it is a container manager and at the top a tool that allows to
+compile, test, and compare compilations and runs of inter-dependent
+git repositories.
 
 === Installation
 
@@ -19,20 +19,20 @@ For more precise [installation instructions](INSTALL.md).
 
 === Tutorial
 
-The goal of the tutorial is to introduce use of OCI of the predefined
+The goal of the tutorial is to introduce the user to the predefined
 rules of OCI. It doesn't describe the framework part of OCI.
 
 [NOTE]
 ===============================
 The server uses advanced features of linux that need to be activated in
-some distribution (debian but not ubuntu) before starting the server
-(once by boot):
+some distributions (e.g. debian, but not ubuntu) before starting the server
+(once per boot):
 
 [source,sh]
 sudo sysctl kernel.unprivileged_userns_clone=1
 ===============================
 
-One interacts with OCI using clients that connects to a server.
+One interacts with OCI using clients that connect to a server.
 Starting the server with the default configuration is done by:
 
 [source,sh]
@@ -57,13 +57,13 @@ At first we will use the default OCI client `oci-default-client`.
 The first step is to install a rootfs, ie a small distribution that
 would be executed inside a container. You could create your own image
 but the linuxcontainer project (https://linuxcontainers.org/[LXC])
-maintains a set of prebuilt image. You can see the list with:
+maintains a set of prebuilt images. You can see the list with:
 
 [source,sh]
 oci-default-client list-download-rootfs
 
 Now we are going to download an image (`debian, jessie, amd64`)`. The
-image is about 100Mo big. It can be long but you have to do it
+image is about 100MB. It can be long, but you have to do it
 only once:
 
 [source,sh]
@@ -132,16 +132,16 @@ oci-default-client add-package --rootfs 0 autotools-dev binutils-dev \
 
 At the end we see that this rootfs will have the number `1` (`(id 1)`).
 
-CAUTION: If the command fail because of problem to download a file,
+CAUTION: If the command fails because of problems to download a file,
 just try again.
 
-TIP: Instead of relying on the package of the distribution we could
-add all this package as repository of OCI, but since we don't want to
-test or benchmark with different versions of these package. It is
+TIP: Instead of relying on the package of the distribution, we could
+add all these packages as a repository of OCI, but since we don't want to
+test or benchmark with different versions of these packages, it is
 simpler like that.
 
-Now we can compile our first repository. In the usability of OCI there
-is nothing specific to ocaml. However the rules for some ocaml related
+Now we can compile our first repository. In the usage of OCI, nothing
+is specific to ocaml. However, the rules for some ocaml-related
 repositories are predefined. The compilation of ocaml can be run with
 the command, the first step of oci is to download the ocaml git
 repository (it can take some time):
@@ -173,12 +173,12 @@ the default one (corresponds to 4.02.3). The command line option
 `--ocaml 4.03` can be added for using the current tip of the `4.03`
 branch of ocaml.
 
-Lets suppose that we have a very nice tool that sort lists, oci-sort,
+Let's suppose that we have a very nice tool that sorts lists, oci-sort,
 that is developed in
 https://github.com/bobot/oci-repository-for-tutorial[oci-repository-for-tutorial].
-We want to test it continuously and to benchmark it. We just have to
+We want to test it continuously and we want to benchmark it. We just have to
 create an ml file `oci_sort_client.ml` with the following content that
-describe how to find, to compile and test our repository.
+describes how to find, compile and test our repository.
 
 .oci_sort_client.ml
 [source,caml]
@@ -220,15 +220,15 @@ This file is compiled with:
 ocamlfind ocamlopt -thread -linkpkg -package oci.client \
    oci_sort_client.ml -o oci-sort-client
 
-The obtained command `oci-sort-client` have the same subcommand and
-options than `oci-default-client` with the addition for the subcommand
+The obtained command `oci-sort-client` has the same subcommands and
+options than `oci-default-client` with the addition of the subcommand
 `run`:
 * the positional argument `oci-sort` for requesting the compilation
   and testing of `oci-sort`
-* the optional argument `--oci-sort` that specify the revision of
+* the optional argument `--oci-sort` that specifies the revision of
   `oci-sort` to use
 
-To compile the `oci-sort` with the current state of the default branch
+To compile `oci-sort` with the current state of the default branch
 `master`.
 
 [source,sh]
@@ -295,12 +295,12 @@ To compile the `oci-sort` with the current state of the default branch
 [11:16:22] umount /checkout
 ----
 
-Automatically the dependencies of `oci-sort`, `ocaml`, `ocamlfind`,
-`ocamlbuild`, are compiled. The results of their installation, the
-artefact, are hardlinked (`Link artefact`).
+The dependencies of `oci-sort`, `ocaml`, `ocamlfind`, `ocamlbuild`,
+are compiled automatically. The results of their installation, the
+artefacts, are hardlinked (`Link artefact`).
 
-The following command allow to see the saved log, even if the master
-of `oci-sort`, `ocamlbuild`` or `ocamlfind` change. You can replace
+The following command allows to see the saved log, even if the master
+of `oci-sort`, `ocamlbuild`` or `ocamlfind` changes. You can replace
 the last `oci-sort` by `ocamlfind` or `ocamlbuild` to see the log of
 their compilation.
 
@@ -314,7 +314,7 @@ their compilation.
    oci-sort
 ----
 
-The compilation of `oci-sort` can be tested with different version of
+The compilation of `oci-sort` can be tested with different versions of
 `ocaml`
 
 [source,sh]
@@ -377,8 +377,8 @@ master~2
 link:tests/tests_oci_sort1.bench[tests_oci_sort1.bench]
 
 
-The following command compile the needed version of `oci-sort`, run
-the benchmarks and show the resulting graphics in a new window
+The following command compiles the needed version of `oci-sort`, runs
+the benchmarks and show thes resulting graphics in a new window
 (gnuplot required in the host computer)
 
 [source,sh]
@@ -402,7 +402,7 @@ oci-sort-client compare --rootfs 1 oci-sort             \
 
 Now, we would like to benchmark using the new flambda optimisation
 pass which is activated through a configure option of ocaml. The
-predefined OCI rule for ocaml adds an option for that
+predefined OCI rule for ocaml adds an option for that:
 `--ocaml-configure`. So we just have to run:
 
 
@@ -413,7 +413,7 @@ oci-sort-client compare --rootfs 1 oci-sort             \
    --show-qt --ocaml 4.03 --ocaml-configure=-flambda
 
 
-Since ocaml have not yet been compiled with this particular
+Since ocaml has not yet been compiled with this particular
 configuration, it is automatically done. You can see it in another
 terminal by running:
 
@@ -460,11 +460,11 @@ Moreover we need to be able to give the option `-O2` or `-O3` to
 setting the variable `OCAMLPARAM`. For that purpose we will add a new
 option, and parameterize the rule for building `oci-sort`.
 
-WARNING: The API for adding new options and to parameterize rule
-is a little to complicated and we can hope
-to simplify it in the futur.
+WARNING: The API for adding new options and to parameterize rules
+is a little too complicated, and we hope
+to simplify it in the future.
 
-We replace the `let oci_sort, ... ` by:
+We replace `let oci_sort, ... ` by:
 
 [source,caml]
 ----
@@ -532,15 +532,15 @@ link="tests/images/tests_oci_sort2_1.png"]
 
 
 
-Currently the result of the comparison have been drawn using the
-default. But other options exists:
+Currently the result of the comparison has been drawn using the
+default. But other options exist:
 
 --summation-by-sort::
-           For a given time compute the maximal number of run that could be
+           For a given time compute the maximal number of runs that could be
            run sequentially in the given time. It is the default.
 
 --summation-by-timeout::
-           For a given time compute the number of run that finish before that
+           For a given time compute the number of runs that finish before that
            time. It is simpler than --summation-by-sort but the end of the
            curve depends less of the time taken by fast runs.
 --compare-two
@@ -556,7 +556,7 @@ The option `--compare-two` works only if there are only two x-inputs.
 ((oci-sort master~2)(ocaml-configure (-flambda)))
 ----
 
-There are one point for each benchs. Inside the two green line the
+There is one point for each bench. Inside the two green lines, the
 difference is too small to really matter.
 
 
@@ -576,7 +576,7 @@ link="tests/images/tests_oci_sort3_1.png"]
 
 For more precise cgroup one can ask OCI to use cgroup for placing the
 runners (the compilation, tests, ...) on different cpus. For that you
-need cgmanager and run inside the terminal that will run `oci_monitor`:
+need cgmanager. Run inside the terminal that will run `oci_monitor`:
 
 [source,sh]
 ----
