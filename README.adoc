@@ -2,7 +2,7 @@
 
 == OCI
 
-OCI is a framework for continuous integrations and benchmarks.  At its 
+OCI is a framework for continuous integration and benchmarks.  At its
 heart it is a container manager and at the top a tool that allows to compile, test, and compare 
 compilations and runs of inter-dependent git repositories.
 
@@ -24,7 +24,7 @@ rules of OCI. It doesn't describe the framework part of OCI.
 [NOTE]
 ===============================
 The server uses advanced features of linux that need to be activated in
-some distribution (debian but not ubuntu) before starting the server
+some distribution (Debian but not Ubuntu) before starting the server
 (once by boot):
 
 [source,sh]
@@ -53,7 +53,7 @@ A copy of this binary is kept in `$prefix/var`for convenience.
 
 At first we will use the default OCI client `oci-default-client`.
 
-The first step is to install a rootfs, ie a small distribution that
+The first step is to install a rootfs, a small distribution that
 would be executed inside a container. You could create your own image
 but the linuxcontainer project (https://linuxcontainers.org/[LXC])
 maintains a set of prebuilt image. You can see the list with:
@@ -62,7 +62,7 @@ maintains a set of prebuilt image. You can see the list with:
 oci-default-client list-download-rootfs
 
 Now we are going to download an image (`debian, jessie, amd64`)`. The
-image is about 100Mo big. It can be long but you have to do it
+image is about 100Mio big. It can be long but you have to do it
 only once:
 
 [source,sh]
@@ -140,9 +140,9 @@ test or benchmark with different versions of these package. It is
 simpler like that.
 
 Now we can compile our first repository. In the usability of OCI there
-is nothing specific to ocaml. However the rules for some ocaml related
-repositories are predefined. The compilation of ocaml can be run with
-the command, the first step of oci is to download the ocaml git
+is nothing specific to OCaml. However the rules for some OCaml related
+repositories are predefined. The compilation of OCaml can be run with
+the command, the first step of oci is to download the OCaml git
 repository (it can take some time):
 
 [source,sh]
@@ -412,7 +412,7 @@ oci-sort-client compare --rootfs 1 oci-sort             \
    --show-qt --ocaml 4.03 --ocaml-configure=-flambda
 
 
-Since ocaml have not yet been compiled with this particular
+Since OCaml has not yet been compiled with this particular
 configuration, it is automatically done. You can see it in another
 terminal by running:
 
@@ -424,7 +424,7 @@ format of the `--x-input`. Currently it takes only the `oci-sort`
 version, now we want to add at least `ocaml-configure`.
 `Oci_Client.Cmdline` defines `WP.ParamValue.t` which can store all the
 arguments that configure repositories (`ocaml`, `--ocaml-configure`,
-`oci-sort`, ...) and an sexpr is provided for it. So we can replace in
+`oci-sort`, ...) and a sexpr is provided for it. So we can replace in
 `oci_sort_client.ml` the `let () = mk_compare ...` by the following:
 
 [source,caml]
@@ -461,7 +461,7 @@ option, and parameterize the rule for building `oci-sort`.
 
 WARNING: The API for adding new options and to parameterize rule
 is a little to complicated and we can hope
-to simplify it in the futur.
+to simplify it in the future.
 
 We replace the `let oci_sort, ... ` by:
 
@@ -555,7 +555,7 @@ The option `--compare-two` works only if there are only two x-inputs.
 ((oci-sort master~2)(ocaml-configure (-flambda)))
 ----
 
-There are one point for each benchs. Inside the two green line the
+There are one point for each bench. Inside the two green line the
 difference is too small to really matter.
 
 
