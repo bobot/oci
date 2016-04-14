@@ -2,7 +2,7 @@
 
 == OCI
 
-OCI is a framework for continuous integrations and benchmarks. At its
+OCI is a framework for continuous integration and benchmarks. At its
 heart it is a container manager and at the top a tool that allows to
 compile, test, and compare compilations and runs of inter-dependent
 git repositories.
@@ -25,7 +25,7 @@ rules of OCI. It doesn't describe the framework part of OCI.
 [NOTE]
 ===============================
 The server uses advanced features of linux that need to be activated in
-some distributions (e.g. debian, but not ubuntu) before starting the server
+some distributions (e.g. Debian but not Ubuntu) before starting the server
 (once per boot):
 
 [source,sh]
@@ -54,7 +54,7 @@ A copy of this binary is kept in `$prefix/var`for convenience.
 
 At first we will use the default OCI client `oci-default-client`.
 
-The first step is to install a rootfs, ie a small distribution that
+The first step is to install a rootfs, a small distribution that
 would be executed inside a container. You could create your own image
 but the linuxcontainer project (https://linuxcontainers.org/[LXC])
 maintains a set of prebuilt images. You can see the list with:
@@ -141,9 +141,9 @@ test or benchmark with different versions of these packages, it is
 simpler like that.
 
 Now we can compile our first repository. In the usage of OCI, nothing
-is specific to ocaml. However, the rules for some ocaml-related
-repositories are predefined. The compilation of ocaml can be run with
-the command, the first step of oci is to download the ocaml git
+is specific to OCaml. However, the rules for some OCaml-related
+repositories are predefined. The compilation of OCaml can be run with
+the following command, the first step of OCI is to download the OCaml git
 repository (it can take some time):
 
 [source,sh]
@@ -413,7 +413,7 @@ oci-sort-client compare --rootfs 1 oci-sort             \
    --show-qt --ocaml 4.03 --ocaml-configure=-flambda
 
 
-Since ocaml has not yet been compiled with this particular
+Since OCaml has not yet been compiled with this particular
 configuration, it is automatically done. You can see it in another
 terminal by running:
 
@@ -425,7 +425,7 @@ format of the `--x-input`. Currently it takes only the `oci-sort`
 version, now we want to add at least `ocaml-configure`.
 `Oci_Client.Cmdline` defines `WP.ParamValue.t` which can store all the
 arguments that configure repositories (`ocaml`, `--ocaml-configure`,
-`oci-sort`, ...) and an sexpr is provided for it. So we can replace in
+`oci-sort`, ...) and a sexpr is provided for it. So we can replace in
 `oci_sort_client.ml` the `let () = mk_compare ...` by the following:
 
 [source,caml]
