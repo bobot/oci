@@ -367,7 +367,7 @@ let start_master ~conf ~master ~oci_data ~binaries
           (fun () -> kill_runner conf);
         Rpc.Rpc.implement Oci_Artefact_Api.set_cpuset
           (fun () (a:Oci_Artefact_Api.set_cpuset) ->
-             if conf.cpuset_available || conf.cgroup <> None then
+             if conf.cpuset_available && conf.cgroup <> None then
                Async_shell.run "cgm"
                  ["setvalue";"cpuset";
                   a.cgroup; "cpuset.cpus";
