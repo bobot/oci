@@ -343,14 +343,26 @@ module Cmdline = struct
 
 
   module WP = struct
-    type 'a param = {
+    type ('a,'b) param = {
       default: 'a;
       id: 'a Type_equal.Id.t;
       of_sexp: (Sexp.t -> 'a) option;
-      cmdliner: 'a Cmdliner.Term.t Core.Std.Option.t;
+      to_option_hum: 'a -> string;
+      cmdliner: 'a Cmdliner.Term.t;
+      resolve: (Git.connection -> 'a -> 'b Deferred.t) with_param;
+      unresolve: 'b -> 'a;
     }
+    and
+      _ with_param =
+      | WP_Const: 'a -> 'a with_param
+      | WP_Param: (_,'b) param -> 'b with_param
+      | WP_App: ('a -> 'b) with_param * 'a with_param -> 'b with_param
+      | WP_Deferred: 'a Deferred.t with_param -> 'a with_param
+      | WP_Connection: Git.connection with_param
+
     type exists_param =
-      | Exists_param: 'a param -> exists_param
+      | Exists_param: ('a,'b) param -> exists_param
+
     let params : exists_param String.Table.t = String.Table.create ()
 
     module ParamValue = struct
@@ -358,7 +370,7 @@ module Cmdline = struct
       module Uid = Type_equal.Id.Uid
       (** Same as Univ_map except we need merge function *)
 
-      type elt = T : 'a param * 'a -> elt
+      type elt = T : ('a,'b) param * 'a -> elt
       let sexp_of_elt (T(p,v)) =
         let s = Id.to_sexp p.id v in
         let n = String.sexp_of_t (Id.name p.id) in
@@ -384,13 +396,13 @@ module Cmdline = struct
                  ~key:(Id.uid p.id) ~data:v)
       let empty = Uid.Map.empty
       let mem m p = Uid.Map.mem m (Id.uid p.id)
-      let find (type b) t (key : b param) =
+      let find (type b) t (key : (b,_) param) =
         match Map.find t (Id.uid key.id) with
         | None -> None
         | Some (T (key', value)) ->
           let Type_equal.T = Id.same_witness_exn key.id key'.id in
           Some (value : b)
-      let find_def (type b) t (key : b param) =
+      let find_def (type b) t (key : (b,_) param) =
         match Map.find t (Id.uid key.id) with
         | None -> key.default
         | Some (T (key', value)) ->
@@ -402,12 +414,6 @@ module Cmdline = struct
           ~f:(fun ~key:_ ->
               function | `Left x | `Right x | `Both (_,x) -> Some x)
     end
-    type _ with_param =
-      | WP_Const: 'a -> 'a with_param
-      | WP_Param: 'a param -> 'a with_param
-      | WP_App: ('a -> 'b) with_param * 'a with_param -> 'b with_param
-      | WP_Connection: Git.connection with_param
-      | WP_Print: ('a -> string Deferred.t) * 'a with_param -> 'a with_param
 
     let const x = WP_Const x
     let ( !! ) x = WP_Const x
@@ -416,30 +422,87 @@ module Cmdline = struct
     let ( $ ) f x = WP_App(f,x)
     let ( $? ) f x = WP_App(f,WP_Param x)
     let connection = WP_Connection
-    let print to_string x = WP_Print(to_string,x)
+    let join_deferred x = WP_Deferred x
+    let ( $! ) f x = WP_Deferred (WP_App(f,x))
 
-    let mk_param ~default ?(sexp_of=sexp_of_opaque) ?of_sexp ?cmdliner name =
+    let mk_param'
+        ~default ?(sexp_of=sexp_of_opaque) ?of_sexp ~to_option_hum
+        ~cmdliner
+        ?docv
+        ?doc
+        ~resolve ~unresolve name =
       let id = Univ_map.Key.create ~name sexp_of in
-      let param = {default; id; of_sexp; cmdliner} in
+      let param = {default; id; of_sexp;
+                   cmdliner =
+                     Cmdliner.Arg.(value & cmdliner & info [name]
+                                     ?docv ?doc);
+                   to_option_hum;
+                   resolve;
+                   unresolve;
+                  } in
       String.Table.add_exn params ~key:name ~data:(Exists_param param);
       param
 
+    let mk_param
+        ~default ?sexp_of ~of_sexp ~to_option_hum
+        ~cmdliner ?docv ?doc name =
+      mk_param'
+        ~default ?sexp_of ~of_sexp ~to_option_hum
+        ~cmdliner ?docv ?doc
+        ~resolve:(const (fun _ b -> return b))
+        ~unresolve:(fun b -> b) name
+
+    let mk_param_string' ~default ?docv ?doc ~resolve ~unresolve name =
+      mk_param' ~cmdliner:Cmdliner.Arg.(opt string default) ~default
+        ?docv ?doc ~sexp_of:String.sexp_of_t ~of_sexp:String.t_of_sexp
+        ~to_option_hum:(fun s -> sprintf "--%s=%s" name s)
+        ~resolve ~unresolve
+        name
+
+    let mk_param_string ~default ?docv ?doc name =
+      mk_param_string' ~default ?docv ?doc name
+        ~resolve:(const (fun _ b -> return b))
+        ~unresolve:(fun b -> b)
+
+    let mk_param_string_list
+        ?(default=[]) ?docv ?doc name =
+      mk_param
+        ~default
+        ~cmdliner:Cmdliner.Arg.(opt_all string default)
+        ?docv ?doc
+        ~sexp_of:(List.sexp_of_t String.sexp_of_t)
+        ~of_sexp:(List.t_of_sexp String.t_of_sexp)
+        ~to_option_hum:(fun l ->
+            String.concat (List.map ~f:(fun s -> sprintf "--%s=%s" name s) l))
+        name
+
+
     let rec interp :
       type a. Git.connection -> ParamValue.t ->
-      string list Deferred.t -> a with_param ->
-      a * string list Deferred.t =
+      string list -> a with_param ->
+      (a * string list) Deferred.t =
       fun c m acc -> function
-        | WP_Const x -> x,acc
+        | WP_Const x -> return (x,acc)
+        | WP_Deferred x ->
+          interp c m acc x
+          >>= fun (x,acc) ->
+          x >>= fun x ->
+          return (x,acc)
         | WP_App(f,x) ->
-          let f,acc = interp c m acc f in
-          let x,acc = interp c m acc x in
-          f x,acc
-        | WP_Param p -> ParamValue.find_def m p, acc
-        | WP_Connection -> c,acc
-        | WP_Print (string_of,x) ->
-          let x, acc = interp c m acc x in
-          x,
-          (Deferred.both acc (string_of x) >>= fun (acc,s) -> return (s::acc))
+          interp c m acc f
+          >>= fun (f,acc) ->
+          interp c m acc x
+          >>= fun (x,acc) ->
+          return (f x,acc)
+        | WP_Param p ->
+          let a = ParamValue.find_def m p in
+          (interp c m acc p.resolve)
+          >>= fun (f,acc) ->
+          f c a
+          >>= fun a ->
+          let s = p.to_option_hum (p.unresolve a) in
+          return (a,s::acc)
+        | WP_Connection -> return (c,acc)
   end
 
   let absolutize = Oci_Filename.make_absolute (Caml.Sys.getcwd ())
@@ -519,11 +582,6 @@ module Cmdline = struct
     then exec_one ~init ~fold test input sexp_input sexp_output conn.Git.socket
     else forget test input sexp_input sexp_output conn.Git.socket
 
-  type default_revspec = {
-    name: string;
-    revspec: string;
-  }
-
   type copts = { verb : Log.Level.t;  socket: string}
 
 
@@ -537,22 +595,17 @@ module Cmdline = struct
     List.iter url ~f:(add_copy_file_url kind checksum);
     Git.copy_file ~checksum ~kind dst
 
-  type repo_param = Git.repo Deferred.t WP.with_param
+  type repo_param = Git.repo WP.with_param
 
   let db_repos : repo_param String.Map.t ref =
     ref String.Map.empty
-  let url_to_default_revspec = String.Table.create ()
 
   let add_repo name repo =
     db_repos := String.Map.add !db_repos ~key:name
-        ~data:(WP.const (Deferred.return repo))
+        ~data:(WP.const repo)
 
   let add_repo_with_param name repo =
     db_repos := String.Map.add !db_repos ~key:name ~data:repo
-
-  let add_default_revspec_for_url ~revspec ~url ~name =
-    String.Table.add_exn url_to_default_revspec
-      ~key:url ~data:{name;revspec}
 
   type query = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
   type revspecs = WP.ParamValue.t
@@ -584,10 +637,9 @@ module Cmdline = struct
         match String.Map.find repos name with
         | None -> raise (MissingRepo name)
         | Some repo ->
-          let repo,acc = WP.interp c revspecs (return []) repo in
-          acc >>= fun acc ->
+          WP.interp c revspecs [] repo
+          >>= fun (repo,acc) ->
           toprint := List.fold acc ~init:!toprint ~f:String.Set.add;
-          repo >>= fun repo ->
           new_repos := String.Map.add !new_repos ~key:name ~data:repo;
           Deferred.List.iter repo.deps ~how:`Parallel ~f:aux
     in
@@ -1001,7 +1053,6 @@ module Cmdline = struct
     type rootfs_spec =
       {distrib: string; release: string;
        arch: string; comment: string}
-    [@@deriving bin_io, sexp]
 
     (** return download build and directory url *)
     let parse_index index =
@@ -1253,8 +1304,7 @@ module Cmdline = struct
       ~init:Term.(const init)
       ~f:Cmdliner.Term.(fun ~key:_ ~data acc ->
           match data with
-          | WP.Exists_param {cmdliner=None} -> acc
-          | WP.Exists_param ({cmdliner=Some cmdliner} as p) ->
+          | WP.Exists_param ({cmdliner} as p) ->
             const (fun a m -> WP.ParamValue.set m p a) $ cmdliner $ acc
         )
 
@@ -1418,36 +1468,27 @@ module Cmdline = struct
   (*        add_default_revspec_for_url: %s" url (); *)
   (*   Git.git_copy_file ~src ~dst ~url dumb_commit *)
 
-  let mk_commit_param ~url name revspec_param =
-    let print_param c = sprintf "--%s %s" name
-        (Oci_Common.Commit.to_string c) in
-    WP.(print (Deferred.map ~f:print_param)
-          (const (fun connection revspec ->
-               Git.commit_of_revspec_exn ~url ~revspec connection
-             ) $ connection $ (WP.param revspec_param)))
-
-  let mk_revspec_param ?(revspec="master") name =
-    WP.mk_param ~default:revspec ~sexp_of:String.sexp_of_t
-      ~of_sexp:String.t_of_sexp
+  let mk_revspec_param ?(revspec="master") ~url name =
+    WP.mk_param_string'
+      ~default:revspec
       name
-        ~cmdliner:begin
-          Arg.(value & opt string revspec & info [name]
-                 ~docv:"REVSPEC"
-                 ~doc:(sprintf "indicate which revspec of %s to use." name)
-              )
-        end
+      ~docv:"REVSPEC"
+      ~doc:(sprintf "indicate which revspec of %s to use." name)
+      ~resolve:(WP.const
+                  (fun connection revspec ->
+                     Git.commit_of_revspec_exn ~url ~revspec connection
+                  ))
+      ~unresolve:Oci_Common.Commit.to_string
 
   let mk_repo ?revspec ~url ~deps ~cmds ?(tests=[]) name =
-    let revspec_param = mk_revspec_param ?revspec name in
-    let commit_param = mk_commit_param ~url name revspec_param in
+    let revspec_param = mk_revspec_param ?revspec ~url name in
     add_repo_with_param name
       WP.(const (fun commit ->
-          commit >>= fun commit ->
-          return (Git.repo
-                    ~deps
-                    ~cmds:((Git.git_clone ~url commit)::cmds)
-                    ~tests
-                    ())) $ commit_param);
+          Git.repo
+            ~deps
+            ~cmds:((Git.git_clone ~url commit)::cmds)
+            ~tests
+            ()) $? revspec_param);
     name, revspec_param
 
   let mk_compare
@@ -1462,14 +1503,14 @@ module Cmdline = struct
          >>= fun (revspecs,cmds,test) ->
          return
            (revspecs,
-            WP.const (return (Git.repo
-                                ~save_artefact:false
-                                ~deps
-                                ~cmds
-                                ~tests:[(test:> Oci_Generic_Masters_Api.
-                                                  CompileGitRepoRunner.
-                                                  cmd)]
-                                ())),
+            WP.const (Git.repo
+                        ~save_artefact:false
+                        ~deps
+                        ~cmds
+                        ~tests:[(test:> Oci_Generic_Masters_Api.
+                                          CompileGitRepoRunner.
+                                          cmd)]
+                        ()),
             test)
       )
       x_of_sexp sexp_of_x y_of_sexp sexp_of_y analyse
@@ -1487,28 +1528,26 @@ module Cmdline = struct
       run "sh" ["-c";"echo /usr/local/lib/ocaml/site-lib/stublibs/ >> \
                       /usr/local/lib/ocaml/ld.conf"]
     ]
-    let ocaml_configure = WP.mk_param ~default:[] "ocaml-configure"
-        ~sexp_of:[%sexp_of: string list]
-        ~of_sexp:[%of_sexp: string list]
-        ~cmdliner:Arg.(value & opt_all string []
-                       & info ["ocaml-configure"]
-                         ~docv:"ARG"
-                         ~doc:"Determine the argument to give to ocaml \
-                               configure")
+    let ocaml_configure =
+      WP.mk_param_string_list
+        ~docv:"ARG"
+        ~doc:"Determine the argument to give to ocaml configure"
+        "ocaml-configure"
+
     let ocaml_revspec =
       mk_revspec_param
         ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
+        ~url:ocaml_url
         "ocaml"
 
     let ocaml =
       add_repo_with_param "ocaml"
         WP.(const (fun commit configure_opt ->
-            commit >>= fun commit ->
-            return (Git.repo
-                      ~deps:[]
-                      ~cmds:(ocaml_cmds commit configure_opt)
-                      ()))
-            $ mk_commit_param ~url:ocaml_url "ocaml" ocaml_revspec
+            Git.repo
+              ~deps:[]
+              ~cmds:(ocaml_cmds commit configure_opt)
+              ())
+            $? ocaml_revspec
             $? ocaml_configure);
       "ocaml"
 

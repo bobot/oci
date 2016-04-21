@@ -188,13 +188,13 @@ end
 module Cmdline: sig
 
   module WP: sig
-    type 'a param
+    type ('a,'b) param
     module ParamValue: sig
       type t [@@deriving sexp]
-      val mem : t -> 'a param -> bool
-      val find : t -> 'a param -> 'a option
-      val find_def : t -> 'a param -> 'a
-      val set : t -> 'a param -> 'a -> t
+      val mem : t -> ('a,_) param -> bool
+      val find : t -> ('a,_) param -> 'a option
+      val find_def : t -> ('a,_) param -> 'a
+      val set : t -> ('a,_) param -> 'a -> t
       val replace_by: t -> t -> t
     end
     type 'a with_param
@@ -203,28 +203,63 @@ module Cmdline: sig
     val const: 'a -> 'a with_param
     val ( !! ): 'a -> 'a with_param
 
-    val ( $ ): ('a -> 'b) with_param -> 'a with_param -> 'b with_param
+    val param: (_,'b) param -> 'b with_param
+    val ( !? ): (_,'b) param -> 'b with_param
 
-    val param: 'a param -> 'a with_param
-    val ( !? ): 'a param -> 'a with_param
-    val ( $? ): ('a -> 'b) with_param -> 'a param -> 'b with_param
+    val ( $ ): ('a -> 'b) with_param -> 'a with_param -> 'b with_param
+    val ( $? ): ('a -> 'b) with_param -> (_,'a) param -> 'b with_param
+    val ( $! ): ('a -> 'b Deferred.t) with_param ->
+      'a with_param -> 'b with_param
 
     val connection: Git.connection with_param
+    val join_deferred: 'a Deferred.t with_param -> 'a with_param
 
-    val print: ('a -> string Async.Std.Deferred.t) -> 'a with_param
-      -> 'a with_param
 
     val mk_param :
       default:'a ->
       ?sexp_of:('a -> Sexplib.Sexp.t) ->
-      ?of_sexp:(Async.Std.Sexp.t -> 'a) ->
-      ?cmdliner:'a Core.Std.Univ_map.data Core.Std.Univ_map.data
-        Cmdliner.Term.t ->
-      'b Core.Std.String.Table.key_ -> 'a param
+      of_sexp:(Async.Std.Sexp.t -> 'a) ->
+      to_option_hum:('a -> string) ->
+      cmdliner:(Cmdliner.Arg.info -> 'a Cmdliner.Arg.t) ->
+      ?docv:string ->
+      ?doc:string -> 'b Core.Std.String.Table.key_ -> ('a, 'a) param
 
+    val mk_param':
+      default:'a ->
+      ?sexp_of:('a -> Sexp.t) ->
+      ?of_sexp:(Sexp.t -> 'a) ->
+      to_option_hum:('a -> string) ->
+      cmdliner:(Cmdliner.Arg.info -> 'a Cmdliner.Arg.t) ->
+      ?docv:string ->
+      ?doc:string ->
+      resolve:(Git.connection -> 'a -> 'b Deferred.t) with_param ->
+      unresolve:('b -> 'a) -> string -> ('a, 'b) param
+
+    val mk_param_string:
+      default:String.t ->
+      ?docv:string ->
+      ?doc:string ->
+      'a String.Table.key_ ->
+      (string, string) param
+
+    val mk_param_string':
+      default:String.t ->
+      ?docv:string ->
+      ?doc:string ->
+      resolve:(Git.connection -> string -> 'a Deferred.t)
+          with_param ->
+      unresolve:('a -> string) ->
+      string -> (string, 'a) param
+
+    val mk_param_string_list:
+      ?default:String.t List.t ->
+      ?docv:string ->
+      ?doc:string ->
+      string ->
+      (string list, string list) param
   end
 
-  type repo_param = Git.repo Deferred.t WP.with_param
+  type repo_param = Git.repo WP.with_param
   type repo = string
 
   val mk_repo:
@@ -233,7 +268,7 @@ module Cmdline: sig
     deps:repo list ->
     cmds:Git.cmd list ->
     ?tests:Git.cmd list ->
-    string (* name *) -> repo * string WP.param
+    string (* name *) -> repo * (string,Commit.t) WP.param
 
   val mk_copy_file:
     url:string list ->
@@ -281,6 +316,19 @@ module Cmdline: sig
     val ounit: repo
     val cryptokit: repo
     val ocamlbuild: repo
+
+    val ocaml_revspec: (string, Commit.t) WP.param
+    val ocamlfind_revspec: (string, Commit.t) WP.param
+    val zarith_revspec: (string, Commit.t) WP.param
+    val xmllight_revspec: (string, Commit.t) WP.param
+    val camlp4_revspec: (string, Commit.t) WP.param
+    val lablgtk_revspec: (string, Commit.t) WP.param
+    val ocamlgraph_revspec: (string, Commit.t) WP.param
+    val cppo_revspec: (string, Commit.t) WP.param
+    val camomile_revspec: (string, Commit.t) WP.param
+    val cryptokit_revspec: (string, Commit.t) WP.param
+    val ocamlbuild_revspec: (string, Commit.t) WP.param
+
   end
 
   type create_query_hook =
@@ -319,14 +367,11 @@ module Cmdline: sig
     ('a -> Sexplib.Type.t) ->
     (Format.formatter -> 'b -> unit) ->
     Git.connection -> 'c Async_kernel.Types.Deferred.t
-  val mk_commit_param:
-    url:string ->
-    string ->
-    Core.Std.String.t WP.param ->
-    Oci_Common.Commit.t Async.Std.Deferred.t WP.with_param
   val mk_revspec_param:
     ?revspec:Core.Std.String.t ->
-    'a Core.Std.String.Table.key_ -> Core.Std.String.t WP.param
+    url:string ->
+    string ->
+    (string,Commit.t) WP.param
 
 end
 

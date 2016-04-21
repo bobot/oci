@@ -73,34 +73,34 @@ let oci_sort_ocamlparam =
   WP.mk_param ~default:None "oci-sort-ocamlparam"
     ~sexp_of:[%sexp_of: string option]
     ~of_sexp:[%of_sexp: string option]
-    ~cmdliner:Arg.(value & opt (some string) None
-                   & info ["oci-sort-ocamlparam"]
-                     ~docv:"ARG"
-                     ~doc:"Determine the argument to give to ocaml \
-                           OCAMLPARAM")
-let oci_sort_revspec = mk_revspec_param "oci-sort"
+    ~cmdliner:Arg.(opt (some string) None)
+    ~docv:"ARG"
+    ~doc:"Determine the argument to give to ocaml \
+          OCAMLPARAM"
+    ~to_option_hum:(function None -> "" | Some s -> "--oci-sort-ocamlparam="^s)
+let oci_sort_revspec =
+  mk_revspec_param ~url:oci_sort_url "oci-sort"
 
 let oci_sort =
   add_repo_with_param "oci-sort"
     WP.(const (fun commit ocamlparam ->
-        commit >>= fun commit ->
-        return (Oci_Client.Git.repo
-                  ~deps:Oci_Client.Cmdline.Predefined.[ocaml;ocamlbuild;
-                                                       ocamlfind]
-                  ~cmds:[
-                    Oci_Client.Git.git_clone ~url:oci_sort_url commit;
-                    run "autoconf" [];
-                    run "./configure" [];
-                    make ?env:(match ocamlparam with
-                        | None -> None
-                        | Some v -> Some (`Extend ["OCAMLPARAM", v])) [];
-                    make ["install"];
-                  ]
-                  ~tests:[
-                    make ["tests"];
-                  ]
-                  ()))
-        $ mk_commit_param ~url:oci_sort_url "oci-sort" oci_sort_revspec
+        Oci_Client.Git.repo
+          ~deps:Oci_Client.Cmdline.Predefined.[ocaml;ocamlbuild;
+                                               ocamlfind]
+          ~cmds:[
+            Oci_Client.Git.git_clone ~url:oci_sort_url commit;
+            run "autoconf" [];
+            run "./configure" [];
+            make ?env:(match ocamlparam with
+                | None -> None
+                | Some v -> Some (`Extend ["OCAMLPARAM", v])) [];
+            make ["install"];
+          ]
+          ~tests:[
+            make ["tests"];
+          ]
+          ())
+        $? oci_sort_revspec
         $? oci_sort_ocamlparam);
   "oci-sort"
 
