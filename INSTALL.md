@@ -89,9 +89,9 @@ bin/Oci_Monitor.native --binaries bin --binaries bin-test --master bin-test/test
 - Optional: configure cgroups, needed for cpu partitionning. In the current shell:
 
 ```
-sudo cgm create all oci
-sudo cgm chown all oci $(id -u) $(id -g)
-cgm movepid all oci $$
+sudo cgm create cpuset oci
+sudo cgm chown cpuset oci $(id -u) $(id -g)
+cgm movepid cpuset oci $$
 ```
 
 - launch a new monitor

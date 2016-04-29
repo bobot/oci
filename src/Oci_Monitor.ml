@@ -141,15 +141,15 @@ let create_cgroup ~conf cgroup_name =
   | Some cgroup_root, Some cgroup_name ->
     let cgroup = cgroup_root ^ "/" ^ cgroup_name in
     debug "Create cgroup %s" cgroup;
-    Async_shell.test "cgm" ["create";"all";cgroup]
+    Async_shell.test "cgm" ["create";"cpuset";cgroup]
     >>= function
     | true -> Deferred.return (Some cgroup)
     | false ->
       error
         "Can't create cgroup %s. You should create and give ownership of \n\
          the cgroup:\n\
-         - sudo cgm create all %s\n\
-         - sudo cgm chown  all %s %i %i\n\
+         - sudo cgm create cpuset %s\n\
+         - sudo cgm chown  cpuset %s %i %i\n\
         " cgroup cgroup_root cgroup_root (Unix.getuid ()) (Unix.getgid ());
       exit 1
 

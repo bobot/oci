@@ -2,6 +2,6 @@
 
 
 
-sudo cgm create all oci
-sudo cgm chown all oci $(id -u) $(id -g)
-cgm movepid all oci $PPID
+sudo cgm create cpuset oci
+sudo cgm chown cpuset oci $(id -u) $(id -g)
+cgm movepid cpuset oci $PPID

@@ -145,7 +145,7 @@ let command_no_fail ?(error=(fun () -> ())) fmt =
 (** {2 CGroup} *)
 let move_to_cgroup name =
   command_no_fail
-    "cgm movepid all %s %i" name (Pid.to_int (Unix.getpid ()))
+    "cgm movepid cpuset %s %i" name (Pid.to_int (Unix.getpid ()))
 
 let set_cpuset cgroupname cpuset =
   command_no_fail
