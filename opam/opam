@@ -23,8 +23,8 @@ remove: [
 depends: [
    "ocamlfind"
    "cmdliner"
-   "async_shell" {= "113.33.00"}
-   "core" {= "113.33.00"}
+   "async_shell" {>= "113.33.00" & < "113.34.00"}
+   "core" {>= "113.33.00" & < "113.34.00"}
    "core_extended"
    "extunix" {>= "0.1.3"}
    "fileutils" "textutils" "ocamlbuild"
