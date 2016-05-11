@@ -1,8 +1,1 @@
 
-
-* [Client] Simplify the API of parameteres
-* [Monitor] Fix when cgroups are not used
-* [Monitor] When forwarding the standard output and error of runners, the
-  monitor now prefixed it with the runner id
-* [Doc] Spelling and typos in README.adoc (Gabriel Scherer, Andre Maroneze)
-* [Master] Fix file-descriptor leaks in saved log reading
