@@ -1,6 +1,6 @@
 opam-version: "1.2"
 name: "oci"
-version: "0.4~dev"
+version: "0.5~dev"
 maintainer: "francois.bobot@cea.fr"
 authors: ["François Bobot"]
 homepage: "https://github.com/bobot/oci"
