@@ -144,13 +144,14 @@ let command_no_fail ?(error=(fun () -> ())) fmt =
 
 (** {2 CGroup} *)
 let move_to_cgroup name =
-  command_no_fail
-    "cgm movepid cpuset %s %i" name (Pid.to_int (Unix.getpid ()))
+  write_in_file
+    "%s/%s" name "cgroup.procs"
+    "%i" (Pid.to_int (Unix.getpid ()))
 
 let set_cpuset cgroupname cpuset =
-  command_no_fail
-    "cgm setvalue cpuset %s cpuset.cpus %s"
-    cgroupname
+  write_in_file
+    "%s/%s" cgroupname "cpuset.cpus"
+    "%s"
     (String.concat ~sep:"," (List.map ~f:Int.to_string cpuset))
 
 (** {2 User namespace} *)

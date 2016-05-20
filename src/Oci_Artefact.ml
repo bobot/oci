@@ -430,7 +430,7 @@ let unfreeze_proc local_procs (alloc',used') =
   | SemiFreezed ->
     mk_running alloc' [used'] [], [used']
   | Running _ ->
-    (** already unfreezed, give back to the global pool the given slot *)
+    (* already unfreezed, give back to the global pool the given slot *)
     let released = [used'::alloc'] in
     List.iter released ~f:(give_to_global writer);
     local_procs, []

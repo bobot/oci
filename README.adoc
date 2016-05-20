@@ -572,16 +572,18 @@ link="tests/images/tests_oci_sort3_1.png"]
 
 For more precise cgroup one can ask OCI to use cgroup for placing the
 runners (the compilation, tests, ...) on different cpus. For that you
-need cgmanager. Run inside the terminal that will run `oci_monitor`:
+need to have enable cpuset cgroup. Run inside the terminal that will run `oci_monitor`:
 
 [source,sh]
 ----
-sudo cgm create cpuset oci
-sudo cgm chown cpuset oci $(id -u) $(id -g)
-cgm movepid cpuset oci $PPID
+OCIROOT=/sys/fs/cgroup/cpuset/oci
+
+if test \! -e $OCIROOT; then sudo mkdir $OCIROOT; fi
+sudo chown -R $(id -u):$(id -g) $OCIROOT
+echo $$ > $OCIROOT/cgroup.procs
 ----
 
-And run `oci-monitor` with the option `--cgroup "."`
+And run `oci-monitor` with the option `--cgroup "oci"`
 
 [source,sh]
-oci-monitor --cgroup "."
+oci-monitor --cgroup "oci"

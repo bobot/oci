@@ -1,7 +1,7 @@
 #!/bin/sh -eux
 
+OCIROOT=/sys/fs/cgroup/cpuset/oci
 
-
-sudo cgm create cpuset oci
-sudo cgm chown cpuset oci $(id -u) $(id -g)
-cgm movepid cpuset oci $PPID
+if test \! -e $OCIROOT; then sudo mkdir $OCIROOT; fi
+sudo chown -R $(id -u):$(id -g) $OCIROOT
+echo $PPID > $OCIROOT/cgroup.procs

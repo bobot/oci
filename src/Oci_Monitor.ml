@@ -26,6 +26,8 @@ open Oci_Common
 
 open Log.Global
 
+let cpuset_cgroup_root = "/sys/fs/cgroup/cpuset/"
+
 let (>>!) or_error_deferred f =
   or_error_deferred >>= fun r -> f (ok_exn r)
 
@@ -141,16 +143,20 @@ let create_cgroup ~conf cgroup_name =
   | Some cgroup_root, Some cgroup_name ->
     let cgroup = cgroup_root ^ "/" ^ cgroup_name in
     debug "Create cgroup %s" cgroup;
-    Async_shell.test "cgm" ["create";"cpuset";cgroup]
+    Sys.file_exists_exn cgroup
+    >>= fun b -> begin
+      if b then Deferred.Or_error.return ()
+      else Monitor.try_with_or_error (fun () -> Unix.mkdir cgroup)
+    end
     >>= function
-    | true -> Deferred.return (Some cgroup)
-    | false ->
+    | Ok () -> Deferred.return (Some cgroup)
+    | Error _ ->
       error
         "Can't create cgroup %s. You should create and give ownership of \n\
          the cgroup:\n\
-         - sudo cgm create cpuset %s\n\
-         - sudo cgm chown  cpuset %s %i %i\n\
-        " cgroup cgroup_root cgroup_root (Unix.getuid ()) (Unix.getgid ());
+         - sudo mkdir %s\n\
+         - sudo chown %i:%i %s\n\
+        " cgroup cgroup_root (Unix.getuid ()) (Unix.getgid ()) cgroup_root;
       exit 1
 
 let exec_in_namespace =
@@ -286,6 +292,7 @@ let compute_conf ~oci_data ~cgroup ~binaries ~cpuset_available =
   end
   else
     let first_user_mapped = {User.uid=ustart;gid=gstart} in
+    let cgroup = Option.map cgroup (Oci_Filename.concat cpuset_cgroup_root) in
     let conf = {current_user;first_user_mapped;conn_to_artefact=None;
                 wait_to_artefact=None;
                 wrappers_dir =
@@ -367,12 +374,18 @@ let start_master ~conf ~master ~oci_data ~binaries
           (fun () -> kill_runner conf);
         Rpc.Rpc.implement Oci_Artefact_Api.set_cpuset
           (fun () (a:Oci_Artefact_Api.set_cpuset) ->
-             if conf.cpuset_available && conf.cgroup <> None then
-               Async_shell.run "cgm"
-                 ["setvalue";"cpuset";
-                  a.cgroup; "cpuset.cpus";
-                  (String.concat ~sep:"," (List.map ~f:Int.to_string a.cpuset))]
-             else Deferred.unit
+             match conf.cgroup with
+             | Some cgroup_root when conf.cpuset_available ->
+               let file =
+                 Oci_Filename.make_absolute
+                   (Oci_Filename.make_absolute cgroup_root a.cgroup)
+                   "cpuset.cpus" in
+               let contents =
+                 String.concat ~sep:"," (List.map ~f:Int.to_string a.cpuset) in
+               Writer.with_file
+                 ~f:(fun w -> Writer.write w contents; Deferred.unit)
+                 file
+             | _ -> Deferred.unit
           );
       ]
   in

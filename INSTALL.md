@@ -3,7 +3,6 @@
 ### System Requirements ###
 
 - shadow (aka uidmap on Debian)
-- cgmanager (optional)
 - xpra (optional, useful to get access to a shell in the container when tests
 go wrong)
 - linux (>= 3.18)
@@ -89,10 +88,14 @@ bin/Oci_Monitor.native --binaries bin --binaries bin-test --master bin-test/test
 - Optional: configure cgroups, needed for cpu partitionning. In the current shell:
 
 ```
-sudo cgm create cpuset oci
-sudo cgm chown cpuset oci $(id -u) $(id -g)
-cgm movepid cpuset oci $$
+OCIROOT=/sys/fs/cgroup/cpuset/oci
+
+if test \! -e $OCIROOT; then sudo mkdir $OCIROOT; fi
+sudo chown -R $(id -u):$(id -g) $OCIROOT
+echo $$ > $OCIROOT/cgroup.procs
 ```
+
+and add `--cgroup "oci"` to the next command
 
 - launch a new monitor
 
