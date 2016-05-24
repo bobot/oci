@@ -74,8 +74,16 @@ module Git = struct
       {Oci_Generic_Masters_Api.CompileGitRepoRunner.url;src;dst;commit}
 
   let copy_file ~checksum ~kind dst =
-    `CopyFile
+    `LinkFile
       {Oci_Generic_Masters_Api.CompileGitRepoRunner.kind;dst;checksum}
+
+  let copy_file_from_zip ~checksum ~kind ~src dst =
+    let dst_archive = "archive.zip" in
+    let unzip_dir = "oci.archive.tmp" in
+    [copy_file ~checksum ~kind dst_archive;
+     run "unzip" [dst_archive;src;"-d";unzip_dir];
+     run "mv" [Oci_Filename.concat unzip_dir src;dst];
+    ]
 
   type cmd = Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd
   type gitcopyfile = Oci_Generic_Masters_Api.CompileGitRepoRunner.gitcopyfile
@@ -111,6 +119,9 @@ module Git = struct
     socket: Async_extra.Import.Rpc_kernel.Connection.t;
     revspec_cache: (Oci_Generic_Masters_Api.GitCommitOfRevSpec.Query.t,
                     Oci_Common.Commit.t option Or_error.t Deferred.t)
+        Hashtbl.Poly.t;
+    download_cache: (Oci_Generic_Masters_Api.WgetDownloadFile.Query.t,
+                     unit Or_error.t Deferred.t)
         Hashtbl.Poly.t;
   }
 
@@ -196,10 +207,15 @@ module Git = struct
 
 
   let download_file t ~kind ~url ~checksum =
-   Rpc.Rpc.dispatch_exn
-      (Oci_Data.rpc Oci_Generic_Masters_Api.WgetDownloadFile.rpc)
-      t.socket
+    let key =
       {Oci_Generic_Masters_Api.WgetDownloadFile.Query.url;kind;checksum}
+    in
+    Hashtbl.Poly.find_or_add
+      t.download_cache key
+      ~default:(fun () ->
+          Rpc.Rpc.dispatch_exn
+            (Oci_Data.rpc Oci_Generic_Masters_Api.WgetDownloadFile.rpc)
+            t.socket key)
     >>= fun r ->
     return (Or_error.ok_exn r)
 end
@@ -612,7 +628,7 @@ module Cmdline = struct
   type ('x,'y) compare =
     Git.connection ->
     revspecs -> 'x -> 'y ->
-    (revspecs * repo_param * [`Exec of Git.exec ]) Deferred.t
+    (revspecs * repo_param) Deferred.t
   type exists_compare =
     | CompareN:
         ('x,'y) compare * (Sexp.t -> 'x) * ('x -> Sexp.t) * (Sexp.t -> 'y) *
@@ -678,7 +694,7 @@ module Cmdline = struct
           Deferred.List.iter
             repo.Oci_Generic_Masters_Api.CompileGitRepo.Query.cmds
             ~f:(function
-                | `CopyFile {Oci_Generic_Masters_Api.
+                | `LinkFile {Oci_Generic_Masters_Api.
                               CompileGitRepoRunner.checksum;kind} -> begin
                     match kind with
                     | `MD5 ->
@@ -745,7 +761,7 @@ module Cmdline = struct
             Some {data with tests=[]; cmds = List.filter ~f:(function
                 | `GitClone _ -> true
                 | `GitCopyFile _ -> true
-                | `CopyFile _ -> true
+                | `LinkFile _ -> true
                 | `Exec _ -> false) data.cmds;
               };)
     in
@@ -783,7 +799,7 @@ module Cmdline = struct
       >>= fun ly ->
       let exec_one x y =
         for_one connection revspecs x y
-        >>= function (revspecs, git_repo, `Exec exec) ->
+        >>= function (revspecs, git_repo) ->
         let repo_compare = "Oci_Client.compare" in
         let repos = String.Map.add !db_repos ~key:repo_compare
             ~data:git_repo in
@@ -792,6 +808,19 @@ module Cmdline = struct
           cq_hook rootfs revspecs repo_compare
           repos connection
         >>= fun query ->
+        let exec =
+          let repo = String.Map.find_exn query.repos repo_compare in
+          match
+            List.fold_left repo.tests ~init:None
+              ~f:(fun acc -> function
+                  | `Exec x -> Some x
+                  | _ -> acc
+                )
+          with
+          | None -> invalid_argf "compare should be given a repo with \
+                                  at least one test." ()
+          | Some s -> s
+        in
         Rpc.Pipe_rpc.dispatch_exn
           (Oci_Data.log Oci_Generic_Masters_Api.CompileGitRepo.rpc)
           connection.Git.socket query
@@ -948,7 +977,9 @@ module Cmdline = struct
       reader writer
     >>= fun socket ->
     let socket = Result.ok_exn socket in
-    cmd {Git.socket;revspec_cache=Hashtbl.Poly.create ()}
+    cmd {Git.socket;
+         revspec_cache=Hashtbl.Poly.create ();
+         download_cache=Hashtbl.Poly.create ()}
     >>= fun res ->
     Rpc.Connection.close socket
     >>= fun () ->
@@ -1492,28 +1523,45 @@ module Cmdline = struct
     name, revspec_param
 
   let mk_compare
-      ~deps
-      ~cmds
+      ~repos
       ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y ~analyse
       name =
     add_compare
       name
       (fun conn revspecs x y ->
-         cmds conn revspecs x y
-         >>= fun (revspecs,cmds,test) ->
+         repos conn revspecs x y
+         >>= fun (revspecs,repo) ->
+         (* set save_artefact = false *)
          return
            (revspecs,
-            WP.const (Git.repo
-                        ~save_artefact:false
-                        ~deps
-                        ~cmds
-                        ~tests:[(test:> Oci_Generic_Masters_Api.
-                                          CompileGitRepoRunner.
-                                          cmd)]
-                        ()),
-            test)
+            WP.(const (fun repo ->
+                {repo with
+                 Oci_Generic_Masters_Api.CompileGitRepo.Query.
+                  save_artefact = false}) $ repo)
+           )
       )
       x_of_sexp sexp_of_x y_of_sexp sexp_of_y analyse
+
+  let mk_compare_many_using_revspecs
+      ~repos ~y_of_sexp ~sexp_of_y ~analyse name =
+    mk_compare
+      ~x_of_sexp:[%of_sexp: (string * WP.ParamValue.t)]
+      ~sexp_of_x:[%sexp_of: (string * WP.ParamValue.t)]
+      ~y_of_sexp ~sexp_of_y
+      ~repos:(fun conn revspecs (x_name,x) y ->
+          let revspecs = WP.ParamValue.replace_by revspecs x in
+          let repo = List.find_map_exn repos
+              ~f:(fun (x,d) ->
+                  if String.equal x_name x
+                  then Some d else None)
+          in
+          repo conn y
+          >>= fun repo ->
+          return (revspecs, repo)
+        )
+      ~analyse
+      name
+
 
   module Predefined = struct
     open Git

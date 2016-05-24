@@ -106,54 +106,61 @@ let oci_sort =
 
 (** benchmark tests *)
 
-let () = mk_compare
+let run_compare_oci_sort y master =
+  Oci_Client.Git.repo
+    ~save_artefact:false
     ~deps:[oci_sort]
+    ~cmds:
+      [Oci_Client.Git.git_copy_file ~url:oci_sort_url ~src:y
+         ~dst:(Oci_Filename.basename y)
+         (Option.value_exn ~here:[%here] master)]
+    ~tests:[run
+              ~memlimit:(Byte_units.create `Megabytes 500.)
+              ~timelimit:(Time.Span.create ~sec:10 ())
+              "oci-sort" [Oci_Filename.basename y]]
+    ()
+
+let () = mk_compare
     ~x_of_sexp:Oci_Common.Commit.t_of_sexp
     ~sexp_of_x:Oci_Common.Commit.sexp_of_t
     ~y_of_sexp:Oci_Filename.t_of_sexp
     ~sexp_of_y:Oci_Filename.sexp_of_t
-    ~cmds:(fun conn revspecs x y ->
+    ~repos:(fun conn revspecs x y ->
         let revspecs = WP.ParamValue.set revspecs
             oci_sort_revspec (Oci_Common.Commit.to_string x) in
         commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
         >>= fun master ->
-        return
-          (revspecs,
-           [Oci_Client.Git.git_copy_file ~url:oci_sort_url ~src:y
-              ~dst:(Oci_Filename.basename y)
-              (Option.value_exn ~here:[%here] master)],
-           (run
-              ~memlimit:(Byte_units.create `Megabytes 500.)
-              ~timelimit:(Time.Span.create ~sec:10 ())
-              "oci-sort" [Oci_Filename.basename y])))
+        return (revspecs, WP.const (run_compare_oci_sort y master)))
     ~analyse:(fun _  timed ->
         Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
     "oci-sort"
 
-
 let () = mk_compare
-    ~deps:[oci_sort]
     ~x_of_sexp:WP.ParamValue.t_of_sexp
     ~sexp_of_x:WP.ParamValue.sexp_of_t
     ~y_of_sexp:Oci_Filename.t_of_sexp
     ~sexp_of_y:Oci_Filename.sexp_of_t
-    ~cmds:(fun conn revspecs x y ->
+    ~repos:(fun conn revspecs x y ->
         let revspecs = WP.ParamValue.replace_by revspecs x in
-          commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
-          >>= fun master ->
-          return
-            (revspecs,
-             [Oci_Client.Git.git_copy_file ~url:oci_sort_url ~src:y
-                ~dst:(Oci_Filename.basename y)
-                (Option.value_exn ~here:[%here] master)],
-             (run
-              ~memlimit:(Byte_units.create `Megabytes 500.)
-              ~timelimit:(Time.Span.create ~sec:10 ())
-              "oci-sort" [Oci_Filename.basename y]))
-      )
+        commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
+        >>= fun master ->
+        return (revspecs, WP.const (run_compare_oci_sort y master)))
     ~analyse:(fun _  timed ->
         Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
     "oci-sort_ocaml"
+
+let () = mk_compare_many_using_revspecs
+    ~y_of_sexp:Oci_Filename.t_of_sexp
+    ~sexp_of_y:Oci_Filename.sexp_of_t
+    ~repos:["oci-sort",
+            (fun conn y ->
+               commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
+               >>= fun master ->
+               return (WP.const (run_compare_oci_sort y master)))]
+    ~analyse:(fun _  timed ->
+        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    "sorting"
+
 
 
 let () =

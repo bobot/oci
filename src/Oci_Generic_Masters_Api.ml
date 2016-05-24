@@ -23,7 +23,7 @@
 open Core.Std
 open Oci_Std
 
-let version = 12
+let version = 13
 
 module CompileGitRepoRunner = struct
 
@@ -95,7 +95,7 @@ module CompileGitRepoRunner = struct
     | `Exec of exec
     | `GitClone of gitclone
     | `GitCopyFile of gitcopyfile
-    | `CopyFile of copyfile
+    | `LinkFile of copyfile
   ]
   [@@deriving sexp, bin_io, compare]
 

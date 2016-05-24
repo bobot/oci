@@ -73,8 +73,8 @@ let memlimit f m =
 let run_cmds t kind working_dir
     (x:Oci_Generic_Masters_Api.CompileGitRepoRunner.cmd) =
   match x with
-  | `CopyFile copy ->
-    Oci_Runner.cha_log t "Copy file %s" copy.checksum;
+  | `LinkFile copy ->
+    Oci_Runner.cha_log t "Link file %s" copy.checksum;
     Oci_Runner.get_file t
       ~checksum:copy.checksum
       ~kind:copy.kind

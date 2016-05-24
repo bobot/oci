@@ -51,7 +51,7 @@ module Git: sig
     | `Exec of exec
     | `GitClone of gitclone
     | `GitCopyFile of gitcopyfile
-    | `CopyFile of copyfile
+    | `LinkFile of copyfile
   ]
 
   val exec:
@@ -99,6 +99,13 @@ module Git: sig
     kind:[`MD5] ->
     Oci_Filename.t ->
     cmd
+
+  val copy_file_from_zip:
+    checksum:string ->
+    kind:[`MD5] ->
+    src:Oci_Filename.t ->
+    Oci_Filename.t ->
+    cmd list
 
   type repo
 
@@ -284,15 +291,10 @@ module Cmdline: sig
   type ('x,'y) compare =
     Git.connection ->
     WP.ParamValue.t -> 'x -> 'y ->
-    (WP.ParamValue.t * repo_param * [`Exec of Git.exec ]) Deferred.t
+    (WP.ParamValue.t * repo_param) Deferred.t
 
   val mk_compare:
-    deps:repo List.t ->
-    cmds:(Git.connection ->
-          WP.ParamValue.t ->
-          'x -> 'y ->
-          (WP.ParamValue.t * Git.cmd list * [ `Exec of Git.exec ]) Deferred.t)
-    ->
+    repos:('x,'y) compare ->
     x_of_sexp:(Sexp.t -> 'x) ->
     sexp_of_x:('x -> Sexp.t) ->
     y_of_sexp:(Sexp.t -> 'y) ->
@@ -302,6 +304,15 @@ module Cmdline: sig
     string ->
     unit
     (** The time of the last command is used *)
+
+  val mk_compare_many_using_revspecs:
+    repos:(string * (Git.connection -> 'y -> repo_param Deferred.t)) list ->
+    y_of_sexp:(Sexp.t -> 'y) ->
+    sexp_of_y:('y -> Sexp.t) ->
+    analyse:(Unix.Exit_or_signal.t ->
+             Oci_Common.Timed.t -> float option) ->
+    string ->
+    unit
 
   module Predefined: sig
     val ocaml: repo

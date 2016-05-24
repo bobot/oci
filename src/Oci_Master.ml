@@ -243,9 +243,6 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
         include Result
       end)
 
-    type save_data = (Query.t * Log.t) list
-    [@@deriving bin_io]
-
     let create_master_unit f =
       let db : Log.t H.t =
         H.create () in
@@ -288,7 +285,8 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
                 "Master %s have already been loaded" name;
               H.clear db;
             end;
-            Oci_Std.read_if_exists file bin_reader_save_data
+            Oci_Std.read_if_exists file
+              [% bin_reader: (Query.t * Log.t) list]
               (fun l ->
                  debug "Master %s load %i records" name (List.length l);
                  List.iter
@@ -317,7 +315,9 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
             let file = Oci_Filename.make_absolute dir "data" in
             Oci_Std.backup_and_open_file file
             >>= fun writer ->
-            Writer.write_bin_prot writer bin_writer_save_data l;
+            Writer.write_bin_prot writer
+              [% bin_writer: (Query.t * Log.t) list]
+              l;
             Writer.close writer
           );
       register ~forget S.data f
