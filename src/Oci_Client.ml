@@ -625,22 +625,69 @@ module Cmdline = struct
 
   type query = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
   type revspecs = WP.ParamValue.t
+  module Oci_Log = struct
+    type kind = Oci_Log.kind =
+      | Standard | Error | Chapter | Command
+      [@@deriving sexp, bin_io]
+    type 'a data = 'a Oci_Log.data =
+      | Std of kind * string
+      | Extra of 'a
+      | End of unit Or_error.t
+      [@@deriving sexp, bin_io]
+    type 'a line = 'a Oci_Log.line = {
+      data : 'a data;
+      time : Time.t;
+    } [@@deriving sexp, bin_io]
+    type t = (* Oci_Generic_Masters_Api.CompileGitRepo.Result.t = *) [
+      | `Cmd of Oci_Generic_Masters_Api.CompileGitRepoRunner.exec
+                * Unix.Exit_or_signal.t * Oci_Common.Timed.t
+      | `Artefact of Oci_Common.Artefact.t
+      | `Dependency_error of String.Set.t
+    ]
+  end
+
+  type log = Oci_Log.t Oci_Log.line
+
+  type 'res compare_result =
+    ('res,
+     [ `Anomaly of Error.t
+     | `BadResult of string ]) Result.t
+
+
+  type ('x,'y,'res) all_result = {
+    x: 'x array;
+    y: 'y array;
+    res: 'res compare_result array array;
+    (** (x).(y) *)
+  }
+
+  type ('x,'y,'acc) compare' =
+    Git.connection ->
+    revspecs -> 'x -> 'y ->
+    (revspecs * repo_param * ('acc -> log -> 'acc Deferred.t)) Deferred.t
   type ('x,'y) compare =
     Git.connection ->
     revspecs -> 'x -> 'y ->
     (revspecs * repo_param) Deferred.t
+  type ('acc,'res,'x,'y) compareN = {
+    fold_init: 'acc;
+    fold_end: 'acc -> 'res compare_result;
+    fold: ('x,'y,'acc) compare';
+    sexp_of_x: 'x -> Sexp.t;
+    x_of_sexp: Sexp.t -> 'x;
+    sexp_of_y: 'y -> Sexp.t;
+    y_of_sexp: Sexp.t -> 'y;
+    analyse: ('x,'y,'res) all_result -> ('x,'y,float) all_result;
+    timeout: float;
+  }
   type exists_compare =
-    | CompareN:
-        ('x,'y) compare * (Sexp.t -> 'x) * ('x -> Sexp.t) * (Sexp.t -> 'y) *
-        ('y -> Sexp.t) *
-        (Unix.Exit_or_signal.t -> Oci_Common.Timed.t -> float option)
-      -> exists_compare
+    | CompareN: ('acc,'res,'x,'y) compareN -> exists_compare
   let db_compare = ref String.Map.empty
 
-  let add_compare name compare sexp_x x_sexp sexp_y y_sexp analyse =
+  let add_compare name compareN =
     db_compare :=
       String.Map.add !db_compare ~key:name
-        ~data:(CompareN(compare,sexp_x,x_sexp,sexp_y,y_sexp,analyse))
+        ~data:(CompareN(compareN))
 
   let used_interp_repos c revspecs toprint root repos =
     let open! Oci_Generic_Masters_Api.CompileGitRepo.Query in
@@ -771,6 +818,23 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.XpraGitRepo.Result.pp socket
 
+  let gen_fold_compare fold_analyse (acc,acc_analyse) r =
+    let acc = match r with
+    | {Oci_Log.data=Oci_Log.Std (_,line);_} ->
+      debug "[Std] %s" line;
+      acc
+    | {Oci_Log.data=Oci_Log.Extra r} ->
+      debug
+        "[Exec] %s@."
+        (Oci_pp.string_of
+           Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
+      acc
+    | {Oci_Log.data=Oci_Log.End r} -> r
+    in
+    fold_analyse acc_analyse r
+    >>= fun acc_analyse ->
+    return (acc,acc_analyse)
+
   let compare cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
       outputs summation connection =
@@ -784,8 +848,8 @@ module Cmdline = struct
         Shutdown.exit 1
     in
     match String.Map.find_exn !db_compare bench with
-    | CompareN(for_one,sexp_x,x_sexp,sexp_y,y_sexp,analyse) ->
-      load_sexps x_input sexp_x
+    | CompareN compareN ->
+      load_sexps x_input compareN.x_of_sexp
       >>= fun lx ->
       begin match summation with
         | `Two when List.length lx <> 2 ->
@@ -795,11 +859,11 @@ module Cmdline = struct
         | _ -> Deferred.unit
       end
       >>= fun () ->
-      load_sexps y_input sexp_y
+      load_sexps y_input compareN.y_of_sexp
       >>= fun ly ->
       let exec_one x y =
-        for_one connection revspecs x y
-        >>= function (revspecs, git_repo) ->
+        compareN.fold connection revspecs x y
+        >>= function (revspecs, git_repo, fold_analyse) ->
         let repo_compare = "Oci_Client.compare" in
         let repos = String.Map.add !db_repos ~key:repo_compare
             ~data:git_repo in
@@ -808,95 +872,43 @@ module Cmdline = struct
           cq_hook rootfs revspecs repo_compare
           repos connection
         >>= fun query ->
-        let exec =
-          let repo = String.Map.find_exn query.repos repo_compare in
-          match
-            List.fold_left repo.tests ~init:None
-              ~f:(fun acc -> function
-                  | `Exec x -> Some x
-                  | _ -> acc
-                )
-          with
-          | None -> invalid_argf "compare should be given a repo with \
-                                  at least one test." ()
-          | Some s -> s
-        in
         Rpc.Pipe_rpc.dispatch_exn
           (Oci_Data.log Oci_Generic_Masters_Api.CompileGitRepo.rpc)
           connection.Git.socket query
         >>= fun (p,_) ->
-        let complete = ref false in
-        Pipe.fold p ~init:None ~f:(fun acc -> function
-            | {Oci_Log.data=Oci_Log.Std (_,line);_} ->
-              debug "[Std] %s" line;
-              return acc
-            | {Oci_Log.data=Oci_Log.Extra r} ->
-              begin match r with
-                | `Cmd(exec',result,time) as r when
-                    Oci_Generic_Masters_Api.CompileGitRepoRunner.
-                      compare_exec exec exec' = 0
-                  ->
-                  debug
-                    "[Result] %s@."
-                    (* (Sexp.to_string_hum ( *)
-                    (*     Oci_Generic_Masters_Api.CompileGitRepo. *)
-                    (*       Query.sexp_of_t query)) *)
-                    (Oci_pp.string_of
-                       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
-                  return (analyse result time)
-                | r ->
-                  debug
-                    "[Prepare] %s@."
-                    (Oci_pp.string_of
-                       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
-                  return acc
-              end
-            | {Oci_Log.data=Oci_Log.End (Error e)} ->
-              error
-                "[Anomaly] for %s please report: %s"
-                (Sexp.to_string_hum (
-                    Oci_Generic_Masters_Api.CompileGitRepo.
-                      Query.sexp_of_t query))
-                (Sexp.to_string_hum (Error.sexp_of_t e));
-              complete := true;
-              return None
-            | {Oci_Log.data=Oci_Log.End (Ok ())} ->
-              complete := true;
-              return acc
-          )
-        >>= fun res ->
-        return (if !complete then res else
-                  (error
-                     "[Anomaly] incomplete log for %s"
-                     (Sexp.to_string_hum (
-                         Oci_Generic_Masters_Api.CompileGitRepo.
-                           Query.sexp_of_t query));
-                   None))
+        Pipe.fold p
+          ~init:(Error (Error.of_string "incomplete log"), compareN.fold_init)
+          ~f:(gen_fold_compare fold_analyse)
+        >>= fun (complete,res) ->
+        let res = compareN.fold_end res in
+        return (match complete with
+            | Ok () -> res
+            | Error e -> Error (`Anomaly e))
       in
       Deferred.List.map
         ~how:`Parallel
         lx ~f:(fun x ->
             Deferred.List.map
               ~how:`Parallel ly
-              ~f:(fun y -> exec_one x y
-                   >>= function
-                   | None ->
-                     error "Bad result for %s %s"
-                       (Sexp.to_string (x_sexp x)) (Sexp.to_string (y_sexp y));
-                     return None
-                   | x -> return x
-                 )
-            >>= fun res ->
-            return (x,res)
+              ~f:(fun y -> exec_one x y)
           )
       >>= fun results ->
-      let lost_run =
-        List.exists results ~f:(fun (_,l) ->
-            List.exists l ~f:(fun x -> x = None))
-      in
+      let results = {
+        x = Array.of_list lx;
+        y = Array.of_list ly;
+        res = Array.of_list_map ~f:Array.of_list results
+      } in
+      let results = compareN.analyse results in
+      let lost_runs =
+        Array.exists results.res ~f:(Array.exists ~f:Result.is_ok) in
+      let results =
+        List.map2_exn ~f:(fun x a ->
+            (x,Array.to_list (Array.map ~f:Result.ok a)))
+          (Array.to_list results.x)
+          (Array.to_list results.res) in
       let filler = lazy begin
         let results =
-          List.map ~f:(fun (x,l) -> Sexp.to_string (x_sexp x),l)
+          List.map ~f:(fun (x,l) -> Sexp.to_string (compareN.sexp_of_x x),l)
             results
         in
         let filter_results r =
@@ -904,16 +916,19 @@ module Cmdline = struct
         in
         match summation,results with
         | `Timeout,_ ->
-          Gnuplot.compute_datas_timeout  2. (filter_results results)
-        | `Sort,_ -> Gnuplot.compute_datas_sort  2. (filter_results results)
-        | `Two,[a;b] -> Gnuplot.compute_datas_two 2. a b
+          Gnuplot.compute_datas_timeout
+            compareN.timeout(filter_results results)
+        | `Sort,_ -> Gnuplot.compute_datas_sort
+                       compareN.timeout(filter_results results)
+        | `Two,[a;b] -> Gnuplot.compute_datas_two
+                          compareN.timeout a b
         | `Two, _ -> assert false (* The previous test must forbid this case *)
       end in
       Deferred.List.iter outputs ~f:(function
           | `Sexp filename ->
             let sexp =
               List.sexp_of_t
-                (sexp_of_pair x_sexp
+                (sexp_of_pair compareN.sexp_of_x
                    (List.sexp_of_t (Option.sexp_of_t Float.sexp_of_t))) in
             Writer.save_sexp ~hum:true filename (sexp results)
           | `Gnuplot filename ->
@@ -930,7 +945,7 @@ module Cmdline = struct
             Gnuplot.call_gnuplot ((Lazy.force filler) `Qt)
         )
       >>= fun () ->
-      Deferred.return (if lost_run then `Error else `Ok)
+      Deferred.return (if lost_runs then `Error else `Ok)
 
   let list_rootfs rootfs socket =
     let open Oci_Rootfs_Api in
@@ -1522,28 +1537,106 @@ module Cmdline = struct
             ()) $? revspec_param);
     name, revspec_param
 
-  let mk_compare
-      ~repos
-      ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y ~analyse
-      name =
+  let mk_compare'
+      ~(repos:('x,'y,'acc) compare')
+      ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y
+      ~fold_init
+      ~fold_end
+      ~analyse
+      ~timeout
+      (name:string) =
     add_compare
       name
-      (fun conn revspecs x y ->
-         repos conn revspecs x y
-         >>= fun (revspecs,repo) ->
-         (* set save_artefact = false *)
-         return
-           (revspecs,
-            WP.(const (fun repo ->
-                {repo with
-                 Oci_Generic_Masters_Api.CompileGitRepo.Query.
-                  save_artefact = false}) $ repo)
-           )
-      )
-      x_of_sexp sexp_of_x y_of_sexp sexp_of_y analyse
+      {
+        fold_init;
+        fold_end;
+        fold = (fun conn revspecs x y ->
+            repos conn revspecs x y
+            >>= fun (revspecs,repo,fold_analyse) ->
+            (* set save_artefact = false *)
+            return
+              (revspecs,
+               WP.(const (fun repo ->
+                   {repo with
+                    Oci_Generic_Masters_Api.CompileGitRepo.Query.
+                     save_artefact = false}) $ repo),
+               fold_analyse
+              )
+          );
+        x_of_sexp;
+        sexp_of_x;
+        y_of_sexp;
+        sexp_of_y;
+        analyse;
+        timeout;
+      }
+
+  let mk_compare
+      ~repos
+      ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y
+      ~analyse
+      ~timeout
+      name =
+    let fold_init = Error (Error.of_string "no command run") in
+    let fold_analyse acc =
+      function
+      | {Oci_Log.data=Oci_Log.Std (_,_)} ->
+        return acc
+      | {Oci_Log.data=Oci_Log.Extra (`Cmd(_,result,time))} ->
+        return (Ok (result,time))
+      | {Oci_Log.data=Oci_Log.Extra _} ->
+        return acc
+      | {Oci_Log.data=Oci_Log.End (Error err)} ->
+        return (Error err)
+      | {Oci_Log.data=Oci_Log.End (Ok ())} ->
+        return acc
+    in
+    let fold_end = function
+      | Error r -> Error (`Anomaly r)
+      | Ok (result,time) -> analyse result time in
+    let analyse r = r in
+    let repos conn revspecs x y =
+      repos conn revspecs x y
+      >>= fun (revspec,repo) ->
+      return (revspec,repo,fold_analyse)
+    in
+    mk_compare'
+      ~repos ~fold_end
+      ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y
+      ~fold_init ~analyse ~timeout
+      name
+
+  type compare_many = string * WP.ParamValue.t [@@ deriving sexp]
+
+  let mk_compare_many_using_revspecs'
+      ~repos ~y_of_sexp ~sexp_of_y ~fold_init ~fold_end ~analyse ~timeout name =
+    mk_compare'
+      ~x_of_sexp:compare_many_of_sexp
+      ~sexp_of_x:sexp_of_compare_many
+      ~y_of_sexp ~sexp_of_y
+      ~repos:(fun conn revspecs (x_name,x) y ->
+          let revspecs = WP.ParamValue.replace_by revspecs x in
+          let repo =
+            match List.find_map repos
+              ~f:(fun (x,d) ->
+                  if String.equal x_name x
+                  then Some d else None)
+            with
+            | None -> invalid_argf "name of tool %s unknown" x_name ()
+            | Some repo -> repo
+          in
+          repo conn y
+          >>= fun (repo,analyse) ->
+          return (revspecs, repo, analyse)
+        )
+      ~fold_init
+      ~fold_end
+      ~analyse
+      ~timeout
+      name
 
   let mk_compare_many_using_revspecs
-      ~repos ~y_of_sexp ~sexp_of_y ~analyse name =
+      ~repos ~y_of_sexp ~sexp_of_y ~analyse ~timeout name =
     mk_compare
       ~x_of_sexp:[%of_sexp: (string * WP.ParamValue.t)]
       ~sexp_of_x:[%sexp_of: (string * WP.ParamValue.t)]
@@ -1560,6 +1653,7 @@ module Cmdline = struct
           return (revspecs, repo)
         )
       ~analyse
+      ~timeout
       name
 
 

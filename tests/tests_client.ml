@@ -132,7 +132,8 @@ let () = mk_compare
         >>= fun master ->
         return (revspecs, WP.const (run_compare_oci_sort y master)))
     ~analyse:(fun _  timed ->
-        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+        Ok (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    ~timeout:10.
     "oci-sort"
 
 let () = mk_compare
@@ -146,7 +147,8 @@ let () = mk_compare
         >>= fun master ->
         return (revspecs, WP.const (run_compare_oci_sort y master)))
     ~analyse:(fun _  timed ->
-        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+        Ok (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    ~timeout:10.
     "oci-sort_ocaml"
 
 let () = mk_compare_many_using_revspecs
@@ -158,7 +160,8 @@ let () = mk_compare_many_using_revspecs
                >>= fun master ->
                return (WP.const (run_compare_oci_sort y master)))]
     ~analyse:(fun _  timed ->
-        Some (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+        Ok (Time.Span.to_sec timed.Oci_Common.Timed.cpu_user))
+    ~timeout:10.
     "sorting"
 
 

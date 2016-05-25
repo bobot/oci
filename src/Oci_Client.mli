@@ -25,7 +25,8 @@ open Async.Std
 open Oci_Common
 
 module Git: sig
-  type formatted_proc
+  type formatted_proc =
+    Oci_Generic_Masters_Api.CompileGitRepoRunner.Formatted_proc.t
 
   val formatted_proc : (int -> string, unit, string) format -> formatted_proc
 
@@ -36,7 +37,7 @@ module Git: sig
 
   val mk_proc: (int -> string, unit, string) format -> args
 
-  type exec = {
+  type exec = Oci_Generic_Masters_Api.CompileGitRepoRunner.exec = {
     cmd: string;
     args: [ `S of string | `Proc of formatted_proc ] list;
     env : [ `Replace of (string * string) list
@@ -288,10 +289,63 @@ module Cmdline: sig
 
   val cmdliner_revspecs: WP.ParamValue.t -> (WP.ParamValue.t Cmdliner.Term.t)
 
+  module Oci_Log : sig
+    type kind = Oci_Log.kind =
+      | Standard | Error | Chapter | Command
+      [@@deriving sexp, bin_io]
+    type 'a data = 'a Oci_Log.data =
+      | Std of kind * string
+      | Extra of 'a
+      | End of unit Or_error.t
+      [@@deriving sexp, bin_io]
+    type 'a line = 'a Oci_Log.line = {
+      data : 'a data;
+      time : Time.t;
+    } [@@deriving sexp, bin_io]
+    type t = [
+      | `Cmd of Oci_Generic_Masters_Api.CompileGitRepoRunner.exec
+                * Unix.Exit_or_signal.t * Oci_Common.Timed.t
+      | `Artefact of Oci_Common.Artefact.t
+      | `Dependency_error of String.Set.t
+    ]
+  end
+
+  type log = Oci_Log.t Oci_Log.line
+
+  type 'a compare_result =
+    ('a,
+     [ `Anomaly of Error.t
+     | `BadResult of string ]) Result.t
+
+
+  type ('x,'y,'acc) compare' =
+    Git.connection ->
+    WP.ParamValue.t -> 'x -> 'y ->
+    (WP.ParamValue.t * repo_param * ('acc -> log -> 'acc Deferred.t)) Deferred.t
   type ('x,'y) compare =
     Git.connection ->
     WP.ParamValue.t -> 'x -> 'y ->
     (WP.ParamValue.t * repo_param) Deferred.t
+
+  type ('x,'y,'res) all_result = {
+    x: 'x array;
+    y: 'y array;
+    res: 'res compare_result array array;
+    (** (x).(y) *)
+  }
+
+  val mk_compare':
+    repos:('x,'y,'acc) compare' ->
+    x_of_sexp:(Sexp.t -> 'x) ->
+    sexp_of_x:('x -> Sexp.t) ->
+    y_of_sexp:(Sexp.t -> 'y) ->
+    sexp_of_y:('y -> Sexp.t) ->
+    fold_init: 'acc ->
+    fold_end:('acc -> 'res compare_result) ->
+    analyse:(('x,'y,'res) all_result -> ('x,'y,float) all_result) ->
+    timeout:float ->
+    string ->
+    unit
 
   val mk_compare:
     repos:('x,'y) compare ->
@@ -300,17 +354,37 @@ module Cmdline: sig
     y_of_sexp:(Sexp.t -> 'y) ->
     sexp_of_y:('y -> Sexp.t) ->
     analyse:(Unix.Exit_or_signal.t ->
-             Oci_Common.Timed.t -> float option) ->
+             Oci_Common.Timed.t -> float compare_result) ->
+    timeout:float ->
     string ->
     unit
     (** The time of the last command is used *)
+
+  type compare_many = string * WP.ParamValue.t
+    [@@ deriving sexp]
+
+  val mk_compare_many_using_revspecs':
+    repos:(string * (Git.connection -> 'y ->
+                     (repo_param *
+                      ('acc -> log -> 'acc Deferred.t))
+                       Deferred.t)) list ->
+    y_of_sexp:(Sexp.t -> 'y) ->
+    sexp_of_y:('y -> Sexp.t) ->
+    fold_init: 'acc ->
+    fold_end:('acc -> 'res compare_result) ->
+    analyse:((compare_many,'y,'res) all_result ->
+             (compare_many,'y,float) all_result) ->
+    timeout:float ->
+    string ->
+    unit
 
   val mk_compare_many_using_revspecs:
     repos:(string * (Git.connection -> 'y -> repo_param Deferred.t)) list ->
     y_of_sexp:(Sexp.t -> 'y) ->
     sexp_of_y:('y -> Sexp.t) ->
     analyse:(Unix.Exit_or_signal.t ->
-             Oci_Common.Timed.t -> float option) ->
+             Oci_Common.Timed.t -> float compare_result) ->
+    timeout:float ->
     string ->
     unit
 
