@@ -102,7 +102,7 @@ val cha_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
 val cmd_log: 'r t -> ('a, unit, string, unit) format4 -> 'a
 val data_log: 'result t -> 'result -> unit
 
-val process_log: 'r t -> Process.t -> unit Deferred.t
+(* val process_log: 'r t -> Process.t -> unit Deferred.t *)
 
 type 'a process_create
   =  ?env         : Process.env  (** default is [`Extend []] *)

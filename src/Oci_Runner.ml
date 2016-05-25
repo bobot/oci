@@ -199,8 +199,8 @@ let process_log t p =
     let reader = Reader.lines reader in
     Pipe.transfer ~f:(fun line -> Oci_Log.line kind line) reader t.log in
   Deferred.all_unit [
-    send_to_log t Oci_Log.Standard (Process.stdout p);
-    send_to_log t Oci_Log.Error (Process.stderr p);
+    send_to_log t Oci_Log.Standard (Oci_Std.Oci_Unix.stdout p);
+    send_to_log t Oci_Log.Error (Oci_Std.Oci_Unix.stderr p);
   ]
 
 
@@ -219,10 +219,10 @@ exception CommandFailed
 
 let run t ?env ?working_dir ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
-  Process.create ?working_dir ?env ~prog ~args ()
+  Oci_Std.Oci_Unix.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
-  Deferred.both (process_log t p) (Process.wait p)
+  Deferred.both (process_log t p) (Oci_Std.Oci_Unix.wait p)
   >>= fun ((),r) ->
   match r with
   | Core_kernel.Std.Result.Ok () -> return r
@@ -242,10 +242,10 @@ let run_exn t ?env ?working_dir ~prog ~args () =
 let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
   let start = Unix.gettimeofday () in
-  Process.create ?working_dir ?env ~prog ~args ()
+  Oci_Std.Oci_Unix.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
-  let w = Oci_Std.wait4 (Process.pid p) in
+  let w = Oci_Std.wait4 (Oci_Std.Oci_Unix.pid p) in
   let w = Deferred.both (process_log t p) w in
   begin
     match timelimit with
@@ -258,10 +258,10 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
       ]
       >>= function
       | `Timeout ->
-        Signal.send_i Signal.term (`Pid (Process.pid p));
+        Signal.send_i Signal.term (`Pid (Oci_Std.Oci_Unix.pid p));
         after (Time.Span.create ~ms:200 ())
         >>= fun () ->
-        Signal.send_i Signal.kill (`Pid (Process.pid p));
+        Signal.send_i Signal.kill (`Pid (Oci_Std.Oci_Unix.pid p));
         Deferred.unit
       | `Done -> Deferred.unit
   end
