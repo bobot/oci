@@ -23,7 +23,7 @@
 open Core.Std
 open Oci_Std
 
-let version = 13
+let version = 14
 
 module CompileGitRepoRunner = struct
 
@@ -118,6 +118,7 @@ module CompileGitRepoRunner = struct
       [ `Exit_non_zero of int | `Signal of Signal.t ]
       [@@deriving sexp, bin_io, compare]
     type t = [
+      | `CmdStart of exec
       | `Cmd of exec * (unit,exit_or_signal) Result.t * Oci_Common.Timed.t
       | `Artefact of Oci_Common.Artefact.t
     ]
@@ -127,6 +128,8 @@ module CompileGitRepoRunner = struct
       | `Artefact artefact ->
         Format.fprintf fmt "New artefact %a created"
           Oci_Common.Artefact.pp artefact
+      | `CmdStart (_) ->
+        Format.fprintf fmt "Start"
       | `Cmd (_,Result.Ok (),time) ->
         Format.fprintf fmt "Ok in %a" Oci_Common.Timed.pp time
       | `Cmd(cmd,fail,time) ->

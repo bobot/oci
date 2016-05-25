@@ -135,6 +135,7 @@ module Git: sig
 
   type compile_and_tests =
     [ `Artefact of Artefact.t
+    | `CmdStart of exec
     | `Cmd of exec * Unix.Exit_or_signal.t * Timed.t
     | `Dependency_error of Core.Std.String.Set.t ]
 
@@ -302,12 +303,7 @@ module Cmdline: sig
       data : 'a data;
       time : Time.t;
     } [@@deriving sexp, bin_io]
-    type t = [
-      | `Cmd of Oci_Generic_Masters_Api.CompileGitRepoRunner.exec
-                * Unix.Exit_or_signal.t * Oci_Common.Timed.t
-      | `Artefact of Oci_Common.Artefact.t
-      | `Dependency_error of String.Set.t
-    ]
+    type t = Git.compile_and_tests
   end
 
   type log = Oci_Log.t Oci_Log.line

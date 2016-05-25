@@ -115,6 +115,7 @@ let run_cmds t kind working_dir
            | None -> f ()
            | Some m -> memlimit f m
          in
+         Oci_Runner.data_log t (`CmdStart (cmd));
          wrap (fun () ->
              Oci_Runner.run_timed t
                ?timelimit:cmd.timelimit

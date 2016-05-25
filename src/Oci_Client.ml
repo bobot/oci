@@ -104,13 +104,14 @@ module Git = struct
   let invariant = Oci_Generic_Masters_Api.CompileGitRepo.Query.invariant
 
   type compile_and_tests =
-    [ `Artefact of Oci_Common.Artefact.t
-    | `Cmd of
-        Oci_Generic_Masters_Api.CompileGitRepoRunner.exec *
-        (unit,
-         Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.exit_or_signal)
-          Core.Std.Result.t * Oci_Common.Timed.t
-    | `Dependency_error of Core.Std.String.Set.t ]
+    (* Oci_Generic_Masters_Api.CompileGitRepo.Result.t = *)
+    [
+      | `CmdStart of Oci_Generic_Masters_Api.CompileGitRepoRunner.exec
+      | `Cmd of Oci_Generic_Masters_Api.CompileGitRepoRunner.exec
+                * Unix.Exit_or_signal.t * Oci_Common.Timed.t
+      | `Artefact of Oci_Common.Artefact.t
+      | `Dependency_error of String.Set.t
+    ]
 
   let pp =
     Oci_Generic_Masters_Api.CompileGitRepo.Result.pp
@@ -638,12 +639,7 @@ module Cmdline = struct
       data : 'a data;
       time : Time.t;
     } [@@deriving sexp, bin_io]
-    type t = (* Oci_Generic_Masters_Api.CompileGitRepo.Result.t = *) [
-      | `Cmd of Oci_Generic_Masters_Api.CompileGitRepoRunner.exec
-                * Unix.Exit_or_signal.t * Oci_Common.Timed.t
-      | `Artefact of Oci_Common.Artefact.t
-      | `Dependency_error of String.Set.t
-    ]
+    type t = Git.compile_and_tests
   end
 
   type log = Oci_Log.t Oci_Log.line
@@ -788,6 +784,7 @@ module Cmdline = struct
     create_query cq_hook rootfs revspecs repo !db_repos connection
     >>= fun query ->
     let fold acc = function
+      | `Ok (`CmdStart(_)) -> acc
       | `Ok (`Cmd (_,Ok _,_)) -> acc
       | `Ok (`Cmd (_,_,_)) -> `Error
       | `Ok (`Dependency_error _) -> `Error
