@@ -258,6 +258,9 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
       ]
       >>= function
       | `Timeout ->
+        Signal.send_i Signal.term (`Pid (Process.pid p));
+        after (Time.Span.create ~ms:200 ())
+        >>= fun () ->
         Signal.send_i Signal.kill (`Pid (Process.pid p));
         Deferred.unit
       | `Done -> Deferred.unit
