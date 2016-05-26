@@ -92,15 +92,17 @@ let wait4 pid =
 
 module Oci_Unix : sig
   type t [@@deriving sexp_of]
-
-  (** accessors *)
+  type env = [ `Extend of (string * string) list
+             | `Replace of (string * string) list ]
+    [@@deriving sexp, bin_io, compare]
+  (* accessors *)
   val pid    : t -> Pid.t
   val stdin  : t -> Writer.t
   val stdout : t -> Reader.t
   val stderr : t -> Reader.t
 
   type 'a create
-    =  ?env         : Core.Std.Unix.env  (** default is [`Extend []] *)
+    =  ?env         : env  (* default is [`Extend []] *)
     -> ?working_dir : string
     -> prog         : string
     -> args         : string list
@@ -113,146 +115,232 @@ module Oci_Unix : sig
   val wait : t -> Unix.Exit_or_signal.t Deferred.t
 end
 = struct
-  (** from core core_unix *)
+  (** from core extended_unix *)
 
 
-let atom x = Sexp.Atom x
-let list x = Sexp.List x
+external raw_fork_exec :
+  stdin : Core.Std.Unix.File_descr.t
+  -> stdout : Core.Std.Unix.File_descr.t
+  -> stderr : Core.Std.Unix.File_descr.t
+  -> ?working_dir : string
+  -> ?setuid : int
+  -> ?setgid : int
+  -> ?env : (string) array
+  -> string
+  -> string array
+  -> Pid.t
+  =  "oci_extended_ml_spawn_bc" "oci_extended_ml_spawn"
 
-let record l =
-  list (List.map l ~f:(fun (name, value) -> list [atom name; value]))
-;;
+type env = [ `Extend of (string * string) list
+           | `Replace of (string * string) list ]
+  [@@deriving sexp, bin_io, compare]
 
-(* No need to include a counter here. It just doesn't make sense to think we are
-going to be receiving a steady stream of interrupts.
-   Glibc's macro doesn't have a counter either.
-*)
-let rec retry_until_no_eintr f =
-  try
-    f ()
-  with Unix.Unix_error (EINTR, _, _) ->
-    retry_until_no_eintr f
+module Env = struct
+  open String.Map
+  type t = string String.Map.t
 
+  let empty : t = empty
 
-(* This wrapper improves the content of the Unix_error exception
-   raised by the standard library (by including a sexp of the function
-   arguments), and it optionally restarts syscalls on EINTR. *)
-let improve ?(restart = false) f make_arg_sexps =
-  try
-    if restart then retry_until_no_eintr f else f ()
-  with
-  | Unix.Unix_error (e, s, _) ->
-    let buf = Buffer.create 100 in
-    let fmt = Format.formatter_of_buffer buf in
-    Format.pp_set_margin fmt 10000;
-    Sexp.pp_hum fmt (record (make_arg_sexps ()));
-    Format.pp_print_flush fmt ();
-    let arg_str = Buffer.contents buf in
-    raise (Unix.Unix_error (e, s, arg_str))
-;;
+  let get ()  =
+    Array.fold  (Unix.environment ())
+      ~init:empty
+      ~f:(fun env str ->
+        match String.lsplit2 ~on:'=' str with
+        | Some (key,data) -> add ~key ~data env
+        | None ->
+          failwithf
+            "extended_unix.Env.get %S is not in the form of key=value"
+            str
+            ())
 
-let env_assignments env =
-  match env with
-  | `Replace_raw env -> env
-  | (`Replace _ | `Extend _) as env ->
-    let env_map =
-      let current, env =
-        match env with
-        | `Replace env -> [], env
-        | `Extend env ->
-          let current =
-            List.map (Array.to_list (Unix.environment ()))
-              ~f:(fun s -> String.lsplit2_exn s ~on:'=')
-          in
-          current, env
-      in
-      List.fold_left (current @ env) ~init:String.Map.empty
-        ~f:(fun map (key, data) -> Map.add map ~key ~data)
-    in
-    Map.fold env_map ~init:[]
-      ~f:(fun ~key ~data acc -> (key ^ "=" ^ data) :: acc)
+  let add ~key ~data env =
+    if String.mem key '=' then
+      failwithf "extended_unix.Env.add:\
+  variable to export in the environment %S contains an equal sign"
+        key
+        ()
+    else if String.mem key '\000' then
+      failwithf "extended_unix.Env.add:\
+  variable to export in the environment %S contains an null character"
+        key
+        ()
+    else if String.mem data '\000' then
+      failwithf "extended_unix.Env.add:\
+  value (%S) to export in the environment for %S contains an null character"
+        data
+        key
+        ()
+    else
+      String.Map.add ~key ~data env
 
-module Process_info = struct
-  (* Any change to the order of these fields must be accompanied by a
-     corresponding change to oci_fork_exec.c:oci_ml_create_process. *)
-  type t =
-    { pid : Pid.t;
-      stdin : Core.Std.Unix.File_descr.t;
-      stdout : Core.Std.Unix.File_descr.t;
-      stderr : Core.Std.Unix.File_descr.t;
-      start  : Core.Std.Unix.File_descr.t;
-    }
-  [@@deriving sexp]
+  let to_string_array env =
+    String.Map.to_alist env
+    |! List.map ~f:(fun (k,v) -> k^"="^v)
+    |! List.to_array
 end
 
-external create_process
-  :  ?working_dir : string
-  -> prog : string
-  -> args : string array
-  -> env : string array
-  -> search_path : bool
-  -> Process_info.t
-  = "oci_ml_create_process"
-
-let create_process_env ?working_dir ~prog ~args ~env () =
-  create_process
+let fork_exec
+    ?(stdin=Core.Std.Unix.stdin)
+    ?(stdout=Core.Std.Unix.stdout)
+    ?(stderr=Core.Std.Unix.stderr)
+    ?(path_lookup=true)
+    ?env
     ?working_dir
-    ~search_path:true
-    ~prog
-    ~args:(Array.of_list args)
-    ~env:(Array.of_list (env_assignments env))
+    ?setuid
+    ?setgid
+    prog
+    args
+    =
+  let env = Option.map env
+    ~f:(fun e ->
+      let init,l = match e with
+        | `Extend  l ->
+          Env.get (),l
+        | `Replace l ->
+          Env.empty,l
+      in
+      List.fold_left l
+        ~init
+        ~f:(fun env (key,data) -> Env.add ~key ~data env)
+      |! Env.to_string_array)
 
-let create_process_env ?working_dir ~prog ~args ~env () =
-  improve (fun () -> create_process_env ?working_dir ~prog ~args ~env ())
-    (fun () ->
-      [("prog", atom prog);
-       ("args", sexp_of_list atom args);
-       ("env", Core.Std.Unix.sexp_of_env env)])
+  and full_prog =
+    if path_lookup then
+      match Core_extended.Shell__core.which prog with
+      | Some s -> s
+      | None -> failwithf "fork_exec: Process not found %s"
+        prog
+        ()
+    else
+      prog
+  in
+  raw_fork_exec
+    ~stdin
+    ~stdout
+    ~stderr
+    ?working_dir
+    ?setuid
+    ?setgid
+    ?env
+    full_prog
+    (Array.of_list (prog::args))
+
 
 type t =
   { pid         : Pid.t
   ; stdin       : Writer.t
   ; stdout      : Reader.t
   ; stderr      : Reader.t
-  ; start       : Writer.t
+  (* ; start       : Writer.t *)
   ; prog        : string
   ; args        : string list
   ; working_dir : string option
-  ; env         : Core.Std.Unix.env
+  ; env         : env
   }
 [@@deriving fields, sexp_of]
 
 let wait t = Unix.waitpid t.pid
-let start t = Writer.close t.start
+let start t = Deferred.unit (* Writer.close t.start*)
 
 type 'a create
-  =  ?env         : Core.Std.Unix.env
+  =  ?env         : env
   -> ?working_dir : string
   -> prog         : string
   -> args         : string list
   -> unit
   -> 'a Deferred.t
 
+
+let rec temp_failure_retry f =
+  try
+    f ()
+  with Unix.Unix_error (EINTR, _, _) -> temp_failure_retry f
+
+
+let close_non_intr fd =
+  temp_failure_retry (fun () -> Core.Std.Unix.close fd)
+
+(* Creates a unix pipe with both sides set close on exec *)
+let cloexec_pipe () =
+  let (fd1,fd2) as res = Core.Std.Unix.pipe () in
+  Core.Std.Unix.set_close_on_exec fd1;
+  Core.Std.Unix.set_close_on_exec fd2;
+  res
+
+module Process_info = struct
+  type t = {
+    pid:int;
+    stdin : Core.Std.Unix.File_descr.t;
+    stdout : Core.Std.Unix.File_descr.t;
+    stderr : Core.Std.Unix.File_descr.t;
+  }
+end
+(* We use a slightly more powerful version of create process than the one in
+   core. This version is not quite as carefuly code reviewed but allows us to
+   have more control over the forked side of the process (e.g.: chdir).
+*)
+let internal_create_process ?working_dir ?setuid ?setgid ~env ~prog ~args () =
+  let close_on_err = ref [] in
+  try
+    let (in_read, in_write) = cloexec_pipe () in
+    close_on_err := in_read :: in_write :: !close_on_err;
+    let (out_read, out_write) = cloexec_pipe () in
+    close_on_err := out_read :: out_write :: !close_on_err;
+    let (err_read, err_write) = cloexec_pipe () in
+    close_on_err := err_read :: err_write :: !close_on_err;
+    let pid = fork_exec
+      prog
+      args
+      ?working_dir
+      ?setuid
+      ?setgid
+      ~env
+      ~stdin:in_read
+      ~stdout:out_write
+      ~stderr:err_write
+    in
+    close_non_intr in_read;
+    close_non_intr out_write;
+    close_non_intr err_write;
+    {
+      Process_info.pid = Pid.to_int pid;
+      stdin = in_write;
+      stdout = out_read;
+      stderr = err_read
+    }
+  with e ->
+    List.iter
+      ~f:(fun fd -> try close_non_intr fd with _ -> ())
+      !close_on_err;
+    raise e
+
+let path_expand ?working_dir ?use_extra_path prog =
+  match working_dir with
+  | Some d when (String.contains prog '/') && Filename.is_relative prog ->
+    d ^/ prog
+  | _ -> Core_extended.Shell__core.path_expand ?use_extra_path prog
+
 let create ?(env = `Extend []) ?working_dir ~prog ~args () =
   In_thread.syscall ~name:"oci_create_process_env" (fun () ->
-    create_process_env ~prog ~args ~env ?working_dir ())
+      let full_prog = path_expand ?working_dir prog in
+      internal_create_process ~prog:full_prog ~args ~env ?working_dir ())
   >>| function
   | Error exn -> Or_error.of_exn exn
-  | Ok { Process_info.pid; stdin; stdout; stderr; start } ->
+  | Ok { Process_info.pid; stdin; stdout; stderr; (* start *) } ->
     let create_fd name file_descr =
       Fd.create Fifo file_descr
         (Info.create "child process" ~here:[%here] (name, `pid pid, `prog prog,
                                                     `args args)
            [%sexp_of:
-                      string * [ `pid of Pid.t ] * [ `prog of string ] *
+                      string * [ `pid of int ] * [ `prog of string ] *
                       [ `args of string list ]
             ])
     in
-    Ok { pid
+    Ok { pid = Pid.of_int pid
        ; stdin  = Writer.create (create_fd "stdin"  stdin )
        ; stdout = Reader.create (create_fd "stdout" stdout)
        ; stderr = Reader.create (create_fd "stderr" stderr)
-       ; start  = Writer.create (create_fd "start"  start )
+       (* ; start  = Writer.create (create_fd "start"  start ) *)
        ; prog
        ; args
        ; working_dir

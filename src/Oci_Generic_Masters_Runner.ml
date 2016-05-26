@@ -122,7 +122,7 @@ let run_cmds t kind working_dir
                ~working_dir:(Oci_Filename.make_absolute working_dir
                                cmd.working_dir)
                ~prog:cmd.cmd ~args
-               ~env:(cmd.env :> Async.Std.Process.env) ()
+               ~env:cmd.env ()
            )
          >>= fun r ->
          match kind, r with

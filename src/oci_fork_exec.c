@@ -8,7 +8,6 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/wait.h>
@@ -17,285 +16,306 @@
 #include <caml/memory.h>
 #include <caml/fail.h>
 #include <caml/threads.h>
-#include <caml/alloc.h>
 
 #define PIPE_READ 0
 #define PIPE_WRITE 1
 
-/* Note: the ARG_MAX defined in sys/limits.h can be huge */
-#define ML_ARG_MAX (4096 + 1)
+/*
+  If you want to turn on debugging you may use:
 
-#define MAX_ERROR_LEN 4096
+  #define fork_side_assert(v) assert(v)
 
-extern char **environ;
+  Note that assert uses non async-signal-safe functions. Do not leave this on
+  in any production code
+ */
 
-static void report_error(int fd, const char* str)
+#define fork_side_assert(ignore) ((void) 0)
+
+#define SYSCALL(x)                                 \
+  while ((x) == -1) {                              \
+    if (errno != EINTR) {                          \
+      report_errno_on_pipe (pfd[PIPE_WRITE],errno);\
+    }                                              \
+  }                                                \
+
+#define NONINTR(x)                              \
+  while ((x) == -1){ assert(errno == EINTR); }  \
+
+/* Copy an ocaml string array in a c string array terminated by
+   a null pointer the result need to be free'd with a stat_free
+   It is a copy of cstringvect in the ocaml unix's module.
+ */
+static char ** copy_stringvect(const value arg)
 {
-  char buf[MAX_ERROR_LEN];
-  char buf2[MAX_ERROR_LEN];
-#ifdef __GLIBC__
-  snprintf(buf2, MAX_ERROR_LEN, "%s (%s)\n", str,
-           strerror_r(errno, buf, MAX_ERROR_LEN));
-#else
-  if (strerror_r(errno, buf, MAX_ERROR_LEN) == -1)
-    snprintf(buf, MAX_ERROR_LEN, "Unknown error %d", errno);
-  snprintf(buf2, MAX_ERROR_LEN, "%s (%s)\n", str, buf);
+  char ** res;
+  mlsize_t size, i;
+
+  size = Wosize_val(arg);
+  res = (char **) caml_stat_alloc((size + 1) * sizeof(char *));
+  for (i = 0; i < size; i++) res[i] = String_val(Field(arg, i));
+  res[size] = NULL;
+  return res;
+}
+
+#ifdef __GNUC__
+/* Giving Gcc as much info as possible */
+static void report_errno_on_pipe (int fd,int my_err) __attribute__((noreturn));
 #endif
-  buf2[MAX_ERROR_LEN - 1] = '\0';
-  if (write(fd, buf2, strlen(buf2))) {}
-  /* The returned value from the above write is ignored.
-     This is fine because we are about to exit(254).
 
-     But newer versions of gcc warn, so we enclose the expression with
-     `if(..){}'. Note: simply casting to (void) is not sufficient to
-     suppress the warning. */
-}
-
-/* Close function that handles signals correctly by retrying the close
-   after EINTR.
-
-   NOTE: we should never see EIO when closing pipes.  If so, it is
-   reasonable to see this as a kernel bug, and it's pretty useless trying
-   to catch/work around potential kernel bugs.  We assume that it works.
-   An EBADF would be bad when closing successfully opened pipes, too, but
-   in that case the pipe should be guaranteed to be closed anyway (unlike
-   EIO).  This covers all errors that close could potentially return.
+/*
+  Write an int to an fd.
+  This function is designed to be used on the fork side and therefor only uses
+  async-signal-safe functions.
 */
-static inline int safe_close(int fd)
-{
-  int ret;
-  while ((ret = close(fd)) == -1 && errno == EINTR) /* empty loop */ ;
-  return ret;
+static void report_errno_on_pipe (int fd, int my_err) {
+  size_t offset = 0;
+  ssize_t out_chars;
+  while (offset < sizeof(int)) {;
+    switch (out_chars=write (fd,
+                             (char *) &my_err + offset,
+                             sizeof(int) - offset)) {
+    case -1:
+      fork_side_assert (errno==EINTR);
+      continue;
+    default:
+      offset += (size_t) out_chars;
+    }
+  }
+  fork_side_assert (offset == sizeof(int));
+  _exit(254);
 }
 
-/* Idempotent version of safe_close: doesn't flag EBADF as an error. */
-static inline int safe_close_idem(int fd)
-{
-  int ret = safe_close(fd);
-  return (ret == -1 && errno == EBADF) ? 0 : ret;
+static void clear_sigprocmask(void){
+  sigset_t empty;
+  (void) sigemptyset (&empty);
+  (void) sigprocmask (SIG_SETMASK, &empty, (sigset_t *) NULL);
 }
 
 
-CAMLprim value oci_ml_create_process(value v_working_dir, value v_prog,
-                                 value v_args,
-                                 value v_env, value v_search_path)
+ /*
+  Returns 0 if there was no errno printed on the pipe and -1 if there was one.
+ */
+static int errno_from_pipe (int fd,int *my_errno) {
+   ssize_t in_chars;
+   size_t offset = 0;
+   while (true) {
+     in_chars=read(fd,
+                   (((char *) my_errno) + offset),
+                   sizeof(int) - offset);
+     switch (in_chars) {
+     case -1 :
+       assert (errno==EINTR);
+       continue;
+     case 0:
+       if (offset == 0) {
+         /* The fd was closed with nothing written to it; no error */
+         return 0;
+       };
+       assert (offset == sizeof(int));
+       return -1;
+     default:
+       offset += (size_t)in_chars;
+     }
+   };
+}
+
+
+/*
+  [set_cloexec(fd,value)]
+  Set the close on exec flag of fd to value. Is async-signal-safe.
+  Returns 0 on success and -1 on error. Sets errno in case of errors.
+ */
+static int set_cloexec (int fd,int v) {
+  int flags,new_flags;
+  if ((flags = fcntl(fd, F_GETFD)) == -1) return -1;
+
+  new_flags = (v ? flags | FD_CLOEXEC : flags & ~FD_CLOEXEC);
+
+  if(new_flags == flags)
+    return 0;
+
+  return fcntl(fd, F_SETFD, new_flags);
+}
+
+CAMLprim value oci_extended_ml_spawn
+(
+ value v_stdin, /* Fd to connect to the forked stdin... */
+ value v_stdout,
+ value v_stderr,
+ value v_working_dir, /* A directory we want to chdir too. [String option] */
+ value v_setuid, /* setuid on the fork side [int option] */
+ value v_setgid, /* setgid on the fork side [int option] */
+ value v_env, /* The Environment to set for execve. pass None to call an
+                 execv instead. [string array option]*/
+ value v_prog, /* Program name [string] */
+ value v_args /* Full list of args passed to executable [string array] */
+ )
 {
-  /* No need to protect the arguments or other values: we never release
-     the O'Caml lock, and we never use O'Caml values after other values
-     get allocated in the O'Caml heap. */
-  typedef enum { READ_END = 0, WRITE_END = 1 } pipe_end_t;
-  value v_res;
-  int stdin_pfds[2];
-  int stdout_pfds[2];
-  int stderr_pfds[2];
-  int start_pfds[2];
-  int child_pid;
-  int my_errno;
+  CAMLparam5(v_prog, v_args, v_stdin, v_stdout, v_stderr);
+  CAMLxparam4(v_working_dir,v_setuid,v_setgid,v_env);
+  int stdin_fd = Int_val (v_stdin);
+  int stdout_fd = Int_val (v_stdout);
+  int stderr_fd = Int_val (v_stderr);
+  char** envp  = NULL;
+  int my_errno,forked_error;
+  int pfd[2]; /* The pipe used to report errors.. */
 
   /* It's ok to hold pointers into the O'Caml heap, since the memory
      space gets duplicated upon the fork, during which we keep the
      O'Caml lock. */
-  char *prog = String_val(v_prog);
-  int search_path = Bool_val(v_search_path);
+  char* prog = String_val(v_prog);
+  char* working_dir = NULL;
 
-  /* We use a statically allocated, fixed-size array for performance
-     reasons.  It is reasonable to assume that the array can never become
-     too big for stack allocations anyway. */
-  char *args[ML_ARG_MAX];
-  int n_args = Wosize_val(v_args);
+  pid_t child_pid;
 
-  char *working_dir = NULL;
+  char** args;
 
-  char buf_start[1];
+  /* We use a pipe to report errors on the forked side */
+  if (pipe(pfd) == -1) uerror("extended_ml_spawn::pipe",Nothing);
 
-  /* Note that the executable name also counts as an argument, and we
-     also have to subtract one more for the terminating NULL! */
-  if (n_args >= ML_ARG_MAX - 1)
-    caml_failwith("too many arguments for Unix.create_process");
+  /* Set both side of the pipe close_on_exec... */
+  (void) set_cloexec(pfd[PIPE_WRITE],true);
+  (void) set_cloexec(pfd[PIPE_READ],true);
 
-  args[0] = prog;
-  args[n_args + 1] = NULL;
+  args = copy_stringvect(v_args);
 
-  while (n_args) {
-    args[n_args] = String_val(Field(v_args, n_args - 1));
-    --n_args;
-  }
+  if (Is_block(v_env))
+    envp = copy_stringvect(Field(v_env,0));
 
-  if (pipe(stdin_pfds) == -1)
-    uerror("create_process: parent->stdin pipe creation failed", Nothing);
-
-  if (pipe(stdout_pfds) == -1) {
-    my_errno = errno;
-    safe_close(stdin_pfds[READ_END]);
-    safe_close(stdin_pfds[WRITE_END]);
-    unix_error(my_errno,
-               "create_process: stdout->parent pipe creation failed", Nothing);
-  }
-
-  if (pipe(stderr_pfds) == -1) {
-    my_errno = errno;
-    safe_close(stdin_pfds[READ_END]);
-    safe_close(stdin_pfds[WRITE_END]);
-    safe_close(stdout_pfds[READ_END]);
-    safe_close(stdout_pfds[WRITE_END]);
-    unix_error(my_errno,
-               "create_process: stderr->parent pipe creation failed", Nothing);
-  }
-
-  if (pipe(start_pfds) == -1) {
-    my_errno = errno;
-    safe_close(stdin_pfds[READ_END]);
-    safe_close(stdin_pfds[WRITE_END]);
-    safe_close(stdout_pfds[READ_END]);
-    safe_close(stdout_pfds[WRITE_END]);
-    safe_close(stderr_pfds[READ_END]);
-    safe_close(stderr_pfds[WRITE_END]);
-    unix_error(my_errno,
-               "create_process: start->parent pipe creation failed", Nothing);
-  }
+  if (Is_block(v_working_dir))
+    working_dir = String_val(Field(v_working_dir,0));
 
   /* This function deliberately doesn't release the O'Caml lock (i.e. it
      doesn't call caml_enter_blocking_section) during the fork.  This is
      because we hold pointers into the ML heap across a fork, and
      releasing the lock immediately before the fork could theoretically
      cause the GC to run and move blocks before the fork duplicates the
-     memory space.
+     memory space. */
+  switch (child_pid = fork()) {
+  case -1:
+    my_errno = errno;
+    caml_stat_free(args);
+    if (envp)
+      caml_stat_free(envp);
+    NONINTR(close(pfd[PIPE_READ]));
+    NONINTR(close(pfd[PIPE_WRITE]));
+    unix_error(my_errno,"extended_ml_spawn: fork failed", Nothing);
+  case 0:
+    /* Child process.
+       Since we've just lost all of our threads we need to be very careful
+       not to call any function that might use a thread lock. This includes
+       malloc,setenv and stdio functions... This is stated in the POSIX norm as:
 
-     If the parent process has threads that turn out to suffer from too
-     much latency during this fork, we may want to rewrite this function
-     to copy the O'Caml values into the C heap before the fork and release
-     the O'Caml lock.  It seems unlikely that forks will ever take so
-     long that people care.  In Linux 2.6 forks are practically constant
-     time even in the presence of ridiculous amounts of processes, and
-     are reported to always have less than 500us latency.  Maybe the
-     kernel does not even schedule threads during forks anyway.  */
-  if ((child_pid = fork()) == 0) {
-    /* Child process. */
+       If a multi-threaded process calls fork(), the new process shall contain a
+       replica of the calling thread and its entire address space, possibly
+       including the states of mutexes and other resources. Consequently, to
+       avoid errors, the child process may only execute async-signal-safe
+       operations until such time as one of the exec functions is called.
 
-    /* Close write end of start_pfd */
-    safe_close(start_pfds[WRITE_END]);
+       [http://pubs.opengroup.org/onlinepubs/009695399/functions/fork.html]
+
+       The list of functions that we can call on the fork side can be found
+       here:
+       [http://pubs.opengroup.org/onlinepubs/009695399/functions/xsh_chap02_04.html]
+
+       We also need to use _exit instead of [exit] because we do not want
+       [at_exit] registered functions to be called.
+     */
+
+    /* Reset the sigmask to get rid of the inherited one */
+    clear_sigprocmask();
 
     /* Just in case any of the pipes' file descriptors are 0, 1 or 2
        (not inconceivable, especially when running as a daemon),
        duplicate all three descriptors we need in the child to fresh
        descriptors before duplicating them onto stdin, stdout and stderr.
 
-       It is in fact the case that none of [temp_stdin], [temp_stdout] and
-       [temp_stderr] will never be 0, 1, or 2.  That this is so follows from
-       the following three properties:
+       This will ensure that there is one and only one copy of the file
+       descriptors passed as arguments with id's higher than 2.
 
-       1. The kernel always allocates the lowest-numbered unused fd when
-          asked for a new one.
+       F_DUPFD cannot get EINTR so we'll go only once through the
+       loop
+    */
+    SYSCALL(stdin_fd = fcntl(stdin_fd,F_DUPFD,3));
+    SYSCALL(stdout_fd= fcntl(stdout_fd,F_DUPFD,3));
+    SYSCALL(stderr_fd= fcntl(stderr_fd,F_DUPFD,3));
 
-       2. We allocated more than two fds during the calls to [pipe] above.
+    /* We clear out the close on exec on the fds... */
+    SYSCALL(set_cloexec(stdin_fd,false));
+    SYSCALL(set_cloexec(stdout_fd,false));
+    SYSCALL(set_cloexec(stderr_fd,false));
 
-       3. We have not closed any fds between the calls to [pipe] above and
-          this point.  */
-    int temp_stdin = dup(stdin_pfds[READ_END]);
-    int temp_stdout = dup(stdout_pfds[WRITE_END]);
-    int temp_stderr = dup(stderr_pfds[WRITE_END]);
-    if (temp_stdin == -1 || temp_stdout == -1 || temp_stderr == -1) {
-      /* Errors here and below are sent back to the parent on the
-         stderr pipe. */
-      report_error(stderr_pfds[WRITE_END],
-                   "could not dup fds in child process");
-      /* The open fds will be cleaned up by exit(); likewise below.
-         We use 254 to avoid any clash with ssh returning 255. */
-      exit(254);
+    /* We must dup2 the descriptors back in place... */
+    SYSCALL(dup2(stdin_fd,0));
+    SYSCALL(dup2(stdout_fd,1));
+    SYSCALL(dup2(stderr_fd,2));
+
+    /* And close the old fds... */
+    SYSCALL(close(stdin_fd));
+    SYSCALL(close(stdout_fd));
+    SYSCALL(close(stderr_fd));
+
+    if (working_dir) {
+      SYSCALL(chdir(working_dir));
     }
 
-    /* We are going to replace stdin, stdout, and stderr for this child
-       process so we close the existing descriptors now.  They may be
-       closed already so we ignore EBADF from close. */
-    /* We don't have to do this ([dup2] closes the newfd if it is open
-       before splatting the oldfd on it), but maybe we get a more
-       informative error message if there is a problem closing a descriptor
-       rather than with the dup operation itself. */
-    if (safe_close_idem(STDIN_FILENO) == -1
-        || safe_close_idem(STDOUT_FILENO) == -1
-        || safe_close_idem(STDERR_FILENO) == -1) {
-      report_error(temp_stderr,
-                   "could not close standard descriptors in child process");
-      exit(254);
+    if (Is_block(v_setuid)) {
+      uid_t uid = (uid_t) Int_val(Field(v_setuid,0));
+      if (getuid() != 0)
+        report_errno_on_pipe (pfd[PIPE_WRITE],EPERM);
+      SYSCALL(setuid(uid));
     }
 
-    /* All pipe fds propagated from parent to child via fork() must be
-       closed, otherwise the reference counts on those fds won't drop
-       to zero (and cause the pipe to be broken) when the parent closes
-       them. */
-    safe_close(stdin_pfds[READ_END]);
-    safe_close(stdin_pfds[WRITE_END]);
-    safe_close(stdout_pfds[READ_END]);
-    safe_close(stdout_pfds[WRITE_END]);
-    safe_close(stderr_pfds[READ_END]);
-    safe_close(stderr_pfds[WRITE_END]);
-
-    /* We must dup2 after closing the pfds, because the latter might
-       have been standard descriptors. */
-    if (dup2(temp_stdin, STDIN_FILENO) == -1
-        || dup2(temp_stdout, STDOUT_FILENO) == -1
-        || dup2(temp_stderr, STDERR_FILENO) == -1) {
-      report_error(temp_stderr, "could not dup2 fds in child process");
-      exit(254);
+    if (Is_block(v_setgid)) {
+      gid_t gid = (gid_t) Int_val(Field(v_setgid,0));
+      if (getuid() != 0)
+        report_errno_on_pipe (pfd[PIPE_WRITE],EPERM);
+      SYSCALL(setgid(gid));
     }
 
-    safe_close(temp_stdin);
-    safe_close(temp_stdout);
-    safe_close(temp_stderr);
+    if (envp) {
+      /* path lookups should be done on the parent side of the fork so no
+         execvp*/
+      SYSCALL(execve(prog,args,envp));
+    }else {
+      SYSCALL(execv(prog,args));
+    };
 
-    /* We don't bother saving/restoring the environment or freeing the
-       new one since we exit the process in case of error. */
-    environ = cstringvect(v_env);
+  default: /* Parent process */
 
-    if (Is_block(v_working_dir))
-      working_dir = String_val(Field(v_working_dir, 0));
-    if (working_dir && chdir(working_dir) == -1) {
-      report_error(STDERR_FILENO, "chdir failed in child process");
-      exit(254);
-    }
+    caml_enter_blocking_section();
+    NONINTR(close (pfd[PIPE_WRITE])); /* Close unused write end */
+    /* C side cleanup and looking for errors */
+    forked_error = errno_from_pipe(pfd[PIPE_READ],&my_errno);
+    NONINTR(close (pfd[PIPE_READ]));
+    if (forked_error)
+      NONINTR(waitpid(child_pid, 0, 0));
 
-    if(read(start_pfds[READ_END],&buf_start,1) != 0){
-      report_error(STDERR_FILENO, "start failed in child process");
-      exit(254);
-    }
+    caml_leave_blocking_section();
 
-    if ((search_path ? execvp : execv)(prog, args) == -1) {
-      report_error(STDERR_FILENO, "execvp/execv failed in child process");
-      exit(254);
-    }
+    /* Caml side cleanup */
+    caml_stat_free(args);
+    if (envp)
+      caml_stat_free(envp);
+
+    /* Returning the result */
+    if (forked_error)
+      unix_error(my_errno,"extended_ml_spawn::forked_side" ,
+                 Nothing);
+
+    /* Reading the pipe.. */
+    CAMLreturn(Val_int(child_pid));
   }
+}
 
-  my_errno = errno;
-
-  /* Parent process. */
-
-  /* Close the ends of the pipes that we [the parent] aren't going to use. */
-  safe_close(stdin_pfds[READ_END]);
-  safe_close(stdout_pfds[WRITE_END]);
-  safe_close(stderr_pfds[WRITE_END]);
-  safe_close(start_pfds[READ_END]);
-
-  /* Set the ends we are going to use to close on exec, so the next child we
-   * fork doesn't get an unwanted inheritance. */
-  close_on_exec(stdin_pfds[WRITE_END]);
-  close_on_exec(stdout_pfds[READ_END]);
-  close_on_exec(stderr_pfds[READ_END]);
-
-  /* If the fork failed, cause the pipes to be destroyed and fail. */
-  if (child_pid == -1) {
-    safe_close(stdin_pfds[WRITE_END]);
-    safe_close(stdout_pfds[READ_END]);
-    safe_close(stderr_pfds[READ_END]);
-    unix_error(my_errno, "create_process: failed to fork", Nothing);
+CAMLprim value oci_extended_ml_spawn_bc(value *argv, int argn)
+{
+  if (argn != 9) {
+    caml_failwith("Unix.ml_spawn_bc got the wrong number of \
+     arguments. This is due to an error in the FFI.");
   }
-
-  /* Must use Field as an lvalue after caml_alloc_small -- not Store_field. */
-  v_res = caml_alloc_small(5, 0);
-  Field(v_res, 0) = Val_int(child_pid);
-  Field(v_res, 1) = Val_int(stdin_pfds[WRITE_END]);
-  Field(v_res, 2) = Val_int(stdout_pfds[READ_END]);
-  Field(v_res, 3) = Val_int(stderr_pfds[READ_END]);
-  Field(v_res, 4) = Val_int(start_pfds[WRITE_END]);
-
-  return v_res;
+  return
+    oci_extended_ml_spawn(argv[0], argv[1], argv[2],
+                      argv[3], argv[4], argv[5],
+                      argv[6], argv[7], argv[8]);
 }

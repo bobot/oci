@@ -37,8 +37,7 @@ module CompileGitRepoRunner = struct
     args: [ `S of string |
             `Proc of Formatted_proc.t
           ] list;
-    env : [ `Replace of (string * string) list
-          | `Extend of (string * string) list];
+    env : Oci_Std.Oci_Unix.env;
     proc_requested : int;
     working_dir: Oci_Filename.t (** Relative path *);
     timelimit: Time.Span.t option;

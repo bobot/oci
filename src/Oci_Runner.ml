@@ -208,7 +208,7 @@ let print_cmd prog args =
   prog ^ " " ^ (String.concat ~sep:", " args)
 
 type 'a process_create
-  =  ?env         : Process.env
+  =  ?env         : Oci_Std.Oci_Unix.env
   -> ?working_dir : string
   -> prog         : string
   -> args         : string list

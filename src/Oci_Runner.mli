@@ -105,7 +105,7 @@ val data_log: 'result t -> 'result -> unit
 (* val process_log: 'r t -> Process.t -> unit Deferred.t *)
 
 type 'a process_create
-  =  ?env         : Process.env  (** default is [`Extend []] *)
+  =  ?env         : Oci_Std.Oci_Unix.env  (** default is [`Extend []] *)
   -> ?working_dir : string
   -> prog         : string
   -> args         : string list
