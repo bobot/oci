@@ -159,7 +159,7 @@ let reusable_runner
         | `Ok ->
           match Deferred.peek reusable.wait with
           | None ->
-            Log.Global.debug "Reuse runner %i for %s"
+            Log.Global.info "Reuse runner %i for %s"
               (reusable_id reusable)
               debug_info;
             unfreeze_runner reusable.runner slot

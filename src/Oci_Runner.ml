@@ -33,6 +33,48 @@ let () =
   Caml.Unix.chroot ".";
   Caml.Unix.chdir "/"
 
+let get_cgroup cgroup =
+  Reader.file_lines "/proc/self/cgroup"
+  >>= fun l ->
+  let r = List.find_map l ~f:(fun x ->
+      match String.split ~on:':' x with
+      | [_;names;path] when List.mem (String.split ~on:',' names) cgroup ->
+        Some path
+      | _ -> None
+    )
+  in
+  return r
+
+let send_signal master_pid own_cgroup =
+  let kill_one pid =
+    Signal.send_i Signal.term (`Pid pid);
+    after (Time.Span.create ~ms:200 ())
+    >>= fun () ->
+    Signal.send_i Signal.kill (`Pid pid);
+    Deferred.unit
+  in
+  match own_cgroup with
+  | None -> kill_one master_pid
+  | Some cgroup ->
+    let procs = Oci_Filename.make_absolute cgroup "cgroup.procs" in
+    Reader.file_lines procs
+    >>= fun l ->
+    Deferred.List.iter ~how:`Parallel l
+      ~f:(fun x -> kill_one (Pid.of_string x))
+
+
+let cgroup =
+  Deferred.Option.bind
+    (get_cgroup "cpuset")
+    (fun p ->
+       let p = Oci_Filename.make_absolute "/sys/fs/cgroup/cpuset"
+           (Oci_Filename.make_relative "/" p) in
+       Unix.access p [`Write;`Read;`Exec]
+       >>= function
+       | Ok () -> return (Some p)
+       | _ -> return None
+    )
+
 let start ~implementations =
   begin
     let implementations =
@@ -243,14 +285,37 @@ let run_exn t ?env ?working_dir ~prog ~args () =
   | Core_kernel.Std.Result.Error _ ->
     raise CommandFailed
 
+let next_cgroup = ref (-1)
+
 let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
   let start = Unix.gettimeofday () in
   Oci_Std.Oci_Unix.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
+  let pid = Oci_Std.Oci_Unix.pid p in
+  Deferred.Option.bind cgroup
+    (fun p ->
+       let id = incr next_cgroup; sprintf "run%i" !next_cgroup in
+       let p = Oci_Filename.make_absolute p id in
+      cmd_log t "create cgroup: %s" p;
+      Sys.file_exists_exn p
+      >>= fun b -> begin
+        if b then Deferred.unit
+        else Unix.mkdir p
+      end
+      >>= fun () ->
+      Writer.with_file
+        ~f:(fun w ->
+            Writer.write w (Pid.to_string pid);
+            Deferred.unit)
+        (Oci_Filename.make_absolute p "cgroup.procs")
+      >>= fun () ->
+      Deferred.Option.return p
+    )
+  >>= fun own_cgroup ->
   Oci_Std.Oci_Unix.start p >>= fun () ->
-  let w = Oci_Std.wait4 (Oci_Std.Oci_Unix.pid p) in
+  let w = Oci_Std.wait4 pid in
   let w = Deferred.both (process_log t p) w in
   begin
     match timelimit with
@@ -262,12 +327,7 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
         Deferred.choice (after timelimit) (fun _ -> `Timeout);
       ]
       >>= function
-      | `Timeout ->
-        Signal.send_i Signal.term (`Pid (Oci_Std.Oci_Unix.pid p));
-        after (Time.Span.create ~ms:200 ())
-        >>= fun () ->
-        Signal.send_i Signal.kill (`Pid (Oci_Std.Oci_Unix.pid p));
-        Deferred.unit
+      | `Timeout -> send_signal pid own_cgroup
       | `Done -> Deferred.unit
   end
   >>= fun () ->

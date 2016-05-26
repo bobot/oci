@@ -142,6 +142,7 @@ CAMLprim value oci_extended_ml_spawn
  value v_stdin, /* Fd to connect to the forked stdin... */
  value v_stdout,
  value v_stderr,
+ value v_start, /* Wait a signal before running [Fd option] */
  value v_working_dir, /* A directory we want to chdir too. [String option] */
  value v_setuid, /* setuid on the fork side [int option] */
  value v_setgid, /* setgid on the fork side [int option] */
@@ -152,7 +153,7 @@ CAMLprim value oci_extended_ml_spawn
  )
 {
   CAMLparam5(v_prog, v_args, v_stdin, v_stdout, v_stderr);
-  CAMLxparam4(v_working_dir,v_setuid,v_setgid,v_env);
+  CAMLxparam5(v_start,v_working_dir,v_setuid,v_setgid,v_env);
   int stdin_fd = Int_val (v_stdin);
   int stdout_fd = Int_val (v_stdout);
   int stderr_fd = Int_val (v_stderr);
@@ -165,6 +166,8 @@ CAMLprim value oci_extended_ml_spawn
      O'Caml lock. */
   char* prog = String_val(v_prog);
   char* working_dir = NULL;
+  int start_fd = 0;
+  char start_buf[1];
 
   pid_t child_pid;
 
@@ -184,6 +187,9 @@ CAMLprim value oci_extended_ml_spawn
 
   if (Is_block(v_working_dir))
     working_dir = String_val(Field(v_working_dir,0));
+
+  if (Is_block(v_start))
+    start_fd = Int_val(Field(v_start,0));
 
   /* This function deliberately doesn't release the O'Caml lock (i.e. it
      doesn't call caml_enter_blocking_section) during the fork.  This is
@@ -273,6 +279,13 @@ CAMLprim value oci_extended_ml_spawn
       SYSCALL(setgid(gid));
     }
 
+    if (start_fd) {
+      ssize_t size;
+      SYSCALL(size = read(start_fd,&start_buf,0));
+      if(size!=0)
+        report_errno_on_pipe (pfd[PIPE_WRITE],ECANCELED);
+    }
+
     if (envp) {
       /* path lookups should be done on the parent side of the fork so no
          execvp*/
@@ -317,5 +330,5 @@ CAMLprim value oci_extended_ml_spawn_bc(value *argv, int argn)
   return
     oci_extended_ml_spawn(argv[0], argv[1], argv[2],
                       argv[3], argv[4], argv[5],
-                      argv[6], argv[7], argv[8]);
+                      argv[6], argv[7], argv[8], argv[9]);
 }

@@ -122,6 +122,7 @@ external raw_fork_exec :
   stdin : Core.Std.Unix.File_descr.t
   -> stdout : Core.Std.Unix.File_descr.t
   -> stderr : Core.Std.Unix.File_descr.t
+  -> ?start : Core.Std.Unix.File_descr.t
   -> ?working_dir : string
   -> ?setuid : int
   -> ?setgid : int
@@ -183,6 +184,7 @@ let fork_exec
     ?(stdin=Core.Std.Unix.stdin)
     ?(stdout=Core.Std.Unix.stdout)
     ?(stderr=Core.Std.Unix.stderr)
+    ?start
     ?(path_lookup=true)
     ?env
     ?working_dir
@@ -218,6 +220,7 @@ let fork_exec
     ~stdin
     ~stdout
     ~stderr
+    ?start
     ?working_dir
     ?setuid
     ?setgid
@@ -231,7 +234,7 @@ type t =
   ; stdin       : Writer.t
   ; stdout      : Reader.t
   ; stderr      : Reader.t
-  (* ; start       : Writer.t *)
+  ; start       : Writer.t
   ; prog        : string
   ; args        : string list
   ; working_dir : string option
@@ -240,7 +243,7 @@ type t =
 [@@deriving fields, sexp_of]
 
 let wait t = Unix.waitpid t.pid
-let start t = Deferred.unit (* Writer.close t.start*)
+let start t = Writer.close t.start
 
 type 'a create
   =  ?env         : env
@@ -273,6 +276,7 @@ module Process_info = struct
     stdin : Core.Std.Unix.File_descr.t;
     stdout : Core.Std.Unix.File_descr.t;
     stderr : Core.Std.Unix.File_descr.t;
+    start  : Core.Std.Unix.File_descr.t;
   }
 end
 (* We use a slightly more powerful version of create process than the one in
@@ -288,6 +292,8 @@ let internal_create_process ?working_dir ?setuid ?setgid ~env ~prog ~args () =
     close_on_err := out_read :: out_write :: !close_on_err;
     let (err_read, err_write) = cloexec_pipe () in
     close_on_err := err_read :: err_write :: !close_on_err;
+    let (start_read, start_write) = cloexec_pipe () in
+    close_on_err := err_read :: err_write :: !close_on_err;
     let pid = fork_exec
       prog
       args
@@ -298,6 +304,7 @@ let internal_create_process ?working_dir ?setuid ?setgid ~env ~prog ~args () =
       ~stdin:in_read
       ~stdout:out_write
       ~stderr:err_write
+      ~start:start_read
     in
     close_non_intr in_read;
     close_non_intr out_write;
@@ -306,7 +313,8 @@ let internal_create_process ?working_dir ?setuid ?setgid ~env ~prog ~args () =
       Process_info.pid = Pid.to_int pid;
       stdin = in_write;
       stdout = out_read;
-      stderr = err_read
+      stderr = err_read;
+      start  = start_write;
     }
   with e ->
     List.iter
@@ -326,7 +334,7 @@ let create ?(env = `Extend []) ?working_dir ~prog ~args () =
       internal_create_process ~prog:full_prog ~args ~env ?working_dir ())
   >>| function
   | Error exn -> Or_error.of_exn exn
-  | Ok { Process_info.pid; stdin; stdout; stderr; (* start *) } ->
+  | Ok { Process_info.pid; stdin; stdout; stderr; start } ->
     let create_fd name file_descr =
       Fd.create Fifo file_descr
         (Info.create "child process" ~here:[%here] (name, `pid pid, `prog prog,
@@ -340,7 +348,7 @@ let create ?(env = `Extend []) ?working_dir ~prog ~args () =
        ; stdin  = Writer.create (create_fd "stdin"  stdin )
        ; stdout = Reader.create (create_fd "stdout" stdout)
        ; stderr = Reader.create (create_fd "stderr" stderr)
-       (* ; start  = Writer.create (create_fd "start"  start ) *)
+       ; start  = Writer.create (create_fd "start"  start )
        ; prog
        ; args
        ; working_dir
