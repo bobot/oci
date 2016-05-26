@@ -109,6 +109,7 @@ module Oci_Unix : sig
   val create     : t Or_error.t create
   val create_exn : t            create
 
+  val start : t -> unit Deferred.t
   val wait : t -> Unix.Exit_or_signal.t Deferred.t
 end
 = struct
@@ -173,12 +174,13 @@ let env_assignments env =
 
 module Process_info = struct
   (* Any change to the order of these fields must be accompanied by a
-     corresponding change to unix_stubs.c:ml_create_process. *)
+     corresponding change to oci_fork_exec.c:oci_ml_create_process. *)
   type t =
     { pid : Pid.t;
       stdin : Core.Std.Unix.File_descr.t;
       stdout : Core.Std.Unix.File_descr.t;
       stderr : Core.Std.Unix.File_descr.t;
+      start  : Core.Std.Unix.File_descr.t;
     }
   [@@deriving sexp]
 end
@@ -212,6 +214,7 @@ type t =
   ; stdin       : Writer.t
   ; stdout      : Reader.t
   ; stderr      : Reader.t
+  ; start       : Writer.t
   ; prog        : string
   ; args        : string list
   ; working_dir : string option
@@ -220,6 +223,7 @@ type t =
 [@@deriving fields, sexp_of]
 
 let wait t = Unix.waitpid t.pid
+let start t = Writer.close t.start
 
 type 'a create
   =  ?env         : Core.Std.Unix.env
@@ -234,7 +238,7 @@ let create ?(env = `Extend []) ?working_dir ~prog ~args () =
     create_process_env ~prog ~args ~env ?working_dir ())
   >>| function
   | Error exn -> Or_error.of_exn exn
-  | Ok { Process_info.pid; stdin; stdout; stderr } ->
+  | Ok { Process_info.pid; stdin; stdout; stderr; start } ->
     let create_fd name file_descr =
       Fd.create Fifo file_descr
         (Info.create "child process" ~here:[%here] (name, `pid pid, `prog prog,
@@ -248,6 +252,7 @@ let create ?(env = `Extend []) ?working_dir ~prog ~args () =
        ; stdin  = Writer.create (create_fd "stdin"  stdin )
        ; stdout = Reader.create (create_fd "stdout" stdout)
        ; stderr = Reader.create (create_fd "stderr" stderr)
+       ; start  = Writer.create (create_fd "start"  start )
        ; prog
        ; args
        ; working_dir

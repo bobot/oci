@@ -154,6 +154,12 @@ let set_cpuset cgroupname cpuset =
     "%s"
     (String.concat ~sep:"," (List.map ~f:Int.to_string cpuset))
 
+let chown_cgroup name uid gid =
+  Unix.chown name ~uid ~gid
+
+let chmod_cgroup name =
+  Unix.chmod name ~perm:0o777
+
 (** {2 User namespace} *)
 open Oci_Wrapper_Api
 

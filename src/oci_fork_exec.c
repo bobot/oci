@@ -17,6 +17,7 @@
 #include <caml/memory.h>
 #include <caml/fail.h>
 #include <caml/threads.h>
+#include <caml/alloc.h>
 
 #define PIPE_READ 0
 #define PIPE_WRITE 1
@@ -87,6 +88,7 @@ CAMLprim value oci_ml_create_process(value v_working_dir, value v_prog,
   int stdin_pfds[2];
   int stdout_pfds[2];
   int stderr_pfds[2];
+  int start_pfds[2];
   int child_pid;
   int my_errno;
 
@@ -103,6 +105,8 @@ CAMLprim value oci_ml_create_process(value v_working_dir, value v_prog,
   int n_args = Wosize_val(v_args);
 
   char *working_dir = NULL;
+
+  char buf_start[1];
 
   /* Note that the executable name also counts as an argument, and we
      also have to subtract one more for the terminating NULL! */
@@ -138,6 +142,18 @@ CAMLprim value oci_ml_create_process(value v_working_dir, value v_prog,
                "create_process: stderr->parent pipe creation failed", Nothing);
   }
 
+  if (pipe(start_pfds) == -1) {
+    my_errno = errno;
+    safe_close(stdin_pfds[READ_END]);
+    safe_close(stdin_pfds[WRITE_END]);
+    safe_close(stdout_pfds[READ_END]);
+    safe_close(stdout_pfds[WRITE_END]);
+    safe_close(stderr_pfds[READ_END]);
+    safe_close(stderr_pfds[WRITE_END]);
+    unix_error(my_errno,
+               "create_process: start->parent pipe creation failed", Nothing);
+  }
+
   /* This function deliberately doesn't release the O'Caml lock (i.e. it
      doesn't call caml_enter_blocking_section) during the fork.  This is
      because we hold pointers into the ML heap across a fork, and
@@ -155,6 +171,9 @@ CAMLprim value oci_ml_create_process(value v_working_dir, value v_prog,
      kernel does not even schedule threads during forks anyway.  */
   if ((child_pid = fork()) == 0) {
     /* Child process. */
+
+    /* Close write end of start_pfd */
+    safe_close(start_pfds[WRITE_END]);
 
     /* Just in case any of the pipes' file descriptors are 0, 1 or 2
        (not inconceivable, especially when running as a daemon),
@@ -235,6 +254,11 @@ CAMLprim value oci_ml_create_process(value v_working_dir, value v_prog,
       exit(254);
     }
 
+    if(read(start_pfds[READ_END],&buf_start,1) != 0){
+      report_error(STDERR_FILENO, "start failed in child process");
+      exit(254);
+    }
+
     if ((search_path ? execvp : execv)(prog, args) == -1) {
       report_error(STDERR_FILENO, "execvp/execv failed in child process");
       exit(254);
@@ -249,6 +273,7 @@ CAMLprim value oci_ml_create_process(value v_working_dir, value v_prog,
   safe_close(stdin_pfds[READ_END]);
   safe_close(stdout_pfds[WRITE_END]);
   safe_close(stderr_pfds[WRITE_END]);
+  safe_close(start_pfds[READ_END]);
 
   /* Set the ends we are going to use to close on exec, so the next child we
    * fork doesn't get an unwanted inheritance. */
@@ -265,11 +290,12 @@ CAMLprim value oci_ml_create_process(value v_working_dir, value v_prog,
   }
 
   /* Must use Field as an lvalue after caml_alloc_small -- not Store_field. */
-  v_res = caml_alloc_small(4, 0);
+  v_res = caml_alloc_small(5, 0);
   Field(v_res, 0) = Val_int(child_pid);
   Field(v_res, 1) = Val_int(stdin_pfds[WRITE_END]);
   Field(v_res, 2) = Val_int(stdout_pfds[READ_END]);
   Field(v_res, 3) = Val_int(stderr_pfds[READ_END]);
+  Field(v_res, 4) = Val_int(start_pfds[WRITE_END]);
 
   return v_res;
 }
