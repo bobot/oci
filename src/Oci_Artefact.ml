@@ -31,13 +31,16 @@ module Used_procs : sig
   type used_procs = private
     | SemiFreezed
     | Running of Int.t list * Int.t list * Int.t List.t List.t
+    [@@ deriving sexp]
       (** allocated, proc used, list of group of other used proc *)
+
   val mk_semifreezed: used_procs
   val mk_running: Int.t list -> Int.t list -> Int.t List.t List.t -> used_procs
 end = struct
   type used_procs =
     | SemiFreezed
     | Running of Int.t list * Int.t list * Int.t List.t List.t
+    [@@ deriving sexp]
     (** allocated, proc used, list of group of other used proc *)
 
   let mk_semifreezed = SemiFreezed
@@ -109,7 +112,9 @@ type conf = {
   (** permanent storage for masters *)
   conf_monitor: Oci_Artefact_Api.artefact_api;
   api_for_runner: runner Rpc.Implementations.t;
-  proc: Int.t List.t Pipe.Reader.t * Int.t List.t Pipe.Writer.t;
+  proc_waiter: unit Ivar.t Queue.t;
+  available_proc: Int.t List.t Queue.t;
+  runners_info: runner Int.Table.t;
 }
 
 let gconf_ivar = Ivar.create ()
@@ -121,6 +126,15 @@ let get_conf () =
   Option.value_exn
     ~message:"Configuration can't be used before starting the `run` function"
     (Deferred.peek gconf)
+
+let print_procs_state () =
+  let conf = get_conf () in
+  debug "procs available:%s"
+    (Sexp.to_string_hum ([%sexp_of: Int.t List.t Queue.t] conf.available_proc));
+  let used = Int.Table.fold conf.runners_info
+      ~init:[] ~f:(fun ~key ~data acc -> (key,data.used_procs)::acc) in
+  debug "procs used:%s"
+    (Sexp.to_string_hum ([%sexp_of: (int * used_procs) List.t] used))
 
 let stop_runner r =
   let conf = get_conf () in
@@ -316,75 +330,66 @@ let saver_artifact_data () =
   Writer.write_bin_prot writer Int.bin_writer_t conf.last_artefact_id;
   Writer.close writer
 
-let give_to_global writer (l:Int.t List.t) =
-  assert (not (List.is_empty l));
-  Pipe.write_without_pushback writer l
+let wait_for_available_proc conf =
+  if Queue.is_empty conf.proc_waiter &&
+     not (Queue.is_empty conf.available_proc)
+  then Deferred.unit
+  else begin
+    Deferred.create (fun ivar -> Queue.enqueue conf.proc_waiter ivar)
+    >>= fun () ->
+    ignore (Queue.dequeue_exn conf.proc_waiter);
+    Deferred.unit
+  end
 
-let create_proc procs =
-  let (_, writer) as pipes = Pipe.create () in
-  List.iter procs ~f:(give_to_global writer);
-  pipes
+let push_available_proc conf l =
+  assert (not (List.exists ~f:List.is_empty l));
+  Queue.enqueue_all conf.available_proc l;
+  match Queue.peek conf.proc_waiter with
+  | None -> ()
+  | Some w -> Ivar.fill_if_empty w ()
+
+let no_waiter_for_proc conf = Queue.is_empty conf.proc_waiter
 
 let alloc_slot () =
   let conf = get_conf () in
-  let (reader, _) = conf.proc in
-  Pipe.read reader
-  >>= function
-  | `Eof | `Ok [] -> assert false
-  | `Ok (e::l) -> return (l,e)
+  wait_for_available_proc conf
+  >>= fun () ->
+  match Queue.dequeue_exn conf.available_proc with
+  | [] -> assert false
+  | a::l -> return (l,a)
 
 let get_proc local_procs nb =
   let conf = get_conf () in
-  let (reader, writer) = conf.proc in
-  let get_proc_in_global_pool nb hdgot got l =
-    match Pipe.read_now' reader with
-    | `Eof -> assert false
-    | `Nothing_available ->
+  let rec get_proc_in_global_pool ~first_waiter nb hdgot got l =
+    match Queue.dequeue conf.available_proc with
+    | None ->
       (mk_running [] hdgot got), l
-    | `Ok q ->
-      let rec aux nb hdgot got l =
-        match Queue.dequeue q with
-        | None ->
-          (mk_running [] hdgot got), l
-        | Some e ->
-          let e_len = List.length e in
-          let nb' = nb - e_len in
-          if nb' <= 0 then begin
-            let e_used,e_alloc = List.split_n e nb in
-            Queue.iter ~f:(give_to_global writer) q;
-            (mk_running e_alloc e_used (hdgot::got)), (e_used@l)
-          end
-          else begin
-            aux nb' e (hdgot::got) (e@l)
-          end
-      in
-      aux nb hdgot got l
-  in
-  let rec get_proc_in_local_pool nb alloc used got l =
+    | Some e ->
+      get_proc_in_local_pool ~first_waiter nb e [] (hdgot::got) l
+  and get_proc_in_local_pool ~first_waiter nb alloc used got l =
     if nb <= 0 then (mk_running alloc used got), l
     else
       match alloc with
+      | [] when first_waiter || no_waiter_for_proc conf ->
+        get_proc_in_global_pool ~first_waiter nb used got l
       | [] ->
-        get_proc_in_global_pool nb used got l
+        (mk_running [] used got), l
       | p::alloc ->
-        get_proc_in_local_pool (nb-1) alloc (p::used) got (p::l)
+        get_proc_in_local_pool ~first_waiter (nb-1) alloc (p::used) got (p::l)
   in
   match local_procs with
   | SemiFreezed -> begin
-      Pipe.read reader
-      >>= function
-      | `Eof -> assert false
-      | `Ok alloc ->
-        assert (not (List.is_empty alloc));
-        return (get_proc_in_local_pool nb alloc [] [] [])
+      wait_for_available_proc conf
+      >>= fun () ->
+      let alloc = Queue.dequeue_exn conf.available_proc in
+      return (get_proc_in_local_pool ~first_waiter:true nb alloc [] [] [])
     end
   | Running(alloc,used,got) ->
-    return (get_proc_in_local_pool nb alloc used got [])
+    return (get_proc_in_local_pool ~first_waiter:false nb alloc used got [])
 
 
 let release_proc local_procs nb =
   let conf = get_conf () in
-  let (_, writer)  = conf.proc in
   let rec release_in_local_pool nb alloc used got l =
     if nb <= 0 then
       (mk_running alloc used got), l
@@ -392,7 +397,7 @@ let release_proc local_procs nb =
       match used with
       | [] -> assert false
       | [p] ->
-        give_to_global writer (p::alloc);
+        push_available_proc conf [p::alloc];
         begin match got with
           | [] ->
             if nb > 2 then debug "More cpu released than used!!";
@@ -414,35 +419,31 @@ let release_proc local_procs nb =
 
 let semifreeze_proc local_procs =
   let conf = get_conf () in
-  let (_, writer)  = conf.proc in
   match local_procs with
   | SemiFreezed ->
     local_procs, []
   | Running(alloc,used,got) ->
     let released = (alloc@used)::got in
-    List.iter released ~f:(give_to_global writer);
+    push_available_proc conf released;
     mk_semifreezed, released
 
 let unfreeze_proc local_procs (alloc',used') =
   let conf = get_conf () in
-  let (_, writer)  = conf.proc in
   match local_procs with
   | SemiFreezed ->
     mk_running alloc' [used'] [], [used']
   | Running _ ->
     (* already unfreezed, give back to the global pool the given slot *)
     let released = [used'::alloc'] in
-    List.iter released ~f:(give_to_global writer);
+    push_available_proc conf released;
     local_procs, []
 
 let release_all_proc local_procs =
   let conf = get_conf () in
-  let (_, writer)  = conf.proc in
   match local_procs with
   | SemiFreezed -> mk_semifreezed
   | Running(alloc,used,got) ->
-    give_to_global writer (alloc@used);
-    List.iter ~f:(give_to_global writer) got;
+    push_available_proc conf ((alloc@used)::got);
     mk_semifreezed
 
 let get_used_cpu local_procs =
@@ -743,7 +744,9 @@ let start_runner ?slot ~debug_info ~binary_name () =
   let cgroup = sprintf "runner%i" runner_id in
   let initial_state = {id=runner_id;
                        conn=`Init;rootfs;used_procs;cgroup;closed=false} in
+  Int.Table.add_exn conf.runners_info ~key:runner_id ~data:initial_state;
   let close_state () =
+    Int.Table.remove conf.runners_info runner_id;
     initial_state.conn <- `Closed;
     initial_state.used_procs <- release_all_proc initial_state.used_procs;
     if conf.conf_monitor.cleanup_rootfs
@@ -863,7 +866,9 @@ let run () =
       last_external_access_id = -1;
       conf_monitor;
       api_for_runner = add_artefact_api !masters;
-      proc = create_proc conf_monitor.proc;
+      proc_waiter = Queue.create ();
+      available_proc = Queue.of_list conf_monitor.proc;
+      runners_info = Int.Table.create ();
     } in
     Ivar.fill gconf_ivar conf;
     if conf_monitor.debug_level then Log.Global.set_level `Debug;
@@ -928,6 +933,7 @@ let run () =
     >>> fun () ->
     let save_at = Time.Span.create ~min:10 () in
     Clock.every' ~start:(after save_at) save_at save;
+    Clock.every Time.Span.minute print_procs_state;
     Oci_Artefact_Api.oci_at_shutdown save;
     let socket = Oci_Filename.concat conf_monitor.oci_data "oci.socket" in
     Async_shell.run "rm" ["-f";"--";socket]
