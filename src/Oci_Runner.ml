@@ -45,6 +45,12 @@ let get_cgroup cgroup =
   in
   return r
 
+let procs_of_cgroup cgroup =
+    let procs = Oci_Filename.make_absolute cgroup "cgroup.procs" in
+    Reader.file_lines procs
+    >>= fun l ->
+    return (List.map ~f:Pid.of_string l)
+
 let send_signal master_pid own_cgroup =
   let kill_one pid =
     Signal.send_i Signal.term (`Pid pid);
@@ -56,18 +62,29 @@ let send_signal master_pid own_cgroup =
   match own_cgroup with
   | None -> kill_one master_pid
   | Some cgroup ->
-    let procs = Oci_Filename.make_absolute cgroup "cgroup.procs" in
-    Reader.file_lines procs
+    procs_of_cgroup cgroup
     >>= fun l ->
-    Deferred.List.iter ~how:`Parallel l
-      ~f:(fun x -> kill_one (Pid.of_string x))
+    Deferred.List.iter ~how:`Parallel l ~f:kill_one
 
+let cleanup_cgroup = function
+    | None -> Deferred.unit
+    | Some cgroup ->
+      procs_of_cgroup cgroup
+      >>= fun l ->
+      let kill_and_wait pid =
+        let w = Unix.waitpid pid in
+        Signal.send_i Signal.kill (`Pid pid);
+        Deferred.ignore w
+      in
+      Deferred.List.iter ~how:`Parallel l ~f:kill_and_wait
+      >>= fun () ->
+      Unix.rmdir cgroup
 
 let cgroup =
   Deferred.Option.bind
-    (get_cgroup "cpuset")
+    (get_cgroup "cpuacct")
     (fun p ->
-       let p = Oci_Filename.make_absolute "/sys/fs/cgroup/cpuset"
+       let p = Oci_Filename.make_absolute "/sys/fs/cgroup/cpu,cpuacct"
            (Oci_Filename.make_relative "/" p) in
        Unix.access p [`Write;`Read;`Exec]
        >>= function
@@ -305,7 +322,7 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
         else Unix.mkdir p
       end
       >>= fun () ->
-      Writer.with_file
+      Writer.with_file ~append:true
         ~f:(fun w ->
             Writer.write w (Pid.to_string pid);
             Deferred.unit)
@@ -339,6 +356,9 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
                Oci_Common.Timed.cpu_user = Time.Span.of_float ru.utime;
                Oci_Common.Timed.wall_clock = Time.Span.of_float (stop -. start)}
   in
+  (** cleanup *)
+  cleanup_cgroup own_cgroup
+  >>= fun () ->
   return (r,timed)
 
 let run_timed_exn t ?env ?working_dir ~prog ~args () =

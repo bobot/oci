@@ -460,6 +460,7 @@ let get_used_cpu local_procs =
 
 let update_cpuset d =
   let conf = get_conf () in
+  
   Rpc.Rpc.dispatch_exn
     Oci_Artefact_Api.set_cpuset conf.conn_monitor {
     Oci_Artefact_Api.cgroup = d.cgroup;

@@ -143,16 +143,22 @@ let create_cgroup ~conf cgroup_name =
   | Some cgroup_root, Some cgroup_name ->
     let cgroup = cgroup_root ^ "/" ^ cgroup_name in
     debug "Create cgroup %s" cgroup;
-    Sys.file_exists_exn cgroup
-    >>= fun b -> begin
-      if b then Deferred.Or_error.return ()
-      else Monitor.try_with_or_error (fun () -> Unix.mkdir cgroup)
-    end
+    Monitor.try_with_or_error (fun () ->
+        Sys.file_exists_exn cgroup
+        >>= fun b ->
+        begin if b then
+            Async_shell.run "find" [cgroup;"-type";"d";"-delete"]
+          else Deferred.unit
+        end
+        >>= fun () ->
+        Unix.mkdir cgroup
+      )
     >>= function
     | Ok () -> Deferred.return (Some cgroup)
     | Error _ ->
       error
-        "Can't create cgroup %s. You should create and give ownership of \n\
+        "Can't create new cgroup %s. You should create or empty from any other\n
+         processus and give ownership of \n\
          the cgroup:\n\
          - sudo mkdir %s\n\
          - sudo chown %i:%i %s\n\
@@ -383,7 +389,7 @@ let start_master ~conf ~master ~oci_data ~binaries
                let contents =
                  String.concat ~sep:"," (List.map ~f:Int.to_string a.cpuset) in
                debug "update cpuset %s: %s" file contents;
-               Writer.with_file
+               Writer.with_file ~append:true
                  ~f:(fun w -> Writer.write w contents; Deferred.unit)
                  file
                >>= fun () ->
