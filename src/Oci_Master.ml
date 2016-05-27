@@ -189,6 +189,8 @@ let reusable_runner
               freeze_runner reusable.runner
               >>= fun () ->
               let event = Clock.Event.run_after timeout (fun () ->
+                  Log.Global.debug "Reusable runner %i stopped since not used"
+                    (reusable_id reusable);
                     stop_runner reusable.runner
                     >>> fun () ->
                     reusable.wait

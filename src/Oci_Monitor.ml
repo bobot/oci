@@ -382,9 +382,13 @@ let start_master ~conf ~master ~oci_data ~binaries
                    "cpuset.cpus" in
                let contents =
                  String.concat ~sep:"," (List.map ~f:Int.to_string a.cpuset) in
+               debug "update cpuset %s: %s" file contents;
                Writer.with_file
                  ~f:(fun w -> Writer.write w contents; Deferred.unit)
                  file
+               >>= fun () ->
+               debug "cpuset updated %s: %s" file contents;
+               Deferred.unit
              | _ -> Deferred.unit
           );
       ]
