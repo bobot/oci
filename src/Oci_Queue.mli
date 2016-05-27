@@ -39,3 +39,5 @@ val transfer_id: 'a t -> 'a Pipe.Reader.t -> unit Deferred.t
 (** add all the elements read from the pipe *)
 val close: 'a t -> unit Deferred.t
 (** Close the queue, no more elements can be added *)
+val closed: 'a t -> unit Deferred.t
+(** Becomes determined when close is called *)

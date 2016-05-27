@@ -198,6 +198,10 @@ module Make(S: sig
     Table.add_exn db_log ~key:id ~data:(q,r);
     (* write to disk *)
     don't_wait_for begin
+      (** open the file only when the queue have been closed otherwise
+          too many file-descriptors are opened at the same time *)
+      Oci_Queue.closed q
+      >>= fun () ->
       log_file id
       >>= fun log_file ->
       let log_file_part = Oci_Filename.add_extension log_file "part" in

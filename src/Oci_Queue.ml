@@ -99,3 +99,5 @@ let close t =
   >>= fun _ ->
   Pipe.close t.source;
   Deferred.unit
+
+let closed t = Pipe.closed t.source
