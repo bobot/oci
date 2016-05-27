@@ -264,10 +264,10 @@ let run t ?env ?working_dir ~prog ~args () =
   Oci_Std.Oci_Unix.create ?working_dir ?env ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
-  let start = Oci_Std.Oci_Unix.start p in
-  let process = process_log t p in
   let wait = Oci_Std.Oci_Unix.wait p in
-  start >>= fun () ->
+  let process = process_log t p in
+  Oci_Std.Oci_Unix.start p
+  >>= fun () ->
   process >>= fun () ->
   wait >>= fun r ->
   match r with
@@ -314,9 +314,10 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
       Deferred.Option.return p
     )
   >>= fun own_cgroup ->
-  Oci_Std.Oci_Unix.start p >>= fun () ->
   let w = Oci_Std.wait4 pid in
   let w = Deferred.both (process_log t p) w in
+  Oci_Std.Oci_Unix.start p
+  >>= fun () ->
   begin
     match timelimit with
     | None -> Deferred.unit

@@ -184,6 +184,8 @@ let reusable_runner
       choice begin
         Monitor.protect ~here:[%here]
           ~finally:(fun () ->
+              Log.Global.debug "Reusable runner %i freezed"
+                (reusable_id reusable);
               freeze_runner reusable.runner
               >>= fun () ->
               let event = Clock.Event.run_after timeout (fun () ->
