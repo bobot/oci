@@ -129,12 +129,15 @@ let get_conf () =
 
 let print_procs_state () =
   let conf = get_conf () in
+  let available = List.sort ~cmp:compare (Queue.to_list conf.available_proc) in
   debug "procs available:%s"
-    (Sexp.to_string_hum ([%sexp_of: Int.t List.t Queue.t] conf.available_proc));
+    (Sexp.to_string_hum ([%sexp_of: Int.t List.t List.t] available));
   let used = Int.Table.fold conf.runners_info
       ~init:[] ~f:(fun ~key ~data acc -> (key,data.used_procs)::acc) in
+  let used = List.sort ~cmp:(fun (a,_) (b,_) -> compare a b) used in
   debug "procs used:%s"
-    (Sexp.to_string_hum ([%sexp_of: (int * used_procs) List.t] used))
+    (Sexp.to_string_hum ([%sexp_of: (int * used_procs) List.t] used));
+  debug "waiter:%i" (Queue.length conf.proc_waiter)
 
 let stop_runner r =
   let conf = get_conf () in
@@ -333,15 +336,20 @@ let saver_artifact_data () =
 let wait_for_available_proc conf =
   if Queue.is_empty conf.proc_waiter &&
      not (Queue.is_empty conf.available_proc)
-  then Deferred.unit
+  then Deferred.return (Queue.dequeue_exn conf.available_proc)
   else begin
     Deferred.create (fun ivar -> Queue.enqueue conf.proc_waiter ivar)
     >>= fun () ->
     ignore (Queue.dequeue_exn conf.proc_waiter);
-    Deferred.unit
+    if Queue.is_empty conf.available_proc then begin
+      error "scheduler invariant broken";
+      print_procs_state ();
+    end;
+    Deferred.return (Queue.dequeue_exn conf.available_proc)
   end
 
 let push_available_proc conf l =
+  assert (not (List.is_empty l));
   assert (not (List.exists ~f:List.is_empty l));
   Queue.enqueue_all conf.available_proc l;
   match Queue.peek conf.proc_waiter with
@@ -353,8 +361,7 @@ let no_waiter_for_proc conf = Queue.is_empty conf.proc_waiter
 let alloc_slot () =
   let conf = get_conf () in
   wait_for_available_proc conf
-  >>= fun () ->
-  match Queue.dequeue_exn conf.available_proc with
+  >>= function
   | [] -> assert false
   | a::l -> return (l,a)
 
@@ -380,8 +387,7 @@ let get_proc local_procs nb =
   match local_procs with
   | SemiFreezed -> begin
       wait_for_available_proc conf
-      >>= fun () ->
-      let alloc = Queue.dequeue_exn conf.available_proc in
+      >>= fun alloc ->
       return (get_proc_in_local_pool ~first_waiter:true nb alloc [] [] [])
     end
   | Running(alloc,used,got) ->
