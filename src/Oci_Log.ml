@@ -120,7 +120,11 @@ let reader_get_first ~f t =
         | None -> aux r
         | Some x -> return x
     in
-    aux (t.state ())
+    let reader = t.state () in
+    aux reader
+    >>= fun res ->
+    Pipe.close_read reader;
+    return res
 
 exception Closed_Log
 
