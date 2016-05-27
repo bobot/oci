@@ -59,7 +59,7 @@ let () =
     | None -> ()
     | Some cgroup ->
       move_to_cgroup cgroup;
-      Option.iter ~f:(set_cpuset ".") param.initial_cpuset;
+      Option.iter ~f:(set_cpuset cgroup) param.initial_cpuset;
       chmod_cgroup cgroup
     end;
     test_userns_availability ();
