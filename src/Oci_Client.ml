@@ -832,6 +832,41 @@ module Cmdline = struct
     >>= fun acc_analyse ->
     return (acc,acc_analyse)
 
+  let compare_exec_one compareN cq_hook connection rootfs revspecs x y =
+    compareN.fold connection revspecs x y
+    >>= function (revspecs, git_repo, fold_analyse) ->
+      let repo_compare = "Oci_Client.compare" in
+      let repos = String.Map.add !db_repos ~key:repo_compare
+          ~data:git_repo in
+      create_query
+        ~info_level:`Debug
+        cq_hook rootfs revspecs repo_compare
+        repos connection
+      >>= fun query ->
+      Rpc.Pipe_rpc.dispatch_exn
+        (Oci_Data.log Oci_Generic_Masters_Api.CompileGitRepo.rpc)
+        connection.Git.socket query
+      >>= fun (p,_) ->
+      Pipe.fold p
+        ~init:(Error (Error.of_string "incomplete log"), compareN.fold_init)
+        ~f:(gen_fold_compare fold_analyse)
+      >>= fun (complete,res) ->
+      let res = compareN.fold_end res in
+      return (match complete with
+          | Ok () -> res
+          | Error e -> Error (`Anomaly e))
+
+  let compare_run_one cq_hook rootfs revspecs
+      (x_input:string) (y_input:string) bench
+      connection =
+    match String.Map.find_exn !db_compare bench with
+    | CompareN compareN ->
+      let x = Sexp.of_string_conv_exn x_input compareN.x_of_sexp in
+      let y = Sexp.of_string_conv_exn y_input compareN.y_of_sexp in
+      compare_exec_one compareN cq_hook connection rootfs revspecs x y
+      >>= fun _ ->
+      return `Ok
+
   let compare cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
       outputs summation connection =
@@ -858,36 +893,13 @@ module Cmdline = struct
       >>= fun () ->
       load_sexps y_input compareN.y_of_sexp
       >>= fun ly ->
-      let exec_one x y =
-        compareN.fold connection revspecs x y
-        >>= function (revspecs, git_repo, fold_analyse) ->
-        let repo_compare = "Oci_Client.compare" in
-        let repos = String.Map.add !db_repos ~key:repo_compare
-            ~data:git_repo in
-        create_query
-          ~info_level:`Debug
-          cq_hook rootfs revspecs repo_compare
-          repos connection
-        >>= fun query ->
-        Rpc.Pipe_rpc.dispatch_exn
-          (Oci_Data.log Oci_Generic_Masters_Api.CompileGitRepo.rpc)
-          connection.Git.socket query
-        >>= fun (p,_) ->
-        Pipe.fold p
-          ~init:(Error (Error.of_string "incomplete log"), compareN.fold_init)
-          ~f:(gen_fold_compare fold_analyse)
-        >>= fun (complete,res) ->
-        let res = compareN.fold_end res in
-        return (match complete with
-            | Ok () -> res
-            | Error e -> Error (`Anomaly e))
-      in
       Deferred.List.map
         ~how:`Parallel
         lx ~f:(fun x ->
             Deferred.List.map
               ~how:`Parallel ly
-              ~f:(fun y -> exec_one x y)
+              ~f:(compare_exec_one
+                    compareN cq_hook connection rootfs revspecs x)
           )
       >>= fun results ->
       let results = {
@@ -1383,8 +1395,8 @@ module Cmdline = struct
       let benchs = String.Map.keys !db_compare in
       let benchs_enum = List.map ~f:(fun x -> (x,x)) benchs in
       Arg.(required & pos 0 (some (enum benchs_enum)) None & info []
-             ~docv:"REPO_NAME"
-             ~doc:("Run the repository $(docv). \
+             ~docv:"COMPARE_NAME"
+             ~doc:("Run the comparison $(docv). \
                     Possible values: " ^
                    (String.concat ~sep:", " benchs) ^ "."))
     in
@@ -1450,6 +1462,36 @@ module Cmdline = struct
           $ outputs $ summation),
     Term.info "compare" ~doc ~sdocs:copts_sect ~man
 
+  let compare_run_one_cmd create_query_hook =
+    let bench =
+      let benchs = String.Map.keys !db_compare in
+      let benchs_enum = List.map ~f:(fun x -> (x,x)) benchs in
+      Arg.(required & pos 0 (some (enum benchs_enum)) None & info []
+             ~docv:"COMPARE_NAME"
+             ~doc:("Run the comparison $(docv). \
+                    Possible values: " ^
+                   (String.concat ~sep:", " benchs) ^ "."))
+    in
+    let x_input =
+      Arg.(required & opt (some string) None & info ["x-sexp"]
+             ~docv:"X"
+             ~doc:"sexp for one x variable")
+    in
+    let y_input =
+      Arg.(required & opt (some string) None & info ["y-sexp"]
+             ~docv:"Y"
+             ~doc:"sexp for one x variable")
+    in
+    let doc = "run a specific benchmark" in
+    let man = [
+      `S "DESCRIPTION";
+      `P "Run the benchmark for comparing the x with the y."] @ help_secs
+    in
+    Term.(const compare_run_one $
+          create_query_hook $ rootfs $
+          (cmdliner_revspecs WP.ParamValue.empty) $ x_input $ y_input $ bench),
+    Term.info "compare_run_one" ~doc ~sdocs:copts_sect ~man
+
   let default_cmd ?version ?doc name =
     let man = help_secs in
     Term.(ret (const (`Help (`Pager, None)))),
@@ -1460,7 +1502,8 @@ module Cmdline = struct
      add_package_cmd;
      download_rootfs_cmd]@
     (if String.Map.is_empty !db_compare
-     then [] else [compare_cmd create_query_hook])@
+     then [] else [compare_cmd create_query_hook;
+                   compare_run_one_cmd create_query_hook])@
     (run_xpra_cmd create_query_hook)
 
   let def_cmds_without_connection =

@@ -82,9 +82,9 @@ let cleanup_cgroup = function
 
 let cgroup =
   Deferred.Option.bind
-    (get_cgroup "cpuset")
+    (get_cgroup "cpuacct")
     (fun p ->
-       let p = Oci_Filename.make_absolute "/sys/fs/cgroup/cpuset"
+       let p = Oci_Filename.make_absolute "/sys/fs/cgroup/cpu,cpuacct"
            (Oci_Filename.make_relative "/" p) in
        Unix.access p [`Write;`Read;`Exec]
        >>= function
