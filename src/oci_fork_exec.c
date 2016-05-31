@@ -319,18 +319,18 @@ CAMLprim value oci_extended_ml_spawn
       SYSCALL(setrlimit(resource, &rl));
     }
 
-    if (Is_block(v_setuid)) {
-      uid_t uid = (uid_t) Int_val(Field(v_setuid,0));
-      if (getuid() != 0)
-        report_errno_on_pipe (pfd[PIPE_WRITE],EPERM);
-      SYSCALL(setuid(uid));
-    }
-
     if (Is_block(v_setgid)) {
       gid_t gid = (gid_t) Int_val(Field(v_setgid,0));
       if (getuid() != 0)
         report_errno_on_pipe (pfd[PIPE_WRITE],EPERM);
       SYSCALL(setgid(gid));
+    }
+
+    if (Is_block(v_setuid)) {
+      uid_t uid = (uid_t) Int_val(Field(v_setuid,0));
+      if (getuid() != 0)
+        report_errno_on_pipe (pfd[PIPE_WRITE],EPERM);
+      SYSCALL(setuid(uid));
     }
 
     if (start_fd) {
