@@ -91,6 +91,27 @@ let wait4 pid =
   return (Core.Core_unix.Exit_or_signal.of_unix status, ru)
 
 module Oci_Unix : sig
+
+  module RLimit : sig
+    type limit = Limit of int64 | Infinity [@@deriving sexp]
+
+    type t = {
+      cur : limit;  (* soft limit *)
+      max : limit;  (* hard limit (ceiling for soft limit) *)
+    } [@@deriving sexp]
+
+    type resource
+
+    val core_file_size       : resource
+    val cpu_seconds          : resource
+    val data_segment         : resource
+    val file_size            : resource
+    val num_file_descriptors : resource
+    val stack                : resource
+    val virtual_memory       : resource Or_error.t
+    val nice                 : resource Or_error.t
+  end
+
   type t [@@deriving sexp_of]
   type env = [ `Extend of (string * string) list
              | `Replace of (string * string) list ]
@@ -104,6 +125,14 @@ module Oci_Unix : sig
   type 'a create
     =  ?env         : env  (* default is [`Extend []] *)
     -> ?working_dir : string
+    (* these resource limitation are applied before execution *)
+    -> ?resource    : (RLimit.resource * RLimit.t) list
+    (* these filedescriptors are inherited by the executed process,
+       ie the noexec flag is removed in the forked process
+    *)
+    -> ?fd_kept     : Core.Std.Unix.File_descr.t list
+    -> ?setuid      : int
+    -> ?setgid      : int
     -> prog         : string
     -> args         : string list
     -> unit
@@ -117,6 +146,38 @@ end
 = struct
   (** from core extended_unix *)
 
+  module RLimit = struct
+    type limit = Limit of int64 | Infinity [@@deriving sexp]
+    type t = { cur : limit; max : limit } [@@deriving sexp]
+
+    type resource =
+      | Core_file_size
+      | Cpu_seconds
+      | Data_segment
+      | File_size
+      | Num_file_descriptors
+      | Stack
+      | Virtual_memory
+      | Nice
+      [@@deriving sexp] ;;
+
+    let core_file_size       = Core_file_size
+    let cpu_seconds          = Cpu_seconds
+    let data_segment         = Data_segment
+    let file_size            = File_size
+    let num_file_descriptors = Num_file_descriptors
+    let stack                = Stack
+    let virtual_memory       =
+      match Core.Std.Unix.RLimit.virtual_memory with
+      | Ok _ -> Ok Virtual_memory
+      | Error r -> Error r
+
+    let nice                 =
+      match Core.Std.Unix.RLimit.nice with
+      | Ok _ -> Ok Nice
+      | Error r -> Error r
+
+  end
 
 external raw_fork_exec :
   stdin : Core.Std.Unix.File_descr.t
@@ -127,6 +188,8 @@ external raw_fork_exec :
   -> ?setuid : int
   -> ?setgid : int
   -> ?env : (string) array
+  -> resource: (RLimit.resource * RLimit.t) array
+  -> fd_kept: Core.Std.Unix.File_descr.t array
   -> string
   -> string array
   -> Pid.t
@@ -248,6 +311,10 @@ let start t = Writer.close t.start
 type 'a create
   =  ?env         : env
   -> ?working_dir : string
+  -> ?resource    : (RLimit.resource * RLimit.t) list
+  -> ?fd_kept     : Core.Std.Unix.File_descr.t list
+  -> ?setuid      : int
+  -> ?setgid      : int
   -> prog         : string
   -> args         : string list
   -> unit
@@ -283,7 +350,9 @@ end
    core. This version is not quite as carefuly code reviewed but allows us to
    have more control over the forked side of the process (e.g.: chdir).
 *)
-let internal_create_process ?working_dir ?setuid ?setgid ~env ~prog ~args () =
+let internal_create_process
+    ?working_dir ?setuid ?setgid ~resource
+    ~fd_kept ~env ~prog ~args () =
   let close_on_err = ref [] in
   try
     let (in_read, in_write) = cloexec_pipe () in
@@ -305,6 +374,8 @@ let internal_create_process ?working_dir ?setuid ?setgid ~env ~prog ~args () =
       ~stdout:out_write
       ~stderr:err_write
       ~start:start_read
+      ~resource:(Array.of_list resource)
+      ~fd_kept:(Array.of_list fd_kept)
     in
     close_non_intr in_read;
     close_non_intr out_write;
@@ -328,10 +399,20 @@ let path_expand ?working_dir ?use_extra_path prog =
     d ^/ prog
   | _ -> Core_extended.Shell__core.path_expand ?use_extra_path prog
 
-let create ?(env = `Extend []) ?working_dir ~prog ~args () =
+let create ?(env = `Extend []) ?working_dir ?(resource=[]) ?(fd_kept=[])
+    ?setuid ?setgid ~prog ~args () =
+  List.iter fd_kept ~f:(fun p ->
+      match Core.Std.Unix.File_descr.to_int p with
+      | (0 | 1 | 2) as fd ->
+        invalid_argf
+          "Oci_Std.Oci_Unix.create: fd_kept can't contain file \n\
+           descriptor stdin, stdout, stderr (here %i is used)" fd ()
+      | _ -> ());
   In_thread.syscall ~name:"oci_create_process_env" (fun () ->
       let full_prog = path_expand ?working_dir prog in
-      internal_create_process ~prog:full_prog ~args ~env ?working_dir ())
+      internal_create_process
+        ~resource ~fd_kept ?setuid ?setgid
+        ~prog:full_prog ~args ~env ?working_dir ())
   >>| function
   | Error exn -> Or_error.of_exn exn
   | Ok { Process_info.pid; stdin; stdout; stderr; start } ->
@@ -355,7 +436,10 @@ let create ?(env = `Extend []) ?working_dir ~prog ~args () =
        ; env
        }
 
-let create_exn ?env ?working_dir ~prog ~args () =
-  create ?env ?working_dir ~prog ~args () >>| ok_exn
+let create_exn ?env ?working_dir
+    ?resource ?fd_kept
+    ?setuid ?setgid ~prog ~args () =
+  create ?env ?working_dir ?resource ?fd_kept
+    ?setuid ?setgid ~prog ~args () >>| ok_exn
 
 end

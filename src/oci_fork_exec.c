@@ -11,6 +11,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/wait.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #include <caml/mlvalues.h>
 #include <caml/unixsupport.h>
 #include <caml/memory.h>
@@ -119,6 +121,37 @@ static int errno_from_pipe (int fd,int *my_errno) {
    };
 }
 
+static inline int resource_val(value v_resource)
+{
+  int resource;
+  switch (Int_val(v_resource)) {
+    case 0 : resource = RLIMIT_CORE; break;
+    case 1 : resource = RLIMIT_CPU; break;
+    case 2 : resource = RLIMIT_DATA; break;
+    case 3 : resource = RLIMIT_FSIZE; break;
+    case 4 : resource = RLIMIT_NOFILE; break;
+    case 5 : resource = RLIMIT_STACK; break;
+#ifdef RLIMIT_AS
+    case 6 : resource = RLIMIT_AS; break;
+#endif
+#ifdef RLIMIT_NICE
+    case 7 : resource = RLIMIT_NICE; break;
+#endif
+    default :
+      /* impossible */
+      caml_failwith("resource_val: unknown sum tag");
+      break;
+  }
+  return resource;
+}
+
+static inline rlim_t rlim_t_val(value v_lim)
+{
+  return
+    Is_block(v_lim)
+    ? (rlim_t) Int64_val(Field(v_lim, 0))
+    : RLIM_INFINITY;
+}
 
 /*
   [set_cloexec(fd,value)]
@@ -148,12 +181,15 @@ CAMLprim value oci_extended_ml_spawn
  value v_setgid, /* setgid on the fork side [int option] */
  value v_env, /* The Environment to set for execve. pass None to call an
                  execv instead. [string array option]*/
+ value v_resource, /* the resource limitation to set before exec */
+ value v_fdkept, /* the filedescriptors on which to unset the noexec flag */
  value v_prog, /* Program name [string] */
  value v_args /* Full list of args passed to executable [string array] */
  )
 {
   CAMLparam5(v_prog, v_args, v_stdin, v_stdout, v_stderr);
   CAMLxparam5(v_start,v_working_dir,v_setuid,v_setgid,v_env);
+  CAMLxparam2(v_resource,v_fdkept);
   int stdin_fd = Int_val (v_stdin);
   int stdout_fd = Int_val (v_stdout);
   int stderr_fd = Int_val (v_stderr);
@@ -172,6 +208,8 @@ CAMLprim value oci_extended_ml_spawn
   pid_t child_pid;
 
   char** args;
+
+  mlsize_t size, i;
 
   /* We use a pipe to report errors on the forked side */
   if (pipe(pfd) == -1) uerror("extended_ml_spawn::pipe",Nothing);
@@ -265,6 +303,22 @@ CAMLprim value oci_extended_ml_spawn
       SYSCALL(chdir(working_dir));
     }
 
+    size = Wosize_val(v_fdkept);
+    for(i = 0; i < size; i++ ){
+      SYSCALL(set_cloexec(Field(v_fdkept,i),false));
+    }
+
+    size = Wosize_val(v_resource);
+    for(i = 0; i < size; i++ ){
+      struct rlimit rl;
+      int resource = resource_val(Field(Field(v_resource,i),0));
+      value v_limits = Field(Field(v_resource,i),1);
+      value v_cur = Field(v_limits, 0), v_max = Field(v_limits, 1);
+      rl.rlim_cur = rlim_t_val(v_cur);
+      rl.rlim_max = rlim_t_val(v_max);
+      SYSCALL(setrlimit(resource, &rl));
+    }
+
     if (Is_block(v_setuid)) {
       uid_t uid = (uid_t) Int_val(Field(v_setuid,0));
       if (getuid() != 0)
@@ -323,12 +377,13 @@ CAMLprim value oci_extended_ml_spawn
 
 CAMLprim value oci_extended_ml_spawn_bc(value *argv, int argn)
 {
-  if (argn != 9) {
-    caml_failwith("Unix.ml_spawn_bc got the wrong number of \
+  if (argn != 12) {
+    caml_failwith("oci_extended_ml_spawn_bc got the wrong number of \
      arguments. This is due to an error in the FFI.");
   }
   return
     oci_extended_ml_spawn(argv[0], argv[1], argv[2],
                       argv[3], argv[4], argv[5],
-                      argv[6], argv[7], argv[8], argv[9]);
+                          argv[6], argv[7], argv[8], argv[9],
+                          argv[10], argv[11]);
 }
