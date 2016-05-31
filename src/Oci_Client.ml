@@ -826,7 +826,14 @@ module Cmdline = struct
         (Oci_pp.string_of
            Oci_Generic_Masters_Api.CompileGitRepo.Result.pp r);
       acc
-    | {Oci_Log.data=Oci_Log.End r} -> r
+    | {Oci_Log.data=Oci_Log.End r} -> begin
+      match r with
+      | Error r ->
+        debug "[End] error: %s"
+          (Sexp.to_string_hum (Error.sexp_of_t r));
+      | Ok () -> ()
+      end;
+      r
     in
     fold_analyse acc_analyse r
     >>= fun acc_analyse ->
@@ -864,8 +871,17 @@ module Cmdline = struct
       let x = Sexp.of_string_conv_exn x_input compareN.x_of_sexp in
       let y = Sexp.of_string_conv_exn y_input compareN.y_of_sexp in
       compare_exec_one compareN cq_hook connection rootfs revspecs x y
-      >>= fun _ ->
-      return `Ok
+      >>= function
+      | Error (`BadResult s) ->
+        error "[BadResult] error: %s" s;
+        return `Error
+      | Error (`Anomaly r) ->
+        error "[Anomaly] error: %s"
+          (Sexp.to_string_hum (Error.sexp_of_t r));
+        return `Error
+      | Ok _ ->
+        info "Done";
+        return `Ok
 
   let compare cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
