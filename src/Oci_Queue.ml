@@ -139,7 +139,7 @@ let duplicate_reader r =
       | false, false ->
         let q2 = Queue.copy q1 in
         let t1 = Pipe.transfer_in ~from:q1 w1 in
-        let t2 = Pipe.transfer_in ~from:q2 w1 in
+        let t2 = Pipe.transfer_in ~from:q2 w2 in
         t1 >>= fun () -> t2 >>= fun () ->
         Pipe.Consumer.values_sent_downstream c;
         aux ()
