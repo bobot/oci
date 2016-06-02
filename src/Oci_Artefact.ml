@@ -137,7 +137,11 @@ let print_procs_state () =
   let used = List.sort ~cmp:(fun (a,_) (b,_) -> compare a b) used in
   debug "procs used:%s"
     (Sexp.to_string_hum ([%sexp_of: (int * used_procs) List.t] used));
-  debug "waiter:%i" (Queue.length conf.proc_waiter)
+  debug "waiter:%i (first waiter is scheduled: %b)"
+    (Queue.length conf.proc_waiter)
+    (match Queue.peek conf.proc_waiter with
+     | None -> false
+     | Some r -> Ivar.is_full r)
 
 let stop_runner r =
   let conf = get_conf () in
@@ -333,10 +337,10 @@ let saver_artifact_data () =
   Writer.write_bin_prot writer Int.bin_writer_t conf.last_artefact_id;
   Writer.close writer
 
-let wait_for_available_proc conf =
+let wait_for_available_proc conf f =
   if Queue.is_empty conf.proc_waiter &&
      not (Queue.is_empty conf.available_proc)
-  then Deferred.return (Queue.dequeue_exn conf.available_proc)
+  then return (f (Queue.dequeue_exn conf.available_proc))
   else begin
     Deferred.create (fun ivar -> Queue.enqueue conf.proc_waiter ivar)
     >>= fun () ->
@@ -345,7 +349,14 @@ let wait_for_available_proc conf =
       error "scheduler invariant broken";
       print_procs_state ();
     end;
-    Deferred.return (Queue.dequeue_exn conf.available_proc)
+    let r = f (Queue.dequeue_exn conf.available_proc) in
+    (** some procs remains *)
+    begin if not (Queue.is_empty conf.available_proc) then
+      match Queue.peek conf.proc_waiter with
+      | None -> ()
+      | Some w -> Ivar.fill_if_empty w ()
+    end;
+    return r
   end
 
 let push_available_proc conf l =
@@ -361,9 +372,9 @@ let no_waiter_for_proc conf = Queue.is_empty conf.proc_waiter
 let alloc_slot () =
   let conf = get_conf () in
   wait_for_available_proc conf
-  >>= function
-  | [] -> assert false
-  | a::l -> return (l,a)
+  (function
+    | [] -> assert false
+    | a::l -> (l,a))
 
 let get_proc local_procs nb =
   let conf = get_conf () in
@@ -387,8 +398,8 @@ let get_proc local_procs nb =
   match local_procs with
   | SemiFreezed -> begin
       wait_for_available_proc conf
-      >>= fun alloc ->
-      return (get_proc_in_local_pool ~first_waiter:true nb alloc [] [] [])
+        (fun alloc ->
+           get_proc_in_local_pool ~first_waiter:true nb alloc [] [] [])
     end
   | Running(alloc,used,got) ->
     return (get_proc_in_local_pool ~first_waiter:false nb alloc used got [])
