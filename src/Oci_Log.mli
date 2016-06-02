@@ -62,6 +62,10 @@ val reader_get_first:
   f:('result -> bool) -> 'result reader ->
   [`Found of 'result | `Incomplete | `NotFound | `Error of Error.t] Deferred.t
 
+val get_end: 'result line Pipe.Reader.t -> unit Or_error.t Deferred.t
+
+
+
 exception Closed_Log
 
 module Make(S: sig

@@ -113,7 +113,7 @@ let reusable_runner
     ~binary_name
     ?(timeout=Time.Span.create ~sec:10 ())
     ?error
-    (f: first:bool -> runner -> 'k -> 'd -> 'a Deferred.t) =
+    (f: first:bool -> runner -> 'k -> 'd -> 'a Or_error.t Deferred.t) =
   let h = Hashtbl.create ~hashable:hashable_key () in
   let scheduled (_,event) =
     match Clock.Event.status event with
@@ -177,37 +177,55 @@ let reusable_runner
       choice (reusable.wait >>= function
         | Ok () -> never ()
         | Error s -> return s)
-        (match error with
-         | None -> (fun e -> invalid_argf "error %s" (Error.to_string_hum e) ())
-         | Some error -> error k d
-        );
+        (fun x -> `Stopped x);
       choice begin
-        Monitor.protect ~here:[%here]
-          ~finally:(fun () ->
-              Log.Global.debug "Reusable runner %i freezed"
-                (reusable_id reusable);
-              freeze_runner reusable.runner
-              >>= fun () ->
-              let event = Clock.Event.run_after timeout (fun () ->
-                  Log.Global.debug "Reusable runner %i stopped since not used"
-                    (reusable_id reusable);
-                    stop_runner reusable.runner
-                    >>> fun () ->
-                    reusable.wait
-                    >>> function
-                    | Ok () -> ()
-                    | Error e ->
-                      Log.Global.error
-                        "A reusable runner stopped with error after timeout: %s"
-                        (Sexp.to_string_hum ([%sexp_of: Error.t] e));
-                ) () in
-              Hashtbl.add_multi h ~key:k ~data:(reusable,event);
-              Deferred.unit
-            )
+        Monitor.try_with_join_or_error ~here:[%here]
           ~name:"reusable_runner"
           (fun () -> f ~first reusable.runner k d)
-      end (fun x -> x);
+      end (fun x -> `Runned x);
     ]
+    >>= function
+    | `Runned (Ok _ as x) ->
+      Log.Global.debug "Reusable runner %i freezed"
+        (reusable_id reusable);
+      freeze_runner reusable.runner
+      >>= fun () ->
+      let event = Clock.Event.run_after timeout (fun () ->
+          Log.Global.debug "Reusable runner %i stopped since not used"
+            (reusable_id reusable);
+          stop_runner reusable.runner
+          >>> fun () ->
+          reusable.wait
+          >>> function
+          | Ok () -> ()
+          | Error e ->
+            Log.Global.error
+              "A reusable runner stopped with error after timeout: %s"
+              (Sexp.to_string_hum ([%sexp_of: Error.t] e));
+        ) () in
+      Hashtbl.add_multi h ~key:k ~data:(reusable,event);
+      return x
+    | `Runned (Error e as x) ->
+      (* we stop the runner that "failed" previously *)
+      Log.Global.debug "Reusable runner %i failed: %s"
+        (reusable_id reusable)
+        (Sexp.to_string_hum ([%sexp_of: Error.t] e));
+      begin
+        stop_runner reusable.runner
+        >>> fun () ->
+        reusable.wait
+        >>>  function
+        | Ok () -> ()
+        | Error e ->
+          Log.Global.error
+            "A reusable runner that failed stopped with error: %s"
+            (Sexp.to_string_hum ([%sexp_of: Error.t] e));
+      end;
+      return x
+    | `Stopped e  ->
+      match error with
+      | None -> invalid_argf "error %s" (Error.to_string_hum e) ()
+      | Some error -> return (Ok (error k d e))
 
 
 let simple_master f q =
@@ -356,9 +374,13 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
         ~binary_name:(fun _ -> binary_name)
         ?timeout
         ?error:(Option.map ~f:(fun error _ _ -> error) error)
-        (fun ~first runner _ q -> f ~first runner q)
+        (fun ~first runner _ q ->
+           f ~first runner q
+           >>= fun e -> return (Ok e))
     in
-    create_master data (fun q -> reusable (extract_key q) q)
+    create_master data (fun q ->
+        reusable (extract_key q) q
+        >>= fun e -> return (Or_error.ok_exn e) )
 
 end
 

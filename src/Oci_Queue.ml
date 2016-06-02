@@ -101,3 +101,59 @@ let close t =
   Deferred.unit
 
 let closed t = Pipe.closed t.source
+
+
+
+let duplicate_reader r =
+  let r1,w1 = Pipe.create () in
+  let r2,w2 = Pipe.create () in
+  let c = Pipe.add_consumer r
+      ~downstream_flushed:(fun () ->
+          let d1 = Pipe.downstream_flushed w1 in
+          let d2 = Pipe.downstream_flushed w2 in
+          d1
+          >>= fun f1 ->
+          d2
+          >>= fun f2 ->
+          match f1, f2 with
+          | `Reader_closed, `Reader_closed ->
+            return `Reader_closed
+          | _ -> return `Ok
+        ) in
+  let rec aux () =
+    Pipe.read' ~consumer:c r
+    >>= function
+    | `Eof -> Pipe.close w1; Pipe.close w2; Deferred.unit
+    | `Ok q1 ->
+      match Pipe.is_closed w1, Pipe.is_closed w2 with
+      | true, true ->
+        Pipe.close_read r; Deferred.unit
+      | false, true ->
+        let t1 = Pipe.transfer_in ~from:q1 w1 in
+        t1 >>= fun () -> Pipe.Consumer.values_sent_downstream c;
+        aux ()
+      | true, false ->
+        let t2 = Pipe.transfer_in ~from:q1 w2 in
+        t2 >>= fun () -> Pipe.Consumer.values_sent_downstream c;
+        aux ()
+      | false, false ->
+        let q2 = Queue.copy q1 in
+        let t1 = Pipe.transfer_in ~from:q1 w1 in
+        let t2 = Pipe.transfer_in ~from:q2 w1 in
+        t1 >>= fun () -> t2 >>= fun () ->
+        Pipe.Consumer.values_sent_downstream c;
+        aux ()
+  in
+  don't_wait_for (aux ());
+  begin
+    Pipe.closed w1 >>> fun () ->
+    Pipe.closed w2 >>> fun () ->
+    Pipe.close_read r
+  end;
+  r1, r2
+
+let spy_writer w =
+  let r,w' = Pipe.create () in
+  let r1, r2 = duplicate_reader r in
+  don't_wait_for (Pipe.transfer_id r1 w);
+  r2,w'

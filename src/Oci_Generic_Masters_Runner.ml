@@ -121,19 +121,22 @@ let run_cmds t kind working_dir
 let compile_git_repo_runner t q =
   create_dir t q
   >>= fun working_dir ->
-  Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
-  >>= fun () -> begin
-    if q.save_artefact
-    then Oci_Runner.create_artefact t
-        ~dir:"/"
-        ~prune:[working_dir]
-    else Deferred.return Oci_Common.Artefact.empty
-  end
-  >>= fun artefact ->
-  Oci_Runner.data_log t (`Artefact artefact);
-  Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests
-  >>= fun () ->
-  Oci_Runner.run_exn t ~prog:"umount" ~args:[working_dir] ()
+  Monitor.protect
+    ~finally:(fun () ->
+        Oci_Runner.run_exn t ~prog:"umount" ~args:["-l";working_dir] ())
+    (fun () ->
+      Deferred.List.iter ~f:(run_cmds t `Required working_dir) q.cmds
+      >>= fun () -> begin
+        if q.save_artefact
+        then Oci_Runner.create_artefact t
+            ~dir:"/"
+            ~prune:[working_dir]
+        else Deferred.return Oci_Common.Artefact.empty
+      end
+      >>= fun artefact ->
+      Oci_Runner.data_log t (`Artefact artefact);
+      Deferred.List.iter ~f:(run_cmds t `Test working_dir) q.tests
+    )
 
 
 (*

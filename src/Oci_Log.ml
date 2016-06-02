@@ -126,6 +126,27 @@ let reader_get_first ~f t =
     Pipe.close_read reader;
     return res
 
+let get_end reader =
+  let rec aux r =
+    Pipe.read' r
+    >>= function
+    | `Eof -> return (Or_error.error_string "incomplete log")
+    | `Ok q ->
+      match
+        Queue.find_map q ~f:(function
+            | { data = End e } -> Some e
+            | _ -> None)
+      with
+      | None -> aux r
+      | Some x -> return x
+  in
+  aux reader
+  >>= fun res ->
+  Pipe.close_read reader;
+  return res
+
+
+
 exception Closed_Log
 
 module Make(S: sig
@@ -198,7 +219,7 @@ module Make(S: sig
     Table.add_exn db_log ~key:id ~data:(q,r);
     (* write to disk *)
     don't_wait_for begin
-      (** open the file only when the queue have been closed otherwise
+      (* open the file only when the queue have been closed otherwise
           too many file-descriptors are opened at the same time *)
       Oci_Queue.closed q
       >>= fun () ->

@@ -115,12 +115,17 @@ let run_runner =
       ~binary_name:(fun _ -> binary_name)
       (fun ~first runner _
         (log,(todo:Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.t)) ->
-         let todo = if first then todo else {todo with artefacts = []} in
-         exec_runner
+        let todo = if first then todo else {todo with artefacts = []} in
+        let r,log = Oci_Queue.spy_writer log in
+        let r = Oci_Log.get_end r in
+        exec_runner
           (fun (x : Oci_Generic_Masters_Api.CompileGitRepoRunner.Result.t) ->
              (x :> Oci_Generic_Masters_Api.CompileGitRepo.Result.t))
           Oci_Generic_Masters_Api.CompileGitRepoRunner.rpc
-          log runner todo)
+          log runner todo
+        >>= fun () ->
+        r
+      )
   in
   fun name log todo ->
     match (todo:Oci_Generic_Masters_Api.CompileGitRepoRunner.Query.t) with
@@ -128,6 +133,8 @@ let run_runner =
       reusable (name,todo.Oci_Generic_Masters_Api.
                        CompileGitRepoRunner.Query.artefacts)
         (log,todo)
+      >>= fun _ ->
+      Deferred.unit
     | _ ->
     Oci_Master.simple_runner
       ~debug_info:(sprintf "Run Repo %s" name)

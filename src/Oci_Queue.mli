@@ -35,9 +35,17 @@ val writer: 'a t -> 'a Pipe.Writer.t
 val add: 'a t -> 'a -> unit Deferred.t
 val add_without_pushback: 'a t -> 'a -> unit
 (** add an element *)
+
 val transfer_id: 'a t -> 'a Pipe.Reader.t -> unit Deferred.t
 (** add all the elements read from the pipe *)
+
 val close: 'a t -> unit Deferred.t
 (** Close the queue, no more elements can be added *)
+
 val closed: 'a t -> unit Deferred.t
 (** Becomes determined when close is called *)
+
+
+
+val duplicate_reader: 'a Pipe.Reader.t -> 'a Pipe.Reader.t * 'a Pipe.Reader.t
+val spy_writer: 'a Pipe.Writer.t -> 'a Pipe.Reader.t * 'a Pipe.Writer.t

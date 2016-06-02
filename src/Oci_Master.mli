@@ -165,9 +165,9 @@ val reusable_runner:
   binary_name:('k -> string) ->
   ?timeout:Time.Span.t ->
   ?error:('k -> 'd -> Error.t -> 'a) ->
-  (first:bool -> runner -> 'k -> 'd -> 'a Deferred.t) ->
+  (first:bool -> runner -> 'k -> 'd -> 'a Deferred.Or_error.t) ->
   (* partial application *)
-  'k -> 'd -> 'a Deferred.t
+  'k -> 'd -> 'a Deferred.Or_error.t
 
 
 val stop_runner: runner -> unit Deferred.t
