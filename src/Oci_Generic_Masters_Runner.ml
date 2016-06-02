@@ -42,32 +42,9 @@ let create_dir t (q:Query.t) =
   return working_dir
 
 let memory_resource =
-  match Core.Std.Unix.RLimit.virtual_memory with
+  match Oci_Std.Oci_Unix.RLimit.virtual_memory with
   | Ok r -> r
-  | Error _ -> Core.Std.Unix.RLimit.data_segment
-
-(** work because we don't run tests in parallel,
-    and because we suppose this runner doesn't take too much memory *)
-let memlimit f m =
-  let setrlimit m =
-    In_thread.syscall_exn ~name:"setrlimit"
-      Core.Std.Unix.RLimit.(fun () ->
-          set memory_resource m)
-  in
-  let getrlimit () =
-    In_thread.syscall_exn ~name:"getrlimit"
-      Core.Std.Unix.RLimit.(fun () ->
-          get memory_resource)
-  in
-  getrlimit ()
-  >>= fun old ->
-  setrlimit {old with cur= Limit (Int64.of_float (Byte_units.bytes m))}
-  >>= fun () ->
-  f ()
-  >>= fun r ->
-  setrlimit old
-  >>= fun () ->
-  return r
+  | Error _ -> Oci_Std.Oci_Unix.RLimit.data_segment
 
 
 let run_cmds t kind working_dir
@@ -110,20 +87,23 @@ let run_cmds t kind working_dir
                                 CompileGitRepoRunner.Formatted_proc.get s) in
                    Printf.sprintf fmt got)
          in
-         let wrap f =
+         let resource =
            match cmd.memlimit with
-           | None -> f ()
-           | Some m -> memlimit f m
+           | None -> []
+           | Some m ->
+             let m = Oci_Std.Oci_Unix.RLimit.Limit
+                 (Int64.of_float (Byte_units.bytes m)) in
+             let res = { Oci_Std.Oci_Unix.RLimit.max = m; cur = m } in
+             [memory_resource,res]
          in
          Oci_Runner.data_log t (`CmdStart (cmd));
-         wrap (fun () ->
-             Oci_Runner.run_timed t
-               ?timelimit:cmd.timelimit
-               ~working_dir:(Oci_Filename.make_absolute working_dir
-                               cmd.working_dir)
-               ~prog:cmd.cmd ~args
-               ~env:cmd.env ()
-           )
+         Oci_Runner.run_timed t
+           ?timelimit:cmd.timelimit
+           ~resource
+           ~working_dir:(Oci_Filename.make_absolute working_dir
+                           cmd.working_dir)
+           ~prog:cmd.cmd ~args
+           ~env:cmd.env ()
          >>= fun r ->
          match kind, r with
          | `Test, (r,i) ->

@@ -269,6 +269,10 @@ let print_cmd prog args =
 type 'a process_create
   =  ?env         : Oci_Std.Oci_Unix.env
   -> ?working_dir : string
+  -> ?resource    : (Oci_Std.Oci_Unix.RLimit.resource *
+                     Oci_Std.Oci_Unix.RLimit.t) list
+  -> ?setuid      : int
+  -> ?setgid      : int
   -> prog         : string
   -> args         : string list
   -> unit
@@ -276,9 +280,11 @@ type 'a process_create
 
 exception CommandFailed
 
-let run t ?env ?working_dir ~prog ~args () =
+let run t ?env ?working_dir
+    ?resource ?setuid ?setgid ~prog ~args () =
   cmd_log t "%s" (print_cmd prog args);
-  Oci_Std.Oci_Unix.create ?working_dir ?env ~prog ~args ()
+  Oci_Std.Oci_Unix.create ?working_dir ?env
+    ?setuid ?setgid ?resource ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
   let wait = Oci_Std.Oci_Unix.wait p in
@@ -295,8 +301,8 @@ let run t ?env ?working_dir ~prog ~args () =
       (Unix.Exit_or_signal.to_string_hum error);
     return r
 
-let run_exn t ?env ?working_dir ~prog ~args () =
-  run t ?working_dir ?env ~prog ~args ()
+let run_exn t ?env ?working_dir ?resource ?setuid ?setgid ~prog ~args () =
+  run t ?working_dir ?env ?resource ?setuid ?setgid ~prog ~args ()
   >>= function
   | Core_kernel.Std.Result.Ok () -> return ()
   | Core_kernel.Std.Result.Error _ ->
@@ -304,10 +310,28 @@ let run_exn t ?env ?working_dir ~prog ~args () =
 
 let next_cgroup = ref (-1)
 
-let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
+let run_timed t ?timelimit ?env ?working_dir
+     ?(resource=[]) ?setuid ?setgid
+     ~prog ~args () =
+  let resource, lastlimit =
+    match timelimit with
+    | None -> resource, None
+    | Some t ->
+      let softlimit = Time.Span.(scale t 1.05 + create ~ms:500 ()) in
+      let hardlimit = Time.Span.(scale t 1.1 + create ~sec:1 ()) in
+      let lastlimit = Time.Span.(scale t 1.1 + create ~sec:1 ~ms:250 ()) in
+      let to_sec_int64 x = Int64.of_float (Time.Span.to_sec x) in
+      let resource =
+        (Oci_Std.Oci_Unix.RLimit.cpu_seconds,
+         {Oci_Std.Oci_Unix.RLimit.cur = Limit (to_sec_int64 softlimit);
+          max = Limit (to_sec_int64 hardlimit)
+         })::resource in
+      resource, Some lastlimit
+  in
   cmd_log t "%s" (print_cmd prog args);
   let start = Unix.gettimeofday () in
-  Oci_Std.Oci_Unix.create ?working_dir ?env ~prog ~args ()
+  Oci_Std.Oci_Unix.create ?working_dir ?env
+    ?setuid ?setgid ~resource ~prog ~args ()
   >>= fun p ->
   let p = Or_error.ok_exn p in
   let pid = Oci_Std.Oci_Unix.pid p in
@@ -336,13 +360,12 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
   Oci_Std.Oci_Unix.start p
   >>= fun () ->
   begin
-    match timelimit with
+    match lastlimit with
     | None -> Deferred.unit
-    | Some timelimit ->
-      let timelimit = Time.Span.(scale timelimit 1.1 + create ~sec:1 ()) in
+    | Some lastlimit ->
       Deferred.choose [
         Deferred.choice w (fun _ -> `Done);
-        Deferred.choice (after timelimit) (fun _ -> `Timeout);
+        Deferred.choice (after lastlimit) (fun _ -> `Timeout);
       ]
       >>= function
       | `Timeout -> send_signal pid own_cgroup
@@ -356,13 +379,13 @@ let run_timed t ?timelimit ?env ?working_dir ~prog ~args () =
                Oci_Common.Timed.cpu_user = Time.Span.of_float ru.utime;
                Oci_Common.Timed.wall_clock = Time.Span.of_float (stop -. start)}
   in
-  (** cleanup *)
+  (* cleanup *)
   cleanup_cgroup own_cgroup
   >>= fun () ->
   return (r,timed)
 
-let run_timed_exn t ?env ?working_dir ~prog ~args () =
-  run_timed t ?working_dir ?env ~prog ~args ()
+let run_timed_exn t ?env ?working_dir ?resource ?setuid ?setgid ~prog ~args () =
+  run_timed t ?working_dir ?resource ?setuid ?setgid ?env ~prog ~args ()
   >>= function
   | (Result.Ok (), timed) -> return timed
   | _ -> raise CommandFailed
