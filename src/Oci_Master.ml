@@ -115,7 +115,7 @@ let reusable_runner
     ?error
     (f: first:bool -> runner -> 'k -> 'd -> 'a Or_error.t Deferred.t) =
   let h = Hashtbl.create ~hashable:hashable_key () in
-  let scheduled (_,event) =
+  let scheduled (_,event,_) =
     match Clock.Event.status event with
     | `Aborted _ ->
       Log.Global.error "reusable runner aborted still in reusable list";
@@ -146,7 +146,7 @@ let reusable_runner
           (reusable_id reusable)
           debug_info;
         return (reusable,true)
-      | Some ((reusable,event)::l) ->
+      | Some ((reusable,event,freezing)::l) ->
         if l = []
         then Hashtbl.remove h k
         else Hashtbl.set h ~key:k ~data:l;
@@ -157,6 +157,7 @@ let reusable_runner
             (reusable_id reusable);
           find_available ()
         | `Ok ->
+          freezing >>= fun () ->
           match Deferred.peek reusable.wait with
           | None ->
             Log.Global.info "Reuse runner %i for %s"
@@ -188,8 +189,6 @@ let reusable_runner
     | `Runned (Ok _ as x) ->
       Log.Global.debug "Reusable runner %i freezed"
         (reusable_id reusable);
-      freeze_runner reusable.runner
-      >>= fun () ->
       let event = Clock.Event.run_after timeout (fun () ->
           Log.Global.debug "Reusable runner %i stopped since not used"
             (reusable_id reusable);
@@ -203,7 +202,8 @@ let reusable_runner
               "A reusable runner stopped with error after timeout: %s"
               (Sexp.to_string_hum ([%sexp_of: Error.t] e));
         ) () in
-      Hashtbl.add_multi h ~key:k ~data:(reusable,event);
+      Hashtbl.add_multi h ~key:k
+        ~data:(reusable,event,freeze_runner reusable.runner);
       return x
     | `Runned (Error e as x) ->
       (* we stop the runner that "failed" previously *)
