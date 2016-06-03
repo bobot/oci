@@ -70,6 +70,7 @@ install:
 	install bin/Oci_Master_Tools.native $(BINDIR)/oci-master-tools
 	install bin/Oci_Master_Tools.native $(VARDIR)/oci-master-tools
 	install bin/oci_default_client $(BINDIR)/oci-default-client
+	install create_cgroup.sh $(BINDIR)/oci-create-cgroup
 
 uninstall:
 	rm -rf $(LIB_INSTALL_DIR)/bin

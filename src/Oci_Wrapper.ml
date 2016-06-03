@@ -58,9 +58,15 @@ let () =
     begin match param.cgroup with
     | None -> ()
     | Some cgroup ->
-      move_to_cgroup cgroup;
-      Option.iter ~f:(set_cpuset cgroup) param.initial_cpuset;
-      chmod_cgroup cgroup
+      let abs a s =
+        let a = Oci_Filename.make_absolute "/sys/fs/cgroup" a in
+        let s = Oci_Filename.make_absolute a s in
+        s
+      in
+      move_to_cgroup (abs "cpuset" cgroup);
+      move_to_cgroup (abs "cpuacct" cgroup);
+      Option.iter ~f:(set_cpuset (abs "cpuset" cgroup)) param.initial_cpuset;
+      chmod_cgroup (abs "cpuacct" cgroup)
     end;
     test_userns_availability ();
     (* Option.iter param.rootfs ~f:(mkdir ~perm:0o750); *)
