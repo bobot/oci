@@ -148,8 +148,8 @@ let reusable_runner
         return (reusable,true)
       | Some ((reusable,event)::l) ->
         if l = []
-        then Hashtbl.set h ~key:k ~data:l
-        else Hashtbl.remove h k;
+        then Hashtbl.remove h k
+        else Hashtbl.set h ~key:k ~data:l;
         match Clock.Event.abort event () with
         | `Previously_happened _ -> find_available ()
         | `Previously_aborted _ ->
