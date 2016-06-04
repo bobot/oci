@@ -254,6 +254,8 @@ let dispatch_exn t d q =
   return (Or_error.ok_exn r)
 
 let process_log t p =
+  Writer.close (Oci_Std.Oci_Unix.stdin p)
+  >>= fun () ->
   let send_to_log t kind reader =
     let reader = Reader.lines reader in
     Pipe.transfer ~f:(fun line -> Oci_Log.line kind line) reader t.log in
