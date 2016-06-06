@@ -122,6 +122,7 @@ let compile_git_repo_runner t q =
   create_dir t q
   >>= fun working_dir ->
   Monitor.protect
+    ~here:[%here]
     ~finally:(fun () ->
         Oci_Runner.run_exn t ~prog:"umount" ~args:["-l";working_dir] ())
     (fun () ->

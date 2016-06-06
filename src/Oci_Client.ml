@@ -1506,7 +1506,7 @@ module Cmdline = struct
     Term.(const compare_run_one $
           create_query_hook $ rootfs $
           (cmdliner_revspecs WP.ParamValue.empty) $ x_input $ y_input $ bench),
-    Term.info "compare_run_one" ~doc ~sdocs:copts_sect ~man
+    Term.info "compare-run-one" ~doc ~sdocs:copts_sect ~man
 
   let default_cmd ?version ?doc name =
     let man = help_secs in

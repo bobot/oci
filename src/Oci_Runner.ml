@@ -341,7 +341,6 @@ let run_timed t ?timelimit ?env ?working_dir
     (fun p ->
        let id = incr next_cgroup; sprintf "run%i" !next_cgroup in
        let p = Oci_Filename.make_absolute p id in
-      cmd_log t "create cgroup: %s" p;
       Sys.file_exists_exn p
       >>= fun b -> begin
         if b then Deferred.unit
