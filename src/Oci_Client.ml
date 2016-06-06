@@ -348,7 +348,7 @@ module Cmdline = struct
       id: 'a Type_equal.Id.t;
       of_sexp: (Sexp.t -> 'a) option;
       to_option_hum: 'a -> string;
-      cmdliner: 'a Cmdliner.Term.t;
+      cmdliner: 'a option Cmdliner.Term.t;
       resolve: (Git.connection -> 'a -> 'b Deferred.t) with_param;
       unresolve: 'b -> 'a;
     }
@@ -428,14 +428,10 @@ module Cmdline = struct
     let mk_param'
         ~default ?(sexp_of=sexp_of_opaque) ?of_sexp ~to_option_hum
         ~cmdliner
-        ?docv
-        ?doc
         ~resolve ~unresolve name =
       let id = Univ_map.Key.create ~name sexp_of in
       let param = {default; id; of_sexp;
-                   cmdliner =
-                     Cmdliner.Arg.(value & cmdliner & info [name]
-                                     ?docv ?doc);
+                   cmdliner;
                    to_option_hum;
                    resolve;
                    unresolve;
@@ -445,16 +441,19 @@ module Cmdline = struct
 
     let mk_param
         ~default ?sexp_of ~of_sexp ~to_option_hum
-        ~cmdliner ?docv ?doc name =
+        ~cmdliner name =
       mk_param'
         ~default ?sexp_of ~of_sexp ~to_option_hum
-        ~cmdliner ?docv ?doc
+        ~cmdliner
         ~resolve:(const (fun _ b -> return b))
         ~unresolve:(fun b -> b) name
 
     let mk_param_string' ~default ?docv ?doc ~resolve ~unresolve name =
-      mk_param' ~cmdliner:Cmdliner.Arg.(opt string default) ~default
-        ?docv ?doc ~sexp_of:String.sexp_of_t ~of_sexp:String.t_of_sexp
+      let cmdliner =
+        Cmdliner.Arg.(value & (opt (some string) None) & info [name]
+                        ?docv ?doc) in
+      mk_param' ~cmdliner ~default
+        ~sexp_of:String.sexp_of_t ~of_sexp:String.t_of_sexp
         ~to_option_hum:(fun s -> sprintf "--%s=%s" name s)
         ~resolve ~unresolve
         name
@@ -466,10 +465,15 @@ module Cmdline = struct
 
     let mk_param_string_list
         ?(default=[]) ?docv ?doc name =
+      let cmdliner =
+        Cmdliner.Arg.(value & (opt_all string []) & info [name]
+                        ?docv ?doc) in
+      let cmdliner = Cmdliner.Term.(
+          const (function [] -> None | l -> Some l) $ cmdliner
+        ) in
       mk_param
         ~default
-        ~cmdliner:Cmdliner.Arg.(opt_all string default)
-        ?docv ?doc
+        ~cmdliner
         ~sexp_of:(List.sexp_of_t String.sexp_of_t)
         ~of_sexp:(List.t_of_sexp String.t_of_sexp)
         ~to_option_hum:(fun l ->
@@ -1305,7 +1309,11 @@ module Cmdline = struct
       ~f:Cmdliner.Term.(fun ~key:_ ~data acc ->
           match data with
           | WP.Exists_param ({cmdliner} as p) ->
-            const (fun a m -> WP.ParamValue.set m p a) $ cmdliner $ acc
+            const (fun a m ->
+                match a with
+                | None -> m
+                | Some a ->
+                  WP.ParamValue.set m p a) $ cmdliner $ acc
         )
 
   let rootfs =

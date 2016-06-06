@@ -73,10 +73,11 @@ let oci_sort_ocamlparam =
   WP.mk_param ~default:None "oci-sort-ocamlparam"
     ~sexp_of:[%sexp_of: string option]
     ~of_sexp:[%of_sexp: string option]
-    ~cmdliner:Arg.(opt (some string) None)
-    ~docv:"ARG"
-    ~doc:"Determine the argument to give to ocaml \
-          OCAMLPARAM"
+    ~cmdliner:Arg.(value & (opt (some (some string)) None)
+                   & info ["oci-sort-ocamlparam"]
+                     ~docv:"ARG"
+                     ~doc:"Determine the argument to give to ocaml \
+                           OCAMLPARAM")
     ~to_option_hum:(function None -> "" | Some s -> "--oci-sort-ocamlparam="^s)
 let oci_sort_revspec =
   mk_revspec_param ~url:oci_sort_url "oci-sort"
