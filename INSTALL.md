@@ -7,6 +7,7 @@
 - xpra (optional, useful to get access to a shell in the container when tests
 go wrong)
 - linux (>= 3.18)
+- git (>= 2.1)
 
 ### Installation with opam
 
