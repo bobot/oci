@@ -90,16 +90,19 @@ let wait4 pid =
   assert (pid' = pid);
   return (Core.Core_unix.Exit_or_signal.of_unix status, ru)
 
-let exit_if_too_much_fds () =
+let exit_if_too_much_fds max_fds =
   let t = (Scheduler.t ()).fd_by_descr in
   let len = Async_unix.Fd_by_descr.fold t ~init:0 ~f:(fun acc _ -> acc + 1) in
-  if len > 500 then begin
-    error "Fd leaks:";
+  if len > max_fds then begin
+    error "Async fd leaks:";
     Async_unix.Fd_by_descr.iter t
       ~f:(fun fd -> error "  %s"
              (Info.to_string_hum (Async_unix.Raw_fd.info fd)));
     Shutdown.shutdown 1;
-  end
+  end;
+  let len = Core_extended.Fd_leak_check.get_num_open_fds () in
+  if len > max_fds then
+    Core_extended.Fd_leak_check.report_open_files ()
 
 module Oci_Unix : sig
 
@@ -391,6 +394,7 @@ let internal_create_process
     close_non_intr in_read;
     close_non_intr out_write;
     close_non_intr err_write;
+    close_non_intr start_read;
     {
       Process_info.pid = Pid.to_int pid;
       stdin = in_write;
@@ -412,7 +416,6 @@ let path_expand ?working_dir ?use_extra_path prog =
 
 let create ?(env = `Extend []) ?working_dir ?(resource=[]) ?(fd_kept=[])
     ?setuid ?setgid ~prog ~args () =
-  exit_if_too_much_fds ();
   List.iter fd_kept ~f:(fun p ->
       match Core.Std.Unix.File_descr.to_int p with
       | (0 | 1 | 2) as fd ->
