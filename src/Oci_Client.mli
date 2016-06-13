@@ -311,7 +311,8 @@ module Cmdline: sig
   type 'a compare_result =
     ('a,
      [ `Anomaly of Error.t
-     | `BadResult of string ]) Result.t
+     | `BadResult of string
+     | `Unknown of string ]) Result.t
 
 
   type ('x,'y,'acc) compare' =

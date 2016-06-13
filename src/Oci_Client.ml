@@ -647,7 +647,8 @@ module Cmdline = struct
   type 'res compare_result =
     ('res,
      [ `Anomaly of Error.t
-     | `BadResult of string ]) Result.t
+     | `BadResult of string
+     | `Unknown of string ]) Result.t
 
 
   type ('x,'y,'res) all_result = {
@@ -878,6 +879,9 @@ module Cmdline = struct
       | Error (`Anomaly r) ->
         error "[Anomaly] error: %s"
           (Sexp.to_string_hum (Error.sexp_of_t r));
+        return `Error
+      | Error (`Unknown r) ->
+        info "[Unknown] %s" r;
         return `Error
       | Ok _ ->
         info "Done";
