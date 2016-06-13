@@ -65,9 +65,9 @@ let open_if_exists file f =
   if exi then begin
     Reader.open_file file
     >>= fun reader ->
-    f reader
-    >>= fun () ->
-    Reader.close reader
+    Monitor.protect ~here:[%here]
+      ~finally:(fun () -> Reader.close reader)
+      (fun () -> f reader)
   end
   else return ()
 
@@ -76,9 +76,33 @@ let read_if_exists file bin_reader_t f =
     (fun reader ->
        Reader.read_bin_prot reader bin_reader_t
        >>= function
-       | `Eof -> return ()
+       | `Eof -> Deferred.unit
        | `Ok r -> f r
     )
+
+
+let backup_and_save_list file bin_writer_t f =
+  backup_and_open_file file
+  >>= fun writer ->
+  Monitor.protect ~here:[%here]
+    ~finally:(fun () -> Writer.close writer)
+    (fun () ->
+       f (Writer.write_bin_prot writer bin_writer_t);
+       Deferred.unit
+    )
+
+let read_list_if_exists file bin_reader_t f =
+  open_if_exists file
+    (fun reader ->
+       Unpack_sequence.unpack_iter
+         ~from:(Unpack_sequence.Unpack_from.Reader reader)
+         ~using:(Unpack_buffer.create_bin_prot bin_reader_t)
+         ~f
+       >>= function
+       | Unpack_sequence.Unpack_iter_result.Input_closed -> Deferred.unit
+       | r -> Error.raise (Unpack_sequence.Unpack_iter_result.to_error r)
+    )
+
 
 external wait4: Caml.Unix.wait_flag list -> int ->
   int * Caml.Unix.process_status * Core.Core_unix.Resource_usage.t = "oci_wait4"

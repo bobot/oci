@@ -307,22 +307,20 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
                 "Master %s have already been loaded" name;
               H.clear db;
             end;
-            Oci_Std.read_if_exists file
-              [% bin_reader: (Query.t * Log.t) list]
-              (fun l ->
-                 debug "Master %s load %i records" name (List.length l);
-                 List.iter
-                   ~f:(fun (q,l) ->
-                       match H.add db ~key:q ~data:l with
-                       | `Ok -> ()
-                       | `Duplicate ->
-                         Async.Std.Log.Global.error
-                           "Duplicate key %s"
-                           (Sexp.to_string_hum ~indent:1
-                              (Query.sexp_of_t q))
-                     )
-                   l;
-                 return ())
+            Oci_Std.read_list_if_exists file
+              [% bin_reader: (Query.t * Log.t)]
+              (fun (q,l) ->
+                 match H.add db ~key:q ~data:l with
+                 | `Ok -> ()
+                 | `Duplicate ->
+                   Async.Std.Log.Global.error
+                     "Duplicate key %s"
+                     (Sexp.to_string_hum ~indent:1
+                        (Query.sexp_of_t q))
+              )
+            >>= fun () ->
+            debug "Master %s load %i records" name (H.length db);
+            Deferred.unit
           )
         ~saver:(fun () ->
             let l = H.fold ~init:[]
@@ -335,12 +333,9 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
             permanent_directory S.data
             >>= fun dir ->
             let file = Oci_Filename.make_absolute dir "data" in
-            Oci_Std.backup_and_open_file file
-            >>= fun writer ->
-            Writer.write_bin_prot writer
-              [% bin_writer: (Query.t * Log.t) list]
-              l;
-            Writer.close writer
+            Oci_Std.backup_and_save_list file
+              [% bin_writer: (Query.t * Log.t)]
+              (fun f -> List.iter ~f l)
           );
       register ~forget S.data f
 
