@@ -141,6 +141,12 @@ let rec chown_not_shared ({Oci_Common.User.uid;gid} as user) src =
         return ()
     )
 
+let fetch src =
+  Async_shell.run
+    ~env:(get_env ())
+    ~working_dir:src
+    "git" ["fetch";"--prune";"origin"]
+
 
 let check_commit_availability ~src commit =
   let commit = Oci_Common.Commit.to_string commit in
@@ -151,9 +157,7 @@ let check_commit_availability ~src commit =
     else
       (** update the local cache.
           It is not possible to fetch a particular commit. *)
-      Async_shell.run
-        ~env:(get_env ())
-        "git" ["-C";src;"fetch";"origin"]
+      fetch src
       >>= fun () ->
       (** test if the fetch find it *)  (** well fetched *)
       Async_shell.test
@@ -289,10 +293,7 @@ let fetch_only_if_old src =
   end
   >>= fun b -> begin
     if b
-    then
-      Async_shell.run
-        ~env:(get_env ())
-        "git" ["-C";src;"fetch";"origin"]
+    then fetch src
     else return ()
   end
 
