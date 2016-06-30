@@ -543,6 +543,10 @@ let dispatch_master_log d q =
   debug "%s called from a master" (Oci_Data.name d);
   (Direct_Master.find_exn d) q
 
+let throttle_work = Throttle.create
+    ~max_concurrent_jobs:500
+    ~continue_on_error:true
+
 let register_master
     ?(forget=fun _ -> Deferred.Or_error.return ())
     data (f: 'query -> 'result Oci_Log.reader) : unit =
@@ -574,8 +578,11 @@ let register_master
       (Rpc.Pipe_rpc.implement (Oci_Data.log data)
          (fun {rootfs} q ->
             debug "%s log called from %s" name rootfs;
-            Monitor.try_with_or_error ~here:[%here] ~name
-              (fun () -> return (Oci_Log.read (f q)))
+            Throttle.enqueue throttle_work (fun () ->
+                Monitor.try_with_or_error ~here:[%here] ~name
+                  (fun () -> return (Oci_Log.read (f q))
+                  )
+              )
          ));
   let forget _ q = Monitor.try_with_join_or_error ~here:[%here]
       (fun () -> forget q) in
