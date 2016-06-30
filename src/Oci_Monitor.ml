@@ -156,6 +156,16 @@ let create_cgroup ~conf cgroup_name =
               >>= fun () ->
               Unix.mkdir cgroup
             )
+        >>= fun () ->
+        (** initialize cpuset.mems otherwise we can't add new tasks *)
+        let cpuset = "/sys/fs/cgroup/cpuset/" in
+        Async_shell.run "cp"
+          [(Oci_Filename.make_absolute cpuset cgroup_root)^"/cpuset.cpus";
+           (Oci_Filename.make_absolute cpuset cgroup)^"/cpuset.cpus"]
+        >>= fun () ->
+        Async_shell.run "cp"
+          [(Oci_Filename.make_absolute cpuset cgroup_root)^"/cpuset.mems";
+           (Oci_Filename.make_absolute cpuset cgroup)^"/cpuset.mems"]
       )
     >>= function
     | Ok () -> Deferred.return (Some cgroup)
