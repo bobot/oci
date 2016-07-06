@@ -87,8 +87,8 @@ let backup_and_save_list file bin_writer_t f =
   Monitor.protect ~here:[%here]
     ~finally:(fun () -> Writer.close writer)
     (fun () ->
-       f (Writer.write_bin_prot writer bin_writer_t);
-       Deferred.unit
+       f (fun x -> Writer.write_bin_prot writer bin_writer_t x;
+           Writer.flushed writer)
     )
 
 let read_list_if_exists file bin_reader_t f =

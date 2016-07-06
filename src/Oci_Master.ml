@@ -335,7 +335,7 @@ module Make(Query : Hashtbl.Key_binable) (Result : Binable.S) = struct
             let file = Oci_Filename.make_absolute dir "data" in
             Oci_Std.backup_and_save_list file
               [% bin_writer: (Query.t * Log.t)]
-              (fun f -> List.iter ~f l)
+              (fun f -> Deferred.List.iter ~f l)
           );
       register ~forget S.data f
 
