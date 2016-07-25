@@ -331,6 +331,8 @@ module Cmdline: sig
     (** (x).(y) *)
   }
 
+  val timelimit_param: (Time.Span.t,Time.Span.t) WP.param
+
   val mk_compare':
     repos:('x,'y,'acc) compare' ->
     x_of_sexp:(Sexp.t -> 'x) ->
@@ -340,7 +342,6 @@ module Cmdline: sig
     fold_init: 'acc ->
     fold_end:('acc -> 'res compare_result) ->
     analyse:(('x,'y,'res) all_result -> ('x,'y,float) all_result) ->
-    timeout:float ->
     string ->
     unit
 
@@ -352,7 +353,6 @@ module Cmdline: sig
     sexp_of_y:('y -> Sexp.t) ->
     analyse:(Unix.Exit_or_signal.t ->
              Oci_Common.Timed.t -> float compare_result) ->
-    timeout:float ->
     string ->
     unit
     (** The time of the last command is used *)
@@ -371,7 +371,6 @@ module Cmdline: sig
     fold_end:('acc -> 'res compare_result) ->
     analyse:((compare_many,'y,'res) all_result ->
              (compare_many,'y,float) all_result) ->
-    timeout:float ->
     string ->
     unit
 
@@ -381,7 +380,6 @@ module Cmdline: sig
     sexp_of_y:('y -> Sexp.t) ->
     analyse:(Unix.Exit_or_signal.t ->
              Oci_Common.Timed.t -> float compare_result) ->
-    timeout:float ->
     string ->
     unit
 

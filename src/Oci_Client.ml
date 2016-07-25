@@ -675,7 +675,6 @@ module Cmdline = struct
     sexp_of_y: 'y -> Sexp.t;
     y_of_sexp: Sexp.t -> 'y;
     analyse: ('x,'y,'res) all_result -> ('x,'y,float) all_result;
-    timeout: float;
   }
   type exists_compare =
     | CompareN: ('acc,'res,'x,'y) compareN -> exists_compare
@@ -887,9 +886,26 @@ module Cmdline = struct
         info "Done";
         return `Ok
 
+  let timelimit_param =
+    let converter =
+      (fun s -> `Ok (Time.Span.of_sec (Float.of_string s))),
+      (fun fmt t -> Format.fprintf fmt "%f" (Time.Span.to_sec t)) in
+    let default = Time.Span.create ~sec:60 () in
+    let name = "timelimit" in
+    WP.mk_param
+      ~default
+      ~docv:"SEC"
+      ~sexp_of:Time.Span.sexp_of_t
+      ~of_sexp:Time.Span.t_of_sexp
+      ~to_option_hum:
+        (fun s -> sprintf "--%s=%f" name (Time.Span.to_sec s))
+      ~cmdliner:Cmdliner.Arg.(opt converter default)
+      name
+
   let compare cq_hook rootfs revspecs
       (x_input:Oci_Filename.t) (y_input:Oci_Filename.t) bench
       outputs summation connection =
+    let timelimit = WP.ParamValue.find_def revspecs timelimit_param in
     let load_sexps input sexp =
       Reader.load_sexps input sexp
       >>= function
@@ -943,18 +959,24 @@ module Cmdline = struct
         let filter_results r =
           List.map r ~f:(fun (x,l) -> (x, List.filter_opt l))
         in
+        let timelimit = Time.Span.to_sec timelimit in
         match summation,results with
         | `Timeout,_ ->
-          Gnuplot.compute_datas_timeout
-            compareN.timeout(filter_results results)
-        | `Sort,_ -> Gnuplot.compute_datas_sort
-                       compareN.timeout(filter_results results)
-        | `Two,[a;b] -> Gnuplot.compute_datas_two
-                          compareN.timeout a b
+          Gnuplot.compute_datas_timeout timelimit (filter_results results)
+        | `Sort,_ ->
+          Gnuplot.compute_datas_sort timelimit (filter_results results)
+        | `Two,[a;b] ->
+          Gnuplot.compute_datas_two timelimit a b
         | `Two, _ -> assert false (* The previous test must forbid this case *)
       end in
       Deferred.List.iter outputs ~f:(function
           | `Sexp filename ->
+            let sexp =
+              List.sexp_of_t
+                (sexp_of_pair compareN.sexp_of_x
+                   (List.sexp_of_t (Option.sexp_of_t Float.sexp_of_t))) in
+            Writer.save_sexp ~hum:true filename (sexp results)
+          | `Csv filename ->
             let sexp =
               List.sexp_of_t
                 (sexp_of_pair compareN.sexp_of_x
@@ -1603,7 +1625,6 @@ module Cmdline = struct
       ~fold_init
       ~fold_end
       ~analyse
-      ~timeout
       (name:string) =
     add_compare
       name
@@ -1628,14 +1649,12 @@ module Cmdline = struct
         y_of_sexp;
         sexp_of_y;
         analyse;
-        timeout;
       }
 
   let mk_compare
       ~repos
       ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y
       ~analyse
-      ~timeout
       name =
     let fold_init = Error (Error.of_string "no command run") in
     let fold_analyse acc =
@@ -1663,13 +1682,13 @@ module Cmdline = struct
     mk_compare'
       ~repos ~fold_end
       ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y
-      ~fold_init ~analyse ~timeout
+      ~fold_init ~analyse
       name
 
   type compare_many = string * WP.ParamValue.t [@@ deriving sexp]
 
   let mk_compare_many_using_revspecs'
-      ~repos ~y_of_sexp ~sexp_of_y ~fold_init ~fold_end ~analyse ~timeout name =
+      ~repos ~y_of_sexp ~sexp_of_y ~fold_init ~fold_end ~analyse name =
     mk_compare'
       ~x_of_sexp:compare_many_of_sexp
       ~sexp_of_x:sexp_of_compare_many
@@ -1692,11 +1711,10 @@ module Cmdline = struct
       ~fold_init
       ~fold_end
       ~analyse
-      ~timeout
       name
 
   let mk_compare_many_using_revspecs
-      ~repos ~y_of_sexp ~sexp_of_y ~analyse ~timeout name =
+      ~repos ~y_of_sexp ~sexp_of_y ~analyse name =
     mk_compare
       ~x_of_sexp:[%of_sexp: (string * WP.ParamValue.t)]
       ~sexp_of_x:[%sexp_of: (string * WP.ParamValue.t)]
@@ -1713,7 +1731,6 @@ module Cmdline = struct
           return (revspecs, repo)
         )
       ~analyse
-      ~timeout
       name
 
 
