@@ -651,7 +651,7 @@ module Cmdline = struct
      [ `Anomaly of Error.t
      | `BadResult of string
      | `Unknown of string ]) Result.t
-
+  [@@ deriving sexp]
 
   type ('x,'y,'res) all_result = {
     x: 'x array;
@@ -948,15 +948,16 @@ module Cmdline = struct
       let results = compareN.analyse results in
       let lost_runs =
         Array.exists results.res ~f:(Array.exists ~f:Result.is_error) in
-      let results =
+      let results_x = lazy begin
         List.map2_exn ~f:(fun x a ->
             (x,Array.to_list (Array.map ~f:Result.ok a)))
           (Array.to_list results.x)
-          (Array.to_list results.res) in
+          (Array.to_list results.res)
+      end in
       let filler = lazy begin
         let results =
           List.map ~f:(fun (x,l) -> Sexp.to_string (compareN.sexp_of_x x),l)
-            results
+            (Lazy.force results_x)
         in
         let filter_results r =
           List.map r ~f:(fun (x,l) -> (x, List.filter_opt l))
@@ -977,13 +978,32 @@ module Cmdline = struct
               List.sexp_of_t
                 (sexp_of_pair compareN.sexp_of_x
                    (List.sexp_of_t (Option.sexp_of_t Float.sexp_of_t))) in
-            Writer.save_sexp ~hum:true filename (sexp results)
+            Writer.save_sexp ~hum:true filename (sexp (Lazy.force results_x))
           | `Csv filename ->
-            let sexp =
-              List.sexp_of_t
-                (sexp_of_pair compareN.sexp_of_x
-                   (List.sexp_of_t (Option.sexp_of_t Float.sexp_of_t))) in
-            Writer.save_sexp ~hum:true filename (sexp results)
+            Writer.with_file filename ~f:begin
+              fun writer ->
+                Deferred.Array.iter results.x ~f:(fun x ->
+                    Writer.write writer ", ";
+                    Writer.write_sexp writer (compareN.sexp_of_x x);
+                    Deferred.unit;
+                  )
+                >>= fun () ->
+                let rec aux i j =
+                  if i < Array.length results.x
+                  then begin
+                    Writer.write writer ", ";
+                    Writer.write_sexp writer
+                      ([%sexp_of: float compare_result] results.res.(i).(j));
+                    aux (i+1) j
+                  end
+                in
+                Deferred.Array.iteri results.y ~f:(fun j y ->
+                    Writer.write writer "\n";
+                    Writer.write_sexp writer (compareN.sexp_of_y y);
+                    aux 0 j;
+                    Deferred.unit;
+                  )
+            end
           | `Gnuplot filename ->
             Writer.open_file filename
             >>= fun writer ->
@@ -1474,6 +1494,7 @@ module Cmdline = struct
                       | Some v -> (conv v)::acc) $ acc $ term
                 )
               [ output "sexp", (fun s -> `Sexp s);
+                output "csv", (fun s -> `Csv s);
                 output "png", (fun s -> `Png s);
                 output "svg", (fun s -> `Svg s);
                 output "gpl", (fun s -> `Gnuplot s);
