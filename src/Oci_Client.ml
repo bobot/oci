@@ -303,7 +303,9 @@ module Gnuplot = struct
   let compute_datas_two timeout (a,la) (b,lb) =
     let r = List.map2_exn la lb ~f:(fun x y ->
         match x,y with
-        | None, _ | _, None -> None
+        | None, None   -> None
+        | None, Some y -> Some (timeout, max error_measure (min timeout y))
+        | Some x, None -> Some (max error_measure (min timeout x), timeout)
         | Some x, Some y -> Some (max error_measure (min timeout x),
                                   max error_measure (min timeout y))
       ) in
@@ -945,7 +947,7 @@ module Cmdline = struct
       } in
       let results = compareN.analyse results in
       let lost_runs =
-        Array.exists results.res ~f:(Array.exists ~f:Result.is_ok) in
+        Array.exists results.res ~f:(Array.exists ~f:Result.is_error) in
       let results =
         List.map2_exn ~f:(fun x a ->
             (x,Array.to_list (Array.map ~f:Result.ok a)))
