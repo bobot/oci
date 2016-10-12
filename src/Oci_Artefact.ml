@@ -430,7 +430,7 @@ let unfreeze_proc local_procs (alloc',used') =
   | SemiFreezed ->
     mk_running alloc' [used'] [], [used']
   | Running _ ->
-    (** already unfreezed, give back to the global pool the given slot *)
+    (* already unfreezed, give back to the global pool the given slot *)
     let released = [used'::alloc'] in
     List.iter released ~f:(give_to_global writer);
     local_procs, []
@@ -594,6 +594,10 @@ let load () =
 
 exception RunnerClosed
 
+(* because they are tmpfs *)
+let base_directory_to_prune = ["dev"; "tmp"; "proc"; "sys"; "run"]
+
+
 let add_artefact_api init =
   let implement_when_open rpc f =
     let f state x =
@@ -612,11 +616,9 @@ let add_artefact_api init =
          create
            ~prune:(
              Oci_Filename.make_absolute rootfs "oci"::
-             Oci_Filename.make_absolute rootfs "dev"::
-             Oci_Filename.make_absolute rootfs "proc"::
-             Oci_Filename.make_absolute rootfs "sys"::
-             Oci_Filename.make_absolute rootfs "run"::
              Oci_Filename.make_absolute rootfs "/etc/resolv.conf"::
+             (List.map ~f:(Oci_Filename.make_absolute rootfs) base_directory_to_prune)
+             @
              (List.map ~f:reparent prune))
            ~rooted_at:(reparent rooted_at)
            ~src:(reparent src)
