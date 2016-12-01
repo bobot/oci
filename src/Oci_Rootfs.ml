@@ -107,12 +107,8 @@ let create_new_rootfs rootfs_query =
        >>= fun () ->
        Oci_Master.cha_log "Create artefact";
        Oci_Artefact.create
-         ~prune:[
-           Oci_Filename.make_absolute rootfsdir "dev";
-           Oci_Filename.make_absolute rootfsdir "proc";
-           Oci_Filename.make_absolute rootfsdir "sys";
-           Oci_Filename.make_absolute rootfsdir "run";
-         ]
+         ~prune:(List.map ~f:(Oci_Filename.make_absolute rootfsdir)
+                   Oci_Artefact.base_directory_to_prune)
          ~only_new:false
          ~rooted_at:rootfsdir
          ~src:rootfsdir

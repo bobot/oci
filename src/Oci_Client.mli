@@ -229,18 +229,15 @@ module Cmdline: sig
       ?sexp_of:('a -> Sexplib.Sexp.t) ->
       of_sexp:(Async.Std.Sexp.t -> 'a) ->
       to_option_hum:('a -> string) ->
-      cmdliner:(Cmdliner.Arg.info -> 'a Cmdliner.Arg.t) ->
-      ?docv:string ->
-      ?doc:string -> 'b Core.Std.String.Table.key_ -> ('a, 'a) param
+      cmdliner:'a option Cmdliner.Term.t ->
+      'b Core.Std.String.Table.key_ -> ('a, 'a) param
 
     val mk_param':
       default:'a ->
       ?sexp_of:('a -> Sexp.t) ->
       ?of_sexp:(Sexp.t -> 'a) ->
       to_option_hum:('a -> string) ->
-      cmdliner:(Cmdliner.Arg.info -> 'a Cmdliner.Arg.t) ->
-      ?docv:string ->
-      ?doc:string ->
+      cmdliner:'a option Cmdliner.Term.t ->
       resolve:(Git.connection -> 'a -> 'b Deferred.t) with_param ->
       unresolve:('b -> 'a) -> string -> ('a, 'b) param
 

@@ -87,6 +87,10 @@ let mount_base dir =
     ~flags:[MS_NOSUID; MS_STRICTATIME; MS_NODEV]
     ~option:"mode=755,uid=0,gid=0" ();
 
+  mount_inside ~dir ~src:"tmpfs" ~tgt:"tmp" ~fstype:"tmpfs"
+    ~flags:[MS_NOSUID; MS_STRICTATIME; MS_NODEV]
+    ~option:"mode=1777,uid=0,gid=0" ();
+
   (* for aptitude *)
   mkdir (Filename.concat dir "/run/lock")
 

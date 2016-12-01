@@ -36,6 +36,9 @@ val create:
   src:Oci_Filename.t ->
   t Deferred.t
 
+val base_directory_to_prune: Oci_Filename.t list
+(** Tmpfs directory created *)
+
 val link_to: Oci_Common.user_kind -> t -> Oci_Filename.t -> unit Deferred.t
 (** ro only *)
 
