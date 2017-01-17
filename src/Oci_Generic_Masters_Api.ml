@@ -358,6 +358,24 @@ module GitTimeOfCommit = struct
       ~bin_result:Time.bin_t
 end
 
+
+module GitReadFile = struct
+  module Query = struct
+    type t = {
+      url : string;
+      commit: Oci_Common.Commit.t;
+      src: Oci_Filename.t;
+    } [@@deriving sexp, bin_io, compare]
+  end
+
+  let rpc =
+    Oci_Data.register
+      ~name:"Oci_Generic_Masters.git_read_file"
+      ~version:1
+      ~bin_query:Query.bin_t
+      ~bin_result:String.bin_t
+end
+
 module WgetDownloadFile = struct
 
   module Query = struct

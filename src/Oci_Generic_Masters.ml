@@ -230,6 +230,12 @@ let init_compile_git_repo () =
     (fun q ->
        Oci_Git.time_of_commit ~url:q.url ~commit:q.commit);
 
+  (* read file *)
+  register_simple_rpc
+    Oci_Generic_Masters_Api.GitReadFile.rpc
+    (fun q ->
+       Oci_Git.read_file ~url:q.url ~commit:q.commit ~src:q.src);
+
   (* download_file *)
   register_simple_rpc
     Oci_Generic_Masters_Api.WgetDownloadFile.rpc

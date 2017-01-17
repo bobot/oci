@@ -161,6 +161,13 @@ module Git: sig
     Commit.t -> Commit.t ->
     Commit.t Deferred.t
 
+  val read_file:
+    connection ->
+    url:string ->
+    commit:Commit.t ->
+    src:Oci_Filename.t ->
+    string Deferred.t
+
   val commit_of_revspec:
     connection ->
     url:string ->

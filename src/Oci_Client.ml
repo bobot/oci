@@ -163,6 +163,13 @@ module Git = struct
     >>= fun r ->
     return (Or_error.ok_exn r)
 
+  let read_file t ~url ~commit ~src =
+    Rpc.Rpc.dispatch_exn
+      (Oci_Data.rpc Oci_Generic_Masters_Api.GitReadFile.rpc)
+      t.socket {Oci_Generic_Masters_Api.GitReadFile.Query.url;commit;src}
+    >>= fun r ->
+    return (Or_error.ok_exn r)
+
   let commit_of_revspec t ~url ~revspec =
     let key = {Oci_Generic_Masters_Api.GitCommitOfRevSpec.Query.url;revspec} in
     Hashtbl.Poly.find_or_add
@@ -714,6 +721,29 @@ module Cmdline = struct
 
   type repo = String.t
 
+  let mk_revspec_param ?(revspec="master") ~url name =
+    WP.mk_param_string'
+      ~default:revspec
+      name
+      ~docv:"REVSPEC"
+      ~doc:(sprintf "indicate which revspec of %s to use." name)
+      ~resolve:(WP.const
+                  (fun connection revspec ->
+                     Git.commit_of_revspec_exn ~url ~revspec connection
+                  ))
+      ~unresolve:Oci_Common.Commit.to_string
+
+  let mk_repo ?revspec ~url ~deps ~cmds ?(tests=[]) name =
+    let revspec_param = mk_revspec_param ?revspec ~url name in
+    add_repo_with_param name
+      WP.(const (fun commit ->
+          Git.repo
+            ~deps
+            ~cmds:((Git.git_clone ~url commit)::cmds)
+            ~tests
+            ()) $? revspec_param);
+    name, revspec_param
+
   type create_query_hook =
     connection:Git.connection ->
     root:string ->
@@ -786,7 +816,62 @@ module Cmdline = struct
       (String.concat ~sep:" " (String.Set.to_list toprint));
     return query
 
-  let run cq_hook rootfs revspecs (repo:string) connection =
+  type config = {
+    name: string;
+    deps: (string *  string) list;
+    install: string list list;
+    tests: string list list;
+  } [@@deriving sexp]
+
+  let add_repos l connection =
+    let pkgs = String.Table.create () in
+    (** phase one *)
+    let rec add_package (url,revspec) =
+      Git.commit_of_revspec_exn connection ~url ~revspec
+      >>= fun commit ->
+      Git.read_file connection ~url ~commit ~src:".oci"
+      >>= fun config ->
+      let config = Sexp.of_string_conv_exn config config_of_sexp in
+      add_packages config.deps
+      >>= fun deps_name ->
+      return (config,deps_name)
+    and add_packages l =
+      Deferred.List.map ~f:add_package l
+      >>= fun configs ->
+      let deps_name = List.map2_exn l configs
+          ~f:(fun (url,revspec) (config,deps_name) ->
+              ignore (String.Table.add pkgs ~key:config.name ~data:(url,revspec,config,deps_name));
+              config.name
+            ) in
+      return deps_name
+    in
+    add_packages l
+    >>= fun _ ->
+    (** phase two *)
+    let cmds_of_list cmds =
+      List.map cmds ~f:(function
+          | [] -> invalid_arg "empty command"
+          | cmd::args ->
+            Git.exec cmd
+              ~args:(List.map args ~f:(fun s -> `S s))
+              ~timelimit:(Time.Span.create ~hr:1 ()))
+    in
+    let register_repo ~key:pkg ~data:(url,revspec,config,deps_name) =
+      let _ =
+        mk_repo pkg
+          ~revspec
+          ~url:url
+          ~deps:deps_name
+          ~cmds:(cmds_of_list config.install)
+          ~tests:(cmds_of_list config.tests) in
+      ()
+    in
+    String.Table.iteri ~f:register_repo pkgs;
+    Deferred.unit
+
+  let run cq_hook rootfs revspecs config (repo:string) connection =
+    add_repos config connection
+    >>= fun () ->
     create_query cq_hook rootfs revspecs repo !db_repos connection
     >>= fun query ->
     let fold acc = function
@@ -801,8 +886,10 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp connection
 
-  let xpra cq_hook rootfs revspecs repo socket =
-    create_query cq_hook rootfs revspecs repo !db_repos socket
+  let xpra cq_hook rootfs revspecs config repo connection =
+    add_repos config connection
+    >>= fun () ->
+    create_query cq_hook rootfs revspecs repo !db_repos connection
     >>= fun query ->
     let repos =
       String.Map.change query.repos repo ~f:(function
@@ -819,7 +906,7 @@ module Cmdline = struct
     in
     exec Oci_Generic_Masters_Api.XpraGitRepo.rpc query
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
-      Oci_Generic_Masters_Api.XpraGitRepo.Result.pp socket
+      Oci_Generic_Masters_Api.XpraGitRepo.Result.pp connection
 
   let gen_fold_compare fold_analyse (acc,acc_analyse) r =
     let acc = match r with
@@ -1450,6 +1537,11 @@ module Cmdline = struct
              ~doc:("Run the repository $(docv). \
                     Possible values: " ^ (String.concat ~sep:", " repos) ^ "."))
     in
+    let add_repos =
+      Arg.(value & opt_all (pair ~sep:'@' string string) [] & info ["add-repo"]
+             ~docv:"URL@REVSPEC"
+             ~doc:"Load additional package definition from the git $(docv)."
+          ) in
     let doc = "run the integration of a repository" in
     let man = [
       `S "DESCRIPTION";
@@ -1457,10 +1549,10 @@ module Cmdline = struct
           using the specified commits."] @ help_secs
     in
     [Term.(const run $ create_query_hook $ rootfs $
-           (cmdliner_revspecs WP.ParamValue.empty) $ repo),
+           (cmdliner_revspecs WP.ParamValue.empty) $ add_repos $ repo),
      Term.info "run" ~doc ~sdocs:copts_sect ~man;
      Term.(const xpra $ create_query_hook $ rootfs $
-           (cmdliner_revspecs WP.ParamValue.empty) $ repo),
+           (cmdliner_revspecs WP.ParamValue.empty) $ add_repos $ repo),
      Term.info "xpra" ~doc ~sdocs:copts_sect ~man]
 
   let compare_cmd create_query_hook =
@@ -1627,29 +1719,6 @@ module Cmdline = struct
   (*       "The url have not been registered with \ *)
   (*        add_default_revspec_for_url: %s" url (); *)
   (*   Git.git_copy_file ~src ~dst ~url dumb_commit *)
-
-  let mk_revspec_param ?(revspec="master") ~url name =
-    WP.mk_param_string'
-      ~default:revspec
-      name
-      ~docv:"REVSPEC"
-      ~doc:(sprintf "indicate which revspec of %s to use." name)
-      ~resolve:(WP.const
-                  (fun connection revspec ->
-                     Git.commit_of_revspec_exn ~url ~revspec connection
-                  ))
-      ~unresolve:Oci_Common.Commit.to_string
-
-  let mk_repo ?revspec ~url ~deps ~cmds ?(tests=[]) name =
-    let revspec_param = mk_revspec_param ?revspec ~url name in
-    add_repo_with_param name
-      WP.(const (fun commit ->
-          Git.repo
-            ~deps
-            ~cmds:((Git.git_clone ~url commit)::cmds)
-            ~tests
-            ()) $? revspec_param);
-    name, revspec_param
 
   let mk_compare'
       ~(repos:('x,'y,'acc) compare')
