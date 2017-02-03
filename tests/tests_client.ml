@@ -79,17 +79,15 @@ let oci_sort_ocamlparam =
                      ~doc:"Determine the argument to give to ocaml \
                            OCAMLPARAM")
     ~to_option_hum:(function None -> "" | Some s -> "--oci-sort-ocamlparam="^s)
-let oci_sort_revspec =
-  mk_revspec_param ~url:oci_sort_url "oci-sort"
 
 let oci_sort =
-  add_repo_with_param "oci-sort"
-    WP.(const (fun commit ocamlparam ->
+  add_repo_with_param ~url:oci_sort_url "oci-sort"
+    WP.(const (fun (url,commit) ocamlparam ->
         Oci_Client.Git.repo
           ~deps:Oci_Client.Cmdline.Predefined.[ocaml;ocamlbuild;
                                                ocamlfind]
           ~cmds:[
-            Oci_Client.Git.git_clone ~url:oci_sort_url commit;
+            Oci_Client.Git.git_clone ~url commit;
             run "autoconf" [];
             run "./configure" [];
             make ?env:(match ocamlparam with
@@ -101,7 +99,7 @@ let oci_sort =
             make ["tests"];
           ]
           ())
-        $? oci_sort_revspec
+        $ (WP.commit "oci-sort")
         $? oci_sort_ocamlparam);
   "oci-sort"
 
@@ -127,8 +125,8 @@ let () = mk_compare
     ~y_of_sexp:Oci_Filename.t_of_sexp
     ~sexp_of_y:Oci_Filename.sexp_of_t
     ~repos:(fun conn revspecs x y ->
-        let revspecs = WP.ParamValue.set revspecs
-            oci_sort_revspec (Oci_Common.Commit.to_string x) in
+        let revspecs = set_commit_repo revspecs oci_sort
+            (Oci_Common.Commit.to_string x) in
         commit_of_revspec conn ~url:oci_sort_url ~revspec:"master"
         >>= fun master ->
         return (revspecs, WP.const (run_compare_oci_sort y master)))

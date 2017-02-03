@@ -166,7 +166,7 @@ module Git: sig
     url:string ->
     commit:Commit.t ->
     src:Oci_Filename.t ->
-    string Deferred.t
+    string option Deferred.t
 
   val commit_of_revspec:
     connection ->
@@ -228,8 +228,14 @@ module Cmdline: sig
       'a with_param -> 'b with_param
 
     val connection: Git.connection with_param
+    val commit: string -> (string * Oci_Common.Commit.t) with_param
     val join_deferred: 'a Deferred.t with_param -> 'a with_param
+    type fixed = {
+      fixed_url: string String.Map.t;
+      fixed_commit: string String.Map.t;
+    }
 
+    val force_commit: ('a * fixed) with_param -> 'a with_param
 
     val mk_param :
       default:'a ->
@@ -237,7 +243,7 @@ module Cmdline: sig
       of_sexp:(Async.Std.Sexp.t -> 'a) ->
       to_option_hum:('a -> string) ->
       cmdliner:'a option Cmdliner.Term.t ->
-      'b Core.Std.String.Table.key_ -> ('a, 'a) param
+      string -> ('a, 'a) param
 
     val mk_param':
       default:'a ->
@@ -275,13 +281,21 @@ module Cmdline: sig
   type repo_param = Git.repo WP.with_param
   type repo = string
 
+  val get_url_repo: WP.ParamValue.t -> repo -> string option
+  val get_url_repo_def: WP.ParamValue.t -> repo -> string option
+  val set_url_repo: WP.ParamValue.t -> repo -> string -> WP.ParamValue.t
+
+  val get_commit_repo: WP.ParamValue.t -> repo -> string option
+  val get_commit_repo_def: WP.ParamValue.t -> repo -> string option
+  val set_commit_repo: WP.ParamValue.t -> repo -> string -> WP.ParamValue.t
+
   val mk_repo:
     ?revspec:string ->
     url:string ->
     deps:repo list ->
     cmds:Git.cmd list ->
     ?tests:Git.cmd list ->
-    string (* name *) -> repo * (string,Commit.t) WP.param
+    string (* name *) -> repo
 
   val mk_copy_file:
     url:string list ->
@@ -400,19 +414,6 @@ module Cmdline: sig
     val ounit: repo
     val cryptokit: repo
     val ocamlbuild: repo
-
-    val ocaml_revspec: (string, Commit.t) WP.param
-    val ocamlfind_revspec: (string, Commit.t) WP.param
-    val zarith_revspec: (string, Commit.t) WP.param
-    val xmllight_revspec: (string, Commit.t) WP.param
-    val camlp4_revspec: (string, Commit.t) WP.param
-    val lablgtk_revspec: (string, Commit.t) WP.param
-    val ocamlgraph_revspec: (string, Commit.t) WP.param
-    val cppo_revspec: (string, Commit.t) WP.param
-    val camomile_revspec: (string, Commit.t) WP.param
-    val cryptokit_revspec: (string, Commit.t) WP.param
-    val ocamlbuild_revspec: (string, Commit.t) WP.param
-
   end
 
   type create_query_hook =
@@ -439,8 +440,8 @@ module Cmdline: sig
   (** parse cmdline, run, and quit *)
 
   (** {2 Experts only} *)
-  val add_repo: string -> Git.repo -> unit
-  val add_repo_with_param: string -> repo_param -> unit
+  val add_repo: ?revspec:string -> ?url:string -> string -> Git.repo -> unit
+  val add_repo_with_param: ?revspec:string -> ?url:string -> string -> repo_param -> unit
   val exec:
     ?init:([> `Ok ] as 'c) ->
     ?fold:
@@ -451,11 +452,6 @@ module Cmdline: sig
     ('a -> Sexplib.Type.t) ->
     (Format.formatter -> 'b -> unit) ->
     Git.connection -> 'c Async_kernel.Types.Deferred.t
-  val mk_revspec_param:
-    ?revspec:Core.Std.String.t ->
-    url:string ->
-    string ->
-    (string,Commit.t) WP.param
 
 end
 

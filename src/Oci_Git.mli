@@ -43,7 +43,7 @@ val read_file:
   url:String.t ->
   src:Oci_Filename.t ->
   commit:Oci_Common.Commit.t ->
-  string Deferred.t
+  string option Deferred.t
 
 val merge_base:
   url:String.t ->

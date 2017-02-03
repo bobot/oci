@@ -373,7 +373,7 @@ module GitReadFile = struct
       ~name:"Oci_Generic_Masters.git_read_file"
       ~version:1
       ~bin_query:Query.bin_t
-      ~bin_result:String.bin_t
+      ~bin_result:(Option.bin_t String.bin_t)
 end
 
 module WgetDownloadFile = struct

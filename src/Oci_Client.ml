@@ -378,13 +378,28 @@ module Cmdline = struct
       resolve: (Git.connection -> 'a -> 'b Deferred.t) with_param;
       unresolve: 'b -> 'a;
     }
-    and
-      _ with_param =
+
+    and _ with_param =
       | WP_Const: 'a -> 'a with_param
       | WP_Param: (_,'b) param -> 'b with_param
       | WP_App: ('a -> 'b) with_param * 'a with_param -> 'b with_param
       | WP_Deferred: 'a Deferred.t with_param -> 'a with_param
       | WP_Connection: Git.connection with_param
+      | WP_Force_Commit: ('a * fixed) with_param -> 'a with_param
+      | WP_Commit: string -> (string * Oci_Common.Commit.t) with_param
+
+    and fixed = {
+      fixed_url: string String.Map.t;
+      fixed_commit: string String.Map.t;
+    }
+
+    and elt_ = T : ('a,'b) param * 'a -> elt_
+    and t_ = elt_ Type_equal.Id.Uid.Map.t
+
+    let fixed_empty = {
+      fixed_url = String.Map.empty;
+      fixed_commit = String.Map.empty;
+    }
 
     type exists_param =
       | Exists_param: ('a,'b) param -> exists_param
@@ -396,7 +411,8 @@ module Cmdline = struct
       module Uid = Type_equal.Id.Uid
       (** Same as Univ_map except we need merge function *)
 
-      type elt = T : ('a,'b) param * 'a -> elt
+      type t = t_
+
       let sexp_of_elt (T(p,v)) =
         let s = Id.to_sexp p.id v in
         let n = String.sexp_of_t (Id.name p.id) in
@@ -414,7 +430,7 @@ module Cmdline = struct
             | Some f -> T(p, f s)
           end
         | _ -> invalid_arg "Bad sexp, pair waited"
-      type t = elt Uid.Map.t
+
       let sexp_of_t m = [%sexp_of: elt list] (Uid.Map.data m)
       let t_of_sexp m = List.fold ~init:Uid.Map.empty
           ([%of_sexp: elt list] m)
@@ -448,7 +464,9 @@ module Cmdline = struct
     let ( $ ) f x = WP_App(f,x)
     let ( $? ) f x = WP_App(f,WP_Param x)
     let connection = WP_Connection
+    let commit name = WP_Commit name
     let join_deferred x = WP_Deferred x
+    let force_commit x = WP_Force_Commit x
     let ( $! ) f x = WP_Deferred (WP_App(f,x))
 
     let mk_param'
@@ -506,33 +524,79 @@ module Cmdline = struct
             String.concat (List.map ~f:(fun s -> sprintf "--%s=%s" name s) l))
         name
 
+    let mk_param_string_pair_list ?(default=[]) ?docv ?doc name =
+      let cmdliner =
+        Cmdliner.Arg.(value & (opt_all (pair string string) []) & info [name]
+                        ?docv ?doc) in
+      let cmdliner = Cmdliner.Term.(
+          const (function [] -> None | l -> Some l) $ cmdliner
+        ) in
+      mk_param
+        ~default
+        ~cmdliner
+        ~sexp_of:[%sexp_of: (string * string) list]
+        ~of_sexp:[%of_sexp: (string * string) list]
+        ~to_option_hum:(fun l ->
+            String.concat (List.map ~f:(fun (a,b) -> sprintf "\"--%s=%s,%s\"" name a b) l))
+        name
+
+    type res_interp = {
+      msg: string list;
+      fixed: fixed;
+    }
+
+    let merge_fixed_commit ~old ~new_ =
+      String.Map.merge
+        ~f:(fun ~key:_ -> function
+            | `Left a | `Right a | `Both (a,_) -> Some a)
+        old new_
+
+    let merge_fixed ~old ~new_ =
+      {
+        fixed_url = merge_fixed_commit ~old:old.fixed_url ~new_:new_.fixed_url;
+        fixed_commit = merge_fixed_commit ~old:old.fixed_commit ~new_:new_.fixed_commit;
+      }
 
     let rec interp :
-      type a. Git.connection -> ParamValue.t ->
-      string list -> a with_param ->
-      (a * string list) Deferred.t =
-      fun c m acc -> function
+      type a. Git.connection ->
+      (res_interp -> string -> ((string * Oci_Common.Commit.t) option * res_interp) Deferred.t) -> ParamValue.t ->
+      res_interp -> a with_param ->
+      (a * res_interp) Deferred.t =
+      fun c com m acc -> function
         | WP_Const x -> return (x,acc)
         | WP_Deferred x ->
-          interp c m acc x
+          interp c com m acc x
           >>= fun (x,acc) ->
           x >>= fun x ->
           return (x,acc)
         | WP_App(f,x) ->
-          interp c m acc f
+          interp c com m acc f
           >>= fun (f,acc) ->
-          interp c m acc x
+          interp c com m acc x
           >>= fun (x,acc) ->
           return (f x,acc)
         | WP_Param p ->
           let a = ParamValue.find_def m p in
-          (interp c m acc p.resolve)
+          (interp c com m acc p.resolve)
           >>= fun (f,acc) ->
           f c a
           >>= fun a ->
           let s = p.to_option_hum (p.unresolve a) in
-          return (a,s::acc)
+          return (a,{acc with msg = s::acc.msg})
         | WP_Connection -> return (c,acc)
+        | WP_Commit name ->
+          com acc name
+          >>= fun (o,acc) ->
+          begin match o with
+          | None -> invalid_argf "The url and commit for repo %s is needed but not yet fixed" name ()
+          | Some o ->
+            return (o,acc)
+          end
+        | WP_Force_Commit p ->
+          interp c com m acc p
+          >>= fun ((x,fc),acc) ->
+          let acc = { acc with fixed = merge_fixed ~old:acc.fixed ~new_:fc } in
+          return (x,acc)
   end
 
   let absolutize = Oci_Filename.make_absolute (Caml.Sys.getcwd ())
@@ -627,15 +691,15 @@ module Cmdline = struct
 
   type repo_param = Git.repo WP.with_param
 
-  let db_repos : repo_param String.Map.t ref =
+  let db_repos : (repo_param * string option * string option) String.Map.t ref =
     ref String.Map.empty
 
-  let add_repo name repo =
+  let add_repo ?revspec ?url name repo =
     db_repos := String.Map.add !db_repos ~key:name
-        ~data:(WP.const repo)
+        ~data:(WP.const repo, url, revspec)
 
-  let add_repo_with_param name repo =
-    db_repos := String.Map.add !db_repos ~key:name ~data:repo
+  let add_repo_with_param ?revspec ?url name repo =
+    db_repos := String.Map.add !db_repos ~key:name ~data:(repo,url,revspec)
 
   type query = Oci_Generic_Masters_Api.CompileGitRepo.Query.t
   type revspecs = WP.ParamValue.t
@@ -698,51 +762,219 @@ module Cmdline = struct
       String.Map.add !db_compare ~key:name
         ~data:(CompareN(compareN))
 
-  let used_interp_repos c revspecs toprint root repos =
-    let open! Oci_Generic_Masters_Api.CompileGitRepo.Query in
-    let seen = String.Table.create () in
-    let new_repos = ref String.Map.empty in
-    let toprint = ref toprint in
-    let rec aux name =
-      if String.Table.mem seen name then Deferred.unit
-      else
-        match String.Map.find repos name with
-        | None -> raise (MissingRepo name)
-        | Some repo ->
-          WP.interp c revspecs [] repo
-          >>= fun (repo,acc) ->
-          toprint := List.fold acc ~init:!toprint ~f:String.Set.add;
-          new_repos := String.Map.add !new_repos ~key:name ~data:repo;
-          Deferred.List.iter repo.deps ~how:`Parallel ~f:aux
-    in
-    aux root
-    >>= fun () ->
-    return (!new_repos,!toprint)
-
   type repo = String.t
 
-  let mk_revspec_param ?(revspec="master") ~url name =
-    WP.mk_param_string'
-      ~default:revspec
-      name
-      ~docv:"REVSPEC"
-      ~doc:(sprintf "indicate which revspec of %s to use." name)
-      ~resolve:(WP.const
-                  (fun connection revspec ->
-                     Git.commit_of_revspec_exn ~url ~revspec connection
-                  ))
-      ~unresolve:Oci_Common.Commit.to_string
+  let gen_url_param =
+    WP.mk_param_string_pair_list
+      ~docv:"NAME,URL"
+      ~doc:"Fix an url source for a repository"
+      "url"
 
-  let mk_repo ?revspec ~url ~deps ~cmds ?(tests=[]) name =
-    let revspec_param = mk_revspec_param ?revspec ~url name in
-    add_repo_with_param name
-      WP.(const (fun commit ->
-          Git.repo
-            ~deps
-            ~cmds:((Git.git_clone ~url commit)::cmds)
-            ~tests
-            ()) $? revspec_param);
-    name, revspec_param
+  let gen_commit_param =
+    WP.mk_param_string_pair_list
+      ~docv:"NAME,COMMIT"
+      ~doc:"Fix a commit for a repository"
+      "commit"
+
+  let get_url_repo pv repo =
+    let open Option.Monad_infix in
+    WP.ParamValue.find pv gen_url_param
+    >>= fun v ->
+    List.Assoc.find v ~equal:String.equal repo
+
+  let get_url_repo_def pv repo =
+    let open Option.Monad_infix in
+    Option.first_some
+      (get_url_repo pv repo)
+      (String.Map.find !db_repos repo
+       >>= fun (_,url,_) ->
+       url)
+
+  let set_url_repo pv repo url =
+    let l = WP.ParamValue.find_def pv gen_url_param in
+    let l = List.Assoc.add l ~equal:String.equal repo url in
+    WP.ParamValue.set pv gen_url_param l
+
+  let get_commit_repo pv repo =
+    let open Option.Monad_infix in
+    WP.ParamValue.find pv gen_commit_param
+    >>= fun v ->
+    List.Assoc.find v ~equal:String.equal repo
+
+
+  let get_commit_repo_def pv repo =
+    let open Option.Monad_infix in
+    Option.first_some
+      (get_commit_repo pv repo)
+      (String.Map.find !db_repos repo
+       >>= fun (_,_,revspec) ->
+       revspec)
+
+  let set_commit_repo pv repo commit =
+    let l = WP.ParamValue.find_def pv gen_commit_param in
+    let l = List.Assoc.add l ~equal:String.equal repo commit in
+    WP.ParamValue.set pv gen_commit_param l
+
+  type config_full = {
+    name: string;
+    deps: (string * string *  string) list;
+    install: string list list;
+    tests: string list list;
+  } [@@deriving sexp]
+
+  type config_v1 = config_full
+  [@@deriving sexp]
+
+  type configs =
+    | V1 of config_v1 list
+  [@@deriving sexp]
+
+  let to_config_full = function
+    | V1 c -> c
+
+  let read_oci ~url ~commit ~repo connection =
+    Git.read_file connection ~url ~commit ~src:".oci"
+    >>= function
+    | None -> return None
+    | Some config ->
+      let configs = Sexp.of_string_conv_exn config [%of_sexp: configs] in
+      let configs = to_config_full configs in
+      match List.find configs ~f:(fun c -> c.name = repo) with
+      | None -> return None
+      | Some config -> return (Some config)
+
+  let cmds_of_list cmds =
+    List.map cmds ~f:(function
+        | [] -> invalid_arg "empty command"
+        | cmd::args ->
+          Git.exec cmd
+            ~args:(List.map args ~f:(fun s -> `S s))
+            ~timelimit:(Time.Span.create ~hr:1 ()))
+
+  let mk_repo' ?deps ?cmds ?(tests=[]) name =
+    WP.(force_commit
+          (const (fun connection (url,commit) ->
+               read_oci ~url ~commit ~repo:name connection
+               >>= function
+               | None -> begin
+                   match deps, cmds with
+                   | None, _ | _, None ->
+                     invalid_argf "Repository %s is neither predefined nor contains a .oci at %s."
+                       name (Oci_Common.Commit.to_string commit)
+                       ()
+                   | Some deps, Some cmds ->
+                     return (Git.repo
+                               ~deps
+                               ~cmds:((Git.git_clone ~url commit)::cmds)
+                               ~tests
+                               (), fixed_empty)
+                 end
+               | Some config ->
+                 let deps = List.map ~f:(fun (c,_,_) -> c) config.deps in
+                 let cmds = cmds_of_list config.install in
+                 let tests = cmds_of_list config.tests in
+                 (* Deferred.List.fold config.deps ~init:String.Map.empty *)
+                 (*   ~f:(fun acc (c,url,revspec) -> *)
+                 (*       Git.commit_of_revspec connection ~url ~revspec *)
+                 (*       >>= function *)
+                 (*       | None -> *)
+                 (*         return acc *)
+                 (*       | Some com -> *)
+                 (*         return (String.Map.add ~key:c ~data:com acc) *)
+                 (*     ) *)
+                 (* >>= fun fixed_commit -> *)
+                 let fixed = {
+                   fixed_url = List.fold config.deps ~init:String.Map.empty
+                       ~f:(fun acc (c,url,_) ->
+                           if url <> ""
+                           then String.Map.add ~key:c ~data:url acc
+                           else acc
+                         );
+                   fixed_commit = List.fold config.deps ~init:String.Map.empty
+                       ~f:(fun acc (c,_,commit) ->
+                           if commit <> ""
+                           then String.Map.add ~key:c ~data:commit acc
+                           else acc
+                         );
+                 } in
+                 return (Git.repo
+                           ~deps
+                           ~cmds:((Git.git_clone ~url commit)::cmds)
+                           ~tests
+                           (), fixed)
+             ) $ WP.connection $! (WP.commit name)))
+
+  let used_interp_repos c revspecs toprint root repos =
+    let open! Oci_Generic_Masters_Api.CompileGitRepo.Query in
+    let todo = Queue.create () in
+    let get_url_commit env name =
+      let fix url revspec env =
+        Git.commit_of_revspec_exn c ~url ~revspec
+        >>= fun commit ->
+        let revspec = Oci_Common.Commit.to_string commit in
+        let msg1 = Printf.sprintf "--url=%s,%s" name url in
+        let msg2 = Printf.sprintf "--commit=%s,%s" name revspec in
+        let fixed = {
+          WP.fixed_url = String.Map.add env.WP.fixed.WP.fixed_url ~key:name ~data:url;
+          WP.fixed_commit = String.Map.add env.WP.fixed.WP.fixed_url ~key:name ~data:revspec;
+        } in
+        return (Some (url,commit),{WP.msg = msg1::msg2::env.WP.msg; WP.fixed})
+      in
+      match String.Map.find repos name with
+      | None -> begin
+          (* repo added by a .oci *)
+          match String.Map.find env.WP.fixed.WP.fixed_url name,
+                String.Map.find env.WP.fixed.WP.fixed_commit name with
+          | None, _ | _, None -> raise (MissingRepo name)
+          | Some url, Some revspec ->
+            fix url revspec env
+        end
+      | Some (_,(url:string option),(revspec: string option)) ->
+        (* builtin repos *)
+        let url = Option.first_some (String.Map.find env.WP.fixed.WP.fixed_url name) url in
+        let revspec = Option.first_some (String.Map.find env.WP.fixed.WP.fixed_commit name) revspec in
+        match url, revspec with
+        | Some url, Some revspec ->
+          fix url revspec env
+        | _ -> return (None,env)
+    in
+    let rec aux fixed toprint new_repos =
+      match Queue.dequeue todo with
+      | None -> return (new_repos,toprint)
+      | Some name ->
+        if String.Map.mem new_repos name then
+          aux fixed toprint new_repos
+        else begin
+          match String.Map.find repos name with
+          | None -> begin
+              let repo = mk_repo' name in
+              return repo
+            end
+          | Some (repo,_,_) ->
+            return repo
+        end
+        >>= fun repo ->
+        WP.interp c get_url_commit revspecs {msg=[];fixed} repo
+        >>= fun (repo,acc) ->
+        let toprint = List.fold acc.msg ~init:toprint ~f:String.Set.add in
+        let new_repos = String.Map.add new_repos ~key:name ~data:repo in
+        List.iter repo.deps ~f:(Queue.enqueue todo);
+        aux acc.fixed toprint new_repos
+    in
+    Queue.enqueue todo root;
+    let set_of_param param =
+      String.Map.of_alist_reduce ~f:(fun _ x -> x) (WP.ParamValue.find_def revspecs param) in
+    let fixed = {
+      WP.fixed_url = set_of_param gen_url_param;
+      WP.fixed_commit = set_of_param gen_commit_param;
+    }
+    in
+    aux fixed toprint String.Map.empty
+
+  let mk_repo ?(revspec="master") ~url ~deps ~cmds ?(tests=[]) name =
+    add_repo_with_param ~revspec ~url name
+      (mk_repo' ~deps ~cmds ~tests name);
+    name
 
   type create_query_hook =
     connection:Git.connection ->
@@ -816,62 +1048,7 @@ module Cmdline = struct
       (String.concat ~sep:" " (String.Set.to_list toprint));
     return query
 
-  type config = {
-    name: string;
-    deps: (string *  string) list;
-    install: string list list;
-    tests: string list list;
-  } [@@deriving sexp]
-
-  let add_repos l connection =
-    let pkgs = String.Table.create () in
-    (** phase one *)
-    let rec add_package (url,revspec) =
-      Git.commit_of_revspec_exn connection ~url ~revspec
-      >>= fun commit ->
-      Git.read_file connection ~url ~commit ~src:".oci"
-      >>= fun config ->
-      let config = Sexp.of_string_conv_exn config config_of_sexp in
-      add_packages config.deps
-      >>= fun deps_name ->
-      return (config,deps_name)
-    and add_packages l =
-      Deferred.List.map ~f:add_package l
-      >>= fun configs ->
-      let deps_name = List.map2_exn l configs
-          ~f:(fun (url,revspec) (config,deps_name) ->
-              ignore (String.Table.add pkgs ~key:config.name ~data:(url,revspec,config,deps_name));
-              config.name
-            ) in
-      return deps_name
-    in
-    add_packages l
-    >>= fun _ ->
-    (** phase two *)
-    let cmds_of_list cmds =
-      List.map cmds ~f:(function
-          | [] -> invalid_arg "empty command"
-          | cmd::args ->
-            Git.exec cmd
-              ~args:(List.map args ~f:(fun s -> `S s))
-              ~timelimit:(Time.Span.create ~hr:1 ()))
-    in
-    let register_repo ~key:pkg ~data:(url,revspec,config,deps_name) =
-      let _ =
-        mk_repo pkg
-          ~revspec
-          ~url:url
-          ~deps:deps_name
-          ~cmds:(cmds_of_list config.install)
-          ~tests:(cmds_of_list config.tests) in
-      ()
-    in
-    String.Table.iteri ~f:register_repo pkgs;
-    Deferred.unit
-
-  let run cq_hook rootfs revspecs config (repo:string) connection =
-    add_repos config connection
-    >>= fun () ->
+  let run cq_hook rootfs revspecs (repo:string) connection =
     create_query cq_hook rootfs revspecs repo !db_repos connection
     >>= fun query ->
     let fold acc = function
@@ -886,9 +1063,7 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp connection
 
-  let xpra cq_hook rootfs revspecs config repo connection =
-    add_repos config connection
-    >>= fun () ->
+  let xpra cq_hook rootfs revspecs repo connection =
     create_query cq_hook rootfs revspecs repo !db_repos connection
     >>= fun query ->
     let repos =
@@ -937,7 +1112,7 @@ module Cmdline = struct
     >>= function (revspecs, git_repo, fold_analyse) ->
       let repo_compare = "Oci_Client.compare" in
       let repos = String.Map.add !db_repos ~key:repo_compare
-          ~data:git_repo in
+          ~data:(git_repo,None,None) in
       create_query
         ~info_level:`Debug
         cq_hook rootfs revspecs repo_compare
@@ -1511,7 +1686,7 @@ module Cmdline = struct
     Term.info "add-package" ~sdocs:copts_sect ~doc ~man
 
   let cmdliner_revspecs init =
-    String.Table.fold WP.params
+    let acc = String.Table.fold WP.params
       ~init:Term.(const init)
       ~f:Cmdliner.Term.(fun ~key:_ ~data acc ->
           match data with
@@ -1521,6 +1696,22 @@ module Cmdline = struct
                 | None -> m
                 | Some a ->
                   WP.ParamValue.set m p a) $ cmdliner $ acc
+         ) in
+    (* compatibility old options *)
+    String.Map.fold !db_repos
+      ~init:acc
+      ~f:Cmdliner.Term.(fun ~key:name ~data:_ acc ->
+          let cmdliner =
+            Cmdliner.Arg.(value & (opt (some string) None) & info [name]
+                            ~docv:"REVSPEC"
+                            ~doc:(sprintf "indicate which revspec of %s to use." name)
+                         ) in
+          const (fun a m ->
+              match a with
+              | None -> m
+              | Some a ->
+                let l = WP.ParamValue.find_def m gen_commit_param in
+                WP.ParamValue.set m gen_commit_param ((name,a)::l)) $ cmdliner $ acc
         )
 
   let rootfs =
@@ -1537,11 +1728,6 @@ module Cmdline = struct
              ~doc:("Run the repository $(docv). \
                     Possible values: " ^ (String.concat ~sep:", " repos) ^ "."))
     in
-    let add_repos =
-      Arg.(value & opt_all (pair ~sep:'@' string string) [] & info ["add-repo"]
-             ~docv:"URL@REVSPEC"
-             ~doc:"Load additional package definition from the git $(docv)."
-          ) in
     let doc = "run the integration of a repository" in
     let man = [
       `S "DESCRIPTION";
@@ -1549,10 +1735,10 @@ module Cmdline = struct
           using the specified commits."] @ help_secs
     in
     [Term.(const run $ create_query_hook $ rootfs $
-           (cmdliner_revspecs WP.ParamValue.empty) $ add_repos $ repo),
+           (cmdliner_revspecs WP.ParamValue.empty) $ repo),
      Term.info "run" ~doc ~sdocs:copts_sect ~man;
      Term.(const xpra $ create_query_hook $ rootfs $
-           (cmdliner_revspecs WP.ParamValue.empty) $ add_repos $ repo),
+           (cmdliner_revspecs WP.ParamValue.empty) $ repo),
      Term.info "xpra" ~doc ~sdocs:copts_sect ~man]
 
   let compare_cmd create_query_hook =
@@ -1705,21 +1891,21 @@ module Cmdline = struct
         | `Error -> Shutdown.exit 1
       end
     | `Help | `Version -> exit 0
+(*
+  let git_clone ?dir url =
+    if not (String.Table.mem url_to_default_revspec url)
+    then invalid_argf
+        "The url have not been registered with \
+         add_default_revspec_for_url: %s" url ();
+    Git.git_clone ?dir ~url dumb_commit
 
-  (* let git_clone ?dir url = *)
-  (*   if not (String.Table.mem url_to_default_revspec url) *)
-  (*   then invalid_argf *)
-  (*       "The url have not been registered with \ *)
-  (*        add_default_revspec_for_url: %s" url (); *)
-  (*   Git.git_clone ?dir ~url dumb_commit *)
-
-  (* let git_copy_file ~src ~dst url = *)
-  (*   if not (String.Table.mem url_to_default_revspec url) *)
-  (*   then invalid_argf *)
-  (*       "The url have not been registered with \ *)
-  (*        add_default_revspec_for_url: %s" url (); *)
-  (*   Git.git_copy_file ~src ~dst ~url dumb_commit *)
-
+  let git_copy_file ~src ~dst url =
+    if not (String.Table.mem url_to_default_revspec url)
+    then invalid_argf
+        "The url have not been registered with \
+         add_default_revspec_for_url: %s" url ();
+    Git.git_copy_file ~src ~dst ~url dumb_commit
+   *)
   let mk_compare'
       ~(repos:('x,'y,'acc) compare')
       ~x_of_sexp ~sexp_of_x ~y_of_sexp ~sexp_of_y
@@ -1854,24 +2040,20 @@ module Cmdline = struct
         ~doc:"Determine the argument to give to ocaml configure"
         "ocaml-configure"
 
-    let ocaml_revspec =
-      mk_revspec_param
-        ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
-        ~url:ocaml_url
-        "ocaml"
-
     let ocaml =
       add_repo_with_param "ocaml"
-        WP.(const (fun commit configure_opt ->
+        ~revspec:"bdf3b0fac7dd2c93f80475c9f7774b62295860c1"
+        ~url:ocaml_url
+        WP.(const (fun (_url,commit) configure_opt ->
             Git.repo
               ~deps:[]
               ~cmds:(ocaml_cmds commit configure_opt)
               ())
-            $? ocaml_revspec
+            $ (commit "ocaml")
             $? ocaml_configure);
       "ocaml"
 
-    let ocamlfind, ocamlfind_revspec = mk_repo
+    let ocamlfind = mk_repo
         "ocamlfind"
         ~url:"https://gitlab.camlcity.org/gerd/lib-findlib.git"
         ~deps:[ocaml]
@@ -1882,7 +2064,7 @@ module Cmdline = struct
           make ["install"];
         ]
 
-    let ocamlbuild,ocamlbuild_revspec = mk_repo
+    let ocamlbuild = mk_repo
         "ocamlbuild"
         ~url:"https://github.com/ocaml/ocamlbuild.git"
         ~deps:[ocaml;ocamlfind]
@@ -1893,7 +2075,7 @@ module Cmdline = struct
           run "sh" ["-c"; "which ocamlbuild || make install"];
         ]
 
-    let zarith,zarith_revspec = mk_repo
+    let zarith = mk_repo
         "ZArith"
         ~url:"https://github.com/bobot/zarith.git"
         ~deps:[ocaml;ocamlfind]
@@ -1903,7 +2085,7 @@ module Cmdline = struct
           make ["install"];
         ]
 
-    let xmllight,xmllight_revspec = mk_repo
+    let xmllight = mk_repo
         "xml-light"
         ~url:"https://github.com/ncannasse/xml-light.git"
         ~revspec:"2.4"
@@ -1912,7 +2094,7 @@ module Cmdline = struct
           make ["install_ocamlfind"]
         ]
 
-    let camlp4,camlp4_revspec = mk_repo
+    let camlp4 = mk_repo
         "camlp4"
         ~url:"https://github.com/ocaml/camlp4.git"
         ~revspec:"4.02+6"
@@ -1925,7 +2107,7 @@ module Cmdline = struct
           run "sh" ["-c"; "which camlp4 || make install install-META"];
         ]
 
-    let lablgtk,lablgtk_revspec = mk_repo
+    let lablgtk = mk_repo
         "lablgtk"
         ~url:"https://forge.ocamlcore.org/anonscm/git/lablgtk/lablgtk.git"
         ~revspec:"28290b0ee79817510bbc908bc733e80258aea7c1"
@@ -1936,7 +2118,7 @@ module Cmdline = struct
           make ~env:(`Extend ["OCAMLFIND_LDCONF","ignore"]) ["install"];
         ]
 
-    let ocamlgraph,ocamlgraph_revspec = mk_repo
+    let ocamlgraph = mk_repo
         "ocamlgraph"
         ~url:"https://github.com/backtracking/ocamlgraph.git"
         ~deps:[ocaml;ocamlfind;lablgtk]
@@ -1947,7 +2129,7 @@ module Cmdline = struct
           make ["install-findlib"];
         ]
 
-    let cppo,cppo_revspec = mk_repo
+    let cppo = mk_repo
         "cppo"
         ~url:"https://github.com/mjambon/cppo.git"
         ~deps:[ocaml;ocamlfind;ocamlbuild]
@@ -1956,7 +2138,7 @@ module Cmdline = struct
           make ["install"];
         ]
 
-    let camomile,camomile_revspec =
+    let camomile =
       let working_dir = "Camomile" in
       mk_repo
         "camomile"
@@ -1990,7 +2172,7 @@ module Cmdline = struct
       add_repo "ounit" r;
       "ounit"
 
-    let cryptokit,cryptokit_revspec = mk_repo
+    let cryptokit = mk_repo
         "cryptokit"
         ~url:"git@git.frama-c.com:bobot/CryptoKit.git"
         ~revspec:"87a8f3597c11381c2f7361b96f952913a4d66f3c"

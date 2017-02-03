@@ -238,10 +238,11 @@ let read_file ~url ~src:file_src ~commit =
          >>= fun content ->
          Unix.waitpid (Process.pid git_show)
          >>= function
-         | Result.Ok () -> return content
+         | Result.Ok () -> return (Some content)
+         | Result.Error (`Exit_non_zero 128) -> return None
          | Result.Error _ ->
            invalid_argf
-             "Read_file: Can't find %s at commit %s" file_src commit ()
+             "Read_file: Unknown error when looking for %s at commit %s" file_src commit ()
     )
 
 let merge_base ~url commit1 commit2 =
