@@ -916,7 +916,7 @@ module Cmdline = struct
         let msg2 = Printf.sprintf "--commit=%s,%s" name revspec in
         let fixed = {
           WP.fixed_url = String.Map.add env.WP.fixed.WP.fixed_url ~key:name ~data:url;
-          WP.fixed_commit = String.Map.add env.WP.fixed.WP.fixed_url ~key:name ~data:revspec;
+          WP.fixed_commit = String.Map.add env.WP.fixed.WP.fixed_commit ~key:name ~data:revspec;
         } in
         return (Some (url,commit),{WP.msg = msg1::msg2::env.WP.msg; WP.fixed})
       in
