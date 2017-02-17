@@ -991,7 +991,7 @@ module Cmdline = struct
       (create_query_hook:create_query_hook)
       rootfs autogit revspecs repo repos connection =
     begin if autogit then begin
-        Async_shell.run_one_exn "git" ["remote";"get-url";"origin"]
+        Async_shell.run_one_exn "git" ["config";"--get";"remote.origin.url"]
         >>= fun origin ->
         let _,repo = String.rsplit2_exn origin ~on:'/' in
         Async_shell.run_one_exn "git" ["rev-parse";"HEAD"]
