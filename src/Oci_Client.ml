@@ -925,7 +925,7 @@ module Cmdline = struct
           (* repo added by a .oci *)
           match String.Map.find env.WP.fixed.WP.fixed_url name,
                 String.Map.find env.WP.fixed.WP.fixed_commit name with
-          | None, _ | _, None -> raise (MissingRepo name)
+          | None, _ | _, None -> invalid_argf "Missing url or commit for %s" name ()
           | Some url, Some revspec ->
             fix url revspec env
         end
