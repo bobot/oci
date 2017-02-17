@@ -989,7 +989,20 @@ module Cmdline = struct
   let create_query
       ?(info_level=`Info)
       (create_query_hook:create_query_hook)
-      rootfs revspecs repo repos connection =
+      rootfs autogit revspecs repo repos connection =
+    begin if autogit then begin
+        Async_shell.run_one_exn "git" ["remote";"get-url";"origin"]
+        >>= fun origin ->
+        let _,repo = String.rsplit2_exn origin ~on:'/' in
+        Async_shell.run_one_exn "git" ["rev-parse";"HEAD"]
+        >>= fun sha ->
+        let revspecs = set_url_repo revspecs repo origin in
+        let revspecs = set_commit_repo revspecs repo sha in
+        return revspecs
+      end else
+        return revspecs
+    end
+    >>= fun revspecs ->
     Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs)
       connection.Git.socket rootfs
     >>= fun rootfs ->
@@ -1016,22 +1029,22 @@ module Cmdline = struct
                         Deferred.List.find l
                           ~f:(fun url ->
                               Monitor.try_with_or_error ~here:[%here] (fun () ->
-                                  Git.download_file
-                                    connection ~checksum ~kind ~url)
-                              >>= function
-                              | Ok () -> Deferred.return true
-                              | Error e ->
-                                error "Download error: %s"
-                                  (Error.to_string_hum e);
-                                Deferred.return false
+                                     Git.download_file
+                                       connection ~checksum ~kind ~url)
+                                  >>= function
+                                  | Ok () -> Deferred.return true
+                                  | Error e ->
+                                    error "Download error: %s"
+                                      (Error.to_string_hum e);
+                                    Deferred.return false
                             )
-                      >>= function
-                      | None ->
-                        error
-                          "The file with checksum %s can't be downloaded"
-                          checksum;
-                        exit 1
-                      | Some _ -> Deferred.unit
+                        >>= function
+                        | None ->
+                          error
+                            "The file with checksum %s can't be downloaded"
+                            checksum;
+                          exit 1
+                        | Some _ -> Deferred.unit
                   end
                 | _ -> Deferred.unit
               )
@@ -1048,8 +1061,8 @@ module Cmdline = struct
       (String.concat ~sep:" " (String.Set.to_list toprint));
     return query
 
-  let run cq_hook rootfs revspecs (repo:string) connection =
-    create_query cq_hook rootfs revspecs repo !db_repos connection
+  let run cq_hook rootfs autogit revspecs repo connection =
+    create_query cq_hook rootfs autogit revspecs repo !db_repos connection
     >>= fun query ->
     let fold acc = function
       | `Ok (`CmdStart(_)) -> acc
@@ -1063,8 +1076,8 @@ module Cmdline = struct
       Oci_Generic_Masters_Api.CompileGitRepo.Query.sexp_of_t
       Oci_Generic_Masters_Api.CompileGitRepo.Result.pp connection
 
-  let xpra cq_hook rootfs revspecs repo connection =
-    create_query cq_hook rootfs revspecs repo !db_repos connection
+  let xpra cq_hook rootfs autogit revspecs repo connection =
+    create_query cq_hook rootfs autogit revspecs repo !db_repos connection
     >>= fun query ->
     let repos =
       String.Map.change query.repos repo ~f:(function
@@ -1115,7 +1128,7 @@ module Cmdline = struct
           ~data:(git_repo,None,None) in
       create_query
         ~info_level:`Debug
-        cq_hook rootfs revspecs repo_compare
+        cq_hook rootfs false revspecs repo_compare
         repos connection
       >>= fun query ->
       Rpc.Pipe_rpc.dispatch_exn
@@ -1686,8 +1699,10 @@ module Cmdline = struct
     Term.info "add-package" ~sdocs:copts_sect ~doc ~man
 
   let cmdliner_revspecs init =
+    let acc = Term.(const init) in
+    (* general *)
     let acc = String.Table.fold WP.params
-      ~init:Term.(const init)
+      ~init:acc
       ~f:Cmdliner.Term.(fun ~key:_ ~data acc ->
           match data with
           | WP.Exists_param ({cmdliner} as p) ->
@@ -1728,16 +1743,23 @@ module Cmdline = struct
              ~doc:("Run the repository $(docv). \
                     Possible values: " ^ (String.concat ~sep:", " repos) ^ "."))
     in
+    let autogit = Cmdliner.Arg.(
+        value & opt bool false & info ["autogit"]
+          ~doc:"Use the remote $(b,origin) and the current commit of the git repository \
+                of the current working directory to set the url and commit for the \
+                repository (last part of the url)."
+      )
+    in
     let doc = "run the integration of a repository" in
     let man = [
       `S "DESCRIPTION";
       `P "Run the integration of the given repository with the given rootfs \
           using the specified commits."] @ help_secs
     in
-    [Term.(const run $ create_query_hook $ rootfs $
+    [Term.(const run $ create_query_hook $ rootfs $ autogit $
            (cmdliner_revspecs WP.ParamValue.empty) $ repo),
      Term.info "run" ~doc ~sdocs:copts_sect ~man;
-     Term.(const xpra $ create_query_hook $ rootfs $
+     Term.(const xpra $ create_query_hook $ rootfs $ autogit $
            (cmdliner_revspecs WP.ParamValue.empty) $ repo),
      Term.info "xpra" ~doc ~sdocs:copts_sect ~man]
 
