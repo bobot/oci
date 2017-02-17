@@ -998,6 +998,8 @@ module Cmdline = struct
         >>= fun sha ->
         let revspecs = set_url_repo revspecs repo origin in
         let revspecs = set_commit_repo revspecs repo sha in
+        info "autogit: for %s found url %s and commit %s@."
+          repo origin sha;
         return revspecs
       end else
         return revspecs
