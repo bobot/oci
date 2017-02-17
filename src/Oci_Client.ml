@@ -1744,7 +1744,7 @@ module Cmdline = struct
                     Possible values: " ^ (String.concat ~sep:", " repos) ^ "."))
     in
     let autogit = Cmdliner.Arg.(
-        value & opt bool false & info ["autogit"]
+        value & opt ~vopt:true bool false & info ["autogit"]
           ~doc:"Use the remote $(b,origin) and the current commit of the git repository \
                 of the current working directory to set the url and commit for the \
                 repository (last part of the url)."
