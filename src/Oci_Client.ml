@@ -1737,14 +1737,13 @@ module Cmdline = struct
   let run_xpra_cmd create_query_hook =
     let repo =
       let repos = String.Map.keys !db_repos in
-      let repo_enum = List.map ~f:(fun x -> (x,x)) repos in
-      Arg.(required & pos 0 (some (enum repo_enum)) None & info []
+      Arg.(required & pos 0 (some string) None & info []
              ~docv:"REPO_NAME"
              ~doc:("Run the repository $(docv). \
                     Possible values: " ^ (String.concat ~sep:", " repos) ^ "."))
     in
     let autogit = Cmdliner.Arg.(
-        value & opt ~vopt:true bool false & info ["autogit"]
+        value & flag & info ["autogit"]
           ~doc:"Use the remote $(b,origin) and the current commit of the git repository \
                 of the current working directory to set the url and commit for the \
                 repository (last part of the url)."
