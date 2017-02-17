@@ -990,19 +990,18 @@ module Cmdline = struct
       ?(info_level=`Info)
       (create_query_hook:create_query_hook)
       rootfs autogit revspecs repo repos connection =
-    begin if autogit then begin
-        Async_shell.run_one_exn "git" ["config";"--get";"remote.origin.url"]
-        >>= fun origin ->
-        let _,repo = String.rsplit2_exn origin ~on:'/' in
-        Async_shell.run_one_exn "git" ["rev-parse";"HEAD"]
-        >>= fun sha ->
-        let revspecs = set_url_repo revspecs repo origin in
-        let revspecs = set_commit_repo revspecs repo sha in
-        info "autogit: for %s found url %s and commit %s@."
-          repo origin sha;
-        return revspecs
-      end else
-        return revspecs
+    begin match autogit with
+    | None -> return revspecs
+    | Some repo ->
+      Async_shell.run_one_exn "git" ["config";"--get";"remote.origin.url"]
+      >>= fun origin ->
+      Async_shell.run_one_exn "git" ["rev-parse";"HEAD"]
+      >>= fun sha ->
+      let revspecs = set_url_repo revspecs repo origin in
+      let revspecs = set_commit_repo revspecs repo sha in
+      info "autogit: for %s found url %s and commit %s@."
+        repo origin sha;
+      return revspecs
     end
     >>= fun revspecs ->
     Rpc.Rpc.dispatch_exn (Oci_Data.rpc Oci_Rootfs_Api.find_rootfs)
@@ -1130,7 +1129,7 @@ module Cmdline = struct
           ~data:(git_repo,None,None) in
       create_query
         ~info_level:`Debug
-        cq_hook rootfs false revspecs repo_compare
+        cq_hook rootfs None revspecs repo_compare
         repos connection
       >>= fun query ->
       Rpc.Pipe_rpc.dispatch_exn
@@ -1745,7 +1744,7 @@ module Cmdline = struct
                     Possible values: " ^ (String.concat ~sep:", " repos) ^ "."))
     in
     let autogit = Cmdliner.Arg.(
-        value & flag & info ["autogit"]
+        value & opt (some string) None & info ["autogit"]
           ~doc:"Use the remote $(b,origin) and the current commit of the git repository \
                 of the current working directory to set the url and commit for the \
                 repository (last part of the url)."
