@@ -362,18 +362,30 @@ let run_timed t ?timelimit ?env ?working_dir
   >>= fun () ->
   begin
     match lastlimit with
-    | None -> Deferred.unit
+    | None -> w
     | Some lastlimit ->
-      Deferred.choose [
-        Deferred.choice w (fun _ -> `Done);
-        Deferred.choice (after lastlimit) (fun _ -> `Timeout);
-      ]
-      >>= function
-      | `Timeout -> send_signal pid own_cgroup
-      | `Done -> Deferred.unit
+      let wait_w_for span otherwise =
+        Deferred.choose [
+          Deferred.choice w (fun s -> `Done s);
+          Deferred.choice (after span) (fun _ -> `Timeout);
+        ]
+        >>= function
+        | `Timeout -> otherwise ()
+        | `Done s -> Deferred.return s
+      in
+      wait_w_for lastlimit
+        (fun () ->
+           send_signal pid own_cgroup
+           >>= fun () ->
+           wait_w_for (Time.Span.create ~sec:1 ())
+             (fun () ->
+                err_log t
+                  "Command not successfully killed after %s hard timeout. Stopping runner."
+                  (Time.Span.to_string_hum lastlimit);
+                Shutdown.exit 1
+             )
+        )
   end
-  >>= fun () ->
-  w
   >>= fun ((),(r,ru)) ->
   let stop = Unix.gettimeofday () in
   let timed = {Oci_Common.Timed.cpu_kernel = Time.Span.of_float ru.stime;
