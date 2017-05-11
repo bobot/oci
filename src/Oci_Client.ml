@@ -367,6 +367,13 @@ end
 (** module to sort *)
 module Cmdline = struct
 
+  (** oci definition *)
+  type config_full = {
+    name: string;
+    deps: (string * string *  string) list;
+    install: string list list;
+    tests: string list list;
+  } [@@deriving sexp]
 
   module WP = struct
     type ('a,'b) param = {
@@ -385,12 +392,14 @@ module Cmdline = struct
       | WP_App: ('a -> 'b) with_param * 'a with_param -> 'b with_param
       | WP_Deferred: 'a Deferred.t with_param -> 'a with_param
       | WP_Connection: Git.connection with_param
+      | WP_Fixed: fixed with_param
       | WP_Force_Commit: ('a * fixed) with_param -> 'a with_param
       | WP_Commit: string -> (string * Oci_Common.Commit.t) with_param
 
     and fixed = {
       fixed_url: string String.Map.t;
       fixed_commit: string String.Map.t;
+      fixed_config : config_full String.Map.t;
     }
 
     and elt_ = T : ('a,'b) param * 'a -> elt_
@@ -399,6 +408,7 @@ module Cmdline = struct
     let fixed_empty = {
       fixed_url = String.Map.empty;
       fixed_commit = String.Map.empty;
+      fixed_config = String.Map.empty;
     }
 
     type exists_param =
@@ -555,6 +565,7 @@ module Cmdline = struct
       {
         fixed_url = merge_fixed_commit ~old:old.fixed_url ~new_:new_.fixed_url;
         fixed_commit = merge_fixed_commit ~old:old.fixed_commit ~new_:new_.fixed_commit;
+        fixed_config = merge_fixed_commit ~old:old.fixed_config ~new_:new_.fixed_config;
       }
 
     let rec interp :
@@ -592,6 +603,8 @@ module Cmdline = struct
           | Some o ->
             return (o,acc)
           end
+        | WP_Fixed ->
+          return (acc.fixed,acc)
         | WP_Force_Commit p ->
           interp c com m acc p
           >>= fun ((x,fc),acc) ->
@@ -815,13 +828,6 @@ module Cmdline = struct
     let l = List.Assoc.add l ~equal:String.equal repo commit in
     WP.ParamValue.set pv gen_commit_param l
 
-  type config_full = {
-    name: string;
-    deps: (string * string *  string) list;
-    install: string list list;
-    tests: string list list;
-  } [@@deriving sexp]
-
   type config_v1 = config_full
   [@@deriving sexp]
 
@@ -832,16 +838,33 @@ module Cmdline = struct
   let to_config_full = function
     | V1 c -> c
 
-  let read_oci ~url ~commit ~repo connection =
+  let read_oci ~url ~commit ~fixed connection =
     Git.read_file connection ~url ~commit ~src:".oci"
     >>= function
-    | None -> return None
+    | None -> return fixed
     | Some config ->
+      let config = String.strip config in
       let configs = Sexp.of_string_conv_exn config [%of_sexp: configs] in
       let configs = to_config_full configs in
-      match List.find configs ~f:(fun c -> c.name = repo) with
-      | None -> return None
-      | Some config -> return (Some config)
+      let fixed =
+        List.fold configs ~init:fixed ~f:(fun acc config ->
+            WP.merge_fixed ~old:acc ~new_:{
+              fixed_url = List.fold config.deps ~init:String.Map.empty
+                  ~f:(fun acc (c,url,_) ->
+                      if url <> ""
+                      then String.Map.add ~key:c ~data:url acc
+                      else acc
+                    );
+              fixed_commit = List.fold config.deps ~init:String.Map.empty
+                  ~f:(fun acc (c,_,commit) ->
+                      if commit <> ""
+                      then String.Map.add ~key:c ~data:commit acc
+                      else acc
+                    );
+              fixed_config = String.Map.singleton config.name config;
+            }
+          ) in
+      return fixed
 
   let cmds_of_list cmds =
     List.map cmds ~f:(function
@@ -853,8 +876,10 @@ module Cmdline = struct
 
   let mk_repo' ?deps ?cmds ?(tests=[]) name =
     WP.(force_commit
-          (const (fun connection (url,commit) ->
-               read_oci ~url ~commit ~repo:name connection
+          (const (fun connection fixed (url,commit) ->
+               read_oci ~url ~commit ~fixed connection
+               >>= fun fixed ->
+               return (String.Map.find fixed.fixed_config name)
                >>= function
                | None -> begin
                    match deps, cmds with
@@ -883,26 +908,12 @@ module Cmdline = struct
                  (*         return (String.Map.add ~key:c ~data:com acc) *)
                  (*     ) *)
                  (* >>= fun fixed_commit -> *)
-                 let fixed = {
-                   fixed_url = List.fold config.deps ~init:String.Map.empty
-                       ~f:(fun acc (c,url,_) ->
-                           if url <> ""
-                           then String.Map.add ~key:c ~data:url acc
-                           else acc
-                         );
-                   fixed_commit = List.fold config.deps ~init:String.Map.empty
-                       ~f:(fun acc (c,_,commit) ->
-                           if commit <> ""
-                           then String.Map.add ~key:c ~data:commit acc
-                           else acc
-                         );
-                 } in
                  return (Git.repo
                            ~deps
                            ~cmds:((Git.git_clone ~url commit)::cmds)
                            ~tests
                            (), fixed)
-             ) $ WP.connection $! (WP.commit name)))
+             ) $ WP.connection $ WP.WP_Fixed $! (WP.commit name)))
 
   let used_interp_repos c revspecs toprint root repos =
     let open! Oci_Generic_Masters_Api.CompileGitRepo.Query in
@@ -917,6 +928,7 @@ module Cmdline = struct
         let fixed = {
           WP.fixed_url = String.Map.add env.WP.fixed.WP.fixed_url ~key:name ~data:url;
           WP.fixed_commit = String.Map.add env.WP.fixed.WP.fixed_commit ~key:name ~data:revspec;
+          WP.fixed_config = String.Map.empty;
         } in
         return (Some (url,commit),{WP.msg = msg1::msg2::env.WP.msg; WP.fixed})
       in
@@ -967,6 +979,7 @@ module Cmdline = struct
     let fixed = {
       WP.fixed_url = set_of_param gen_url_param;
       WP.fixed_commit = set_of_param gen_commit_param;
+      WP.fixed_config = String.Map.empty;
     }
     in
     aux fixed toprint String.Map.empty
