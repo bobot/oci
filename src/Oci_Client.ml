@@ -944,7 +944,9 @@ module Cmdline = struct
         end
       | Some (_,(url:string option),(revspec: string option)) ->
         (* builtin repos *)
-        debug "%s is a predefined repo" name;
+        debug "%s is a predefined repo with (%s,%s)" name
+          (Option.value ~default:"" url)
+          (Option.value ~default:"" revspec);
         let url = Option.first_some WP.(String.Map.find env.fixed.fixed_url name) url in
         let revspec = Option.first_some WP.(String.Map.find env.fixed.fixed_commit name) revspec in
         match url, revspec with
