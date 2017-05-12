@@ -935,6 +935,7 @@ module Cmdline = struct
       match String.Map.find repos name with
       | None -> begin
           (* repo added by a .oci *)
+          debug "%s is not a predefined repo" name;
           match String.Map.find env.WP.fixed.WP.fixed_url name,
                 String.Map.find env.WP.fixed.WP.fixed_commit name with
           | None, _ | _, None -> invalid_argf "Missing url or commit for %s" name ()
@@ -943,8 +944,9 @@ module Cmdline = struct
         end
       | Some (_,(url:string option),(revspec: string option)) ->
         (* builtin repos *)
-        let url = Option.first_some (String.Map.find env.WP.fixed.WP.fixed_url name) url in
-        let revspec = Option.first_some (String.Map.find env.WP.fixed.WP.fixed_commit name) revspec in
+        debug "%s is a predefined repo" name;
+        let url = Option.first_some WP.(String.Map.find env.fixed.fixed_url name) url in
+        let revspec = Option.first_some WP.(String.Map.find env.fixed.fixed_commit name) revspec in
         match url, revspec with
         | Some url, Some revspec ->
           fix url revspec env
