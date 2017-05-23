@@ -920,6 +920,7 @@ module Cmdline = struct
     let todo = Queue.create () in
     let get_url_commit env name =
       let fix url revspec env =
+        debug "%s : %s@." url revspec;
         Git.commit_of_revspec_exn c ~url ~revspec
         >>= fun commit ->
         let revspec = Oci_Common.Commit.to_string commit in
