@@ -587,3 +587,39 @@ And run `oci-monitor` with the option `--cgroup "oci"`
 
 [source,sh]
 oci-monitor --cgroup "oci"
+
+=== Use of `.oci`
+
+It is also possible to drop a `.oci` file at the root of a repository for configuring oci.
+
+[source,lisp]
+----
+(V1 (
+   (
+    (name qed)
+    (deps(
+        (ocaml "" "")
+        (ocamlbuild "" "")
+        (zarith "" "master")
+        (another_package "https://github.com/bobot/another_package.git" "0afg7d5d4f775")
+    ))
+    (install ((make)))
+    (tests ((true)))
+  )
+))
+----
+
+A `.oci` can define multiple packages, for example if you can't add a
+.oci in the other repositories. The dependencies optionnaly specify the
+repository to use and the commit to select.
+
+Then you can run oci with the following command:
+
+[source,sh]
+----
+oci-default-client run --rootfs 1 mypkg
+            --url mypkg,https://github.com/bobot/mypackage.git
+            --commit mypkg,55465a454
+----
+
+The url and commit can be automatically if the command is run inside a clone of this repository by using `--autogit mypkg`.
