@@ -368,9 +368,9 @@ end
 module Cmdline = struct
 
   (** oci definition *)
-  type config_full = {
+  type 'dep config_full = {
     name: string;
-    deps: (string * string *  string) list;
+    deps: 'dep list;
     install: string list list;
     tests: string list list;
   } [@@deriving sexp]
@@ -399,7 +399,7 @@ module Cmdline = struct
     and fixed = {
       fixed_url: string String.Map.t;
       fixed_commit: string String.Map.t;
-      fixed_config : config_full String.Map.t;
+      fixed_config : string config_full String.Map.t;
     }
 
     and elt_ = T : ('a,'b) param * 'a -> elt_
@@ -555,17 +555,31 @@ module Cmdline = struct
       fixed: fixed;
     }
 
-    let merge_fixed_commit ~old ~new_ =
+    let merge_fixed_commit ~old ~new_ ~merge =
       String.Map.merge
         ~f:(fun ~key:_ -> function
-            | `Left a | `Right a | `Both (a,_) -> Some a)
+            | `Left a | `Right a -> Some a
+            | `Both (old,new_) -> Some (merge ~old ~new_))
         old new_
 
     let merge_fixed ~old ~new_ =
+      let string ~old ~new_:_ = old in
+      let merge_deps ~old ~new_ =
+        List.dedup ~compare:String.compare (old@new_)
+      in
+      let full_config ~old ~new_ =
+        assert (String.equal old.name new_.name);
+        {
+          name = old.name;
+          deps = merge_deps ~old:old.deps ~new_:new_.deps;
+          install = old.install @ new_.install;
+          tests = old.tests @ new_.tests;
+        }
+      in
       {
-        fixed_url = merge_fixed_commit ~old:old.fixed_url ~new_:new_.fixed_url;
-        fixed_commit = merge_fixed_commit ~old:old.fixed_commit ~new_:new_.fixed_commit;
-        fixed_config = merge_fixed_commit ~old:old.fixed_config ~new_:new_.fixed_config;
+        fixed_url = merge_fixed_commit ~merge:string ~old:old.fixed_url ~new_:new_.fixed_url;
+        fixed_commit = merge_fixed_commit ~merge:string ~old:old.fixed_commit ~new_:new_.fixed_commit;
+        fixed_config = merge_fixed_commit ~merge:full_config ~old:old.fixed_config ~new_:new_.fixed_config;
       }
 
     let rec interp :
@@ -828,7 +842,7 @@ module Cmdline = struct
     let l = List.Assoc.add l ~equal:String.equal repo commit in
     WP.ParamValue.set pv gen_commit_param l
 
-  type config_v1 = config_full
+  type config_v1 = (string * string *  string) config_full
   [@@deriving sexp]
 
   type configs =
@@ -861,7 +875,12 @@ module Cmdline = struct
                       then String.Map.add ~key:c ~data:commit acc
                       else acc
                     );
-              fixed_config = String.Map.singleton config.name config;
+              fixed_config = String.Map.singleton config.name
+                  {name = config.name;
+                   deps = List.map ~f:(fun (a,_,_) -> a) config.deps;
+                   install = config.install;
+                   tests = config.tests;
+                  }
             }
           ) in
       return fixed
@@ -895,9 +914,9 @@ module Cmdline = struct
                                (), fixed_empty)
                  end
                | Some config ->
-                 let deps = List.map ~f:(fun (c,_,_) -> c) config.deps in
-                 let cmds = cmds_of_list config.install in
-                 let tests = cmds_of_list config.tests in
+                 let deps = List.dedup ~compare:String.compare ((Option.value ~default:[] deps)@config.deps) in
+                 let cmds = (Option.value ~default:[] cmds) @ cmds_of_list config.install in
+                 let tests = tests @ cmds_of_list config.tests in
                  (* Deferred.List.fold config.deps ~init:String.Map.empty *)
                  (*   ~f:(fun acc (c,url,revspec) -> *)
                  (*       Git.commit_of_revspec connection ~url ~revspec *)

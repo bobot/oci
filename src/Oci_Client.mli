@@ -203,7 +203,7 @@ end
 
 module Cmdline: sig
 
-  type config_full
+  type 'dep config_full
 
   module WP: sig
     type ('a,'b) param
@@ -235,7 +235,7 @@ module Cmdline: sig
     type fixed = {
       fixed_url: string String.Map.t;
       fixed_commit: string String.Map.t;
-      fixed_config : config_full String.Map.t;
+      fixed_config : string config_full String.Map.t;
     }
 
     val force_commit: ('a * fixed) with_param -> 'a with_param
