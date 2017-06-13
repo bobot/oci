@@ -228,6 +228,7 @@ module Cmdline: sig
     val ( $? ): ('a -> 'b) with_param -> (_,'a) param -> 'b with_param
     val ( $! ): ('a -> 'b Deferred.t) with_param ->
       'a with_param -> 'b with_param
+    val ( >>>= ): 'a with_param -> ('a -> 'b with_param) -> 'b with_param
 
     val connection: Git.connection with_param
     val commit: string -> (string * Oci_Common.Commit.t) with_param
@@ -291,6 +292,15 @@ module Cmdline: sig
   val get_commit_repo: WP.ParamValue.t -> repo -> string option
   val get_commit_repo_def: WP.ParamValue.t -> repo -> string option
   val set_commit_repo: WP.ParamValue.t -> repo -> string -> WP.ParamValue.t
+
+  val read_oci:
+    ?deps:string list ->
+    ?cmds:Git.cmd list ->
+    ?tests:Git.cmd list ->
+    url:string ->
+    commit:Oci_Common.Commit.t ->
+    string (* name *) ->
+    (string list * Git.cmd list * Git.cmd list) WP.with_param
 
   val mk_repo:
     ?revspec:string ->

@@ -390,6 +390,7 @@ module Cmdline = struct
       | WP_Const: 'a -> 'a with_param
       | WP_Param: (_,'b) param -> 'b with_param
       | WP_App: ('a -> 'b) with_param * 'a with_param -> 'b with_param
+      | WP_Bind: ('a -> 'b with_param) * 'a with_param -> 'b with_param
       | WP_Deferred: 'a Deferred.t with_param -> 'a with_param
       | WP_Connection: Git.connection with_param
       | WP_Fixed: fixed with_param
@@ -472,6 +473,7 @@ module Cmdline = struct
     let param x = WP_Param x
     let ( !? ) x = WP_Param x
     let ( $ ) f x = WP_App(f,x)
+    let ( >>>= ) x f = WP_Bind(f,x)
     let ( $? ) f x = WP_App(f,WP_Param x)
     let connection = WP_Connection
     let commit name = WP_Commit name
@@ -600,6 +602,10 @@ module Cmdline = struct
           interp c com m acc x
           >>= fun (x,acc) ->
           return (f x,acc)
+        | WP_Bind(f,x) ->
+          interp c com m acc x
+          >>= fun (x,acc) ->
+          interp c com m acc (f x)
         | WP_Param p ->
           let a = ParamValue.find_def m p in
           (interp c com m acc p.resolve)
@@ -852,7 +858,7 @@ module Cmdline = struct
   let to_config_full = function
     | V1 c -> c
 
-  let read_oci ~url ~commit ~fixed connection =
+  let read_oci_file ~url ~commit ~fixed connection =
     Git.read_file connection ~url ~commit ~src:".oci"
     >>= function
     | None -> return fixed
@@ -893,46 +899,38 @@ module Cmdline = struct
             ~args:(List.map args ~f:(fun s -> `S s))
             ~timelimit:(Time.Span.create ~hr:1 ()))
 
-  let mk_repo' ?deps ?cmds ?(tests=[]) name =
-    WP.(force_commit
-          (const (fun connection fixed (url,commit) ->
-               read_oci ~url ~commit ~fixed connection
-               >>= fun fixed ->
-               return (String.Map.find fixed.fixed_config name)
-               >>= function
-               | None -> begin
-                   match deps, cmds with
-                   | None, _ | _, None ->
-                     invalid_argf "Repository %s is neither predefined nor contains a .oci at %s."
-                       name (Oci_Common.Commit.to_string commit)
-                       ()
-                   | Some deps, Some cmds ->
-                     return (Git.repo
-                               ~deps
-                               ~cmds:((Git.git_clone ~url commit)::cmds)
-                               ~tests
-                               (), fixed_empty)
-                 end
-               | Some config ->
-                 let deps = List.dedup ~compare:String.compare ((Option.value ~default:[] deps)@config.deps) in
-                 let cmds = (Option.value ~default:[] cmds) @ cmds_of_list config.install in
-                 let tests = tests @ cmds_of_list config.tests in
-                 (* Deferred.List.fold config.deps ~init:String.Map.empty *)
-                 (*   ~f:(fun acc (c,url,revspec) -> *)
-                 (*       Git.commit_of_revspec connection ~url ~revspec *)
-                 (*       >>= function *)
-                 (*       | None -> *)
-                 (*         return acc *)
-                 (*       | Some com -> *)
-                 (*         return (String.Map.add ~key:c ~data:com acc) *)
-                 (*     ) *)
-                 (* >>= fun fixed_commit -> *)
-                 return (Git.repo
-                           ~deps
-                           ~cmds:((Git.git_clone ~url commit)::cmds)
-                           ~tests
-                           (), fixed)
-             ) $ WP.connection $ WP.WP_Fixed $! (WP.commit name)))
+  let read_oci ?deps ?(cmds:Git.cmd list option) ?(tests=([]:Git.cmd list)) ~url ~commit:c name =
+    WP.(force_commit (WP.const (fun connection fixed ->
+        read_oci_file ~url ~commit:c ~fixed connection
+        >>= fun fixed ->
+        return (String.Map.find fixed.fixed_config name)
+        >>= function
+        | None -> begin
+            match deps, cmds with
+            | None, _ | _, None ->
+              invalid_argf "Repository %s is neither predefined nor contains a .oci at %s."
+                name (Oci_Common.Commit.to_string c)
+                ()
+            | Some deps, Some cmds ->
+              return ((deps,cmds,tests), fixed)
+          end
+        | Some config ->
+          let deps = List.dedup ~compare:String.compare ((Option.value ~default:[] deps)@config.deps) in
+          let cmds = (Option.value ~default:[] cmds) @ cmds_of_list config.install in
+          let tests = tests @ cmds_of_list config.tests in
+          return ((deps,cmds,tests),fixed)
+      ) $ WP.connection $! WP.WP_Fixed))
+
+  let mk_repo' ?deps ?cmds ?tests name =
+    WP.(WP.commit name
+        >>>= fun (url,commit) ->
+        read_oci ?deps ?cmds ?tests ~url ~commit name
+        >>>= fun (deps,cmds,tests) ->
+        const (Git.repo
+                 ~deps
+                 ~cmds:((Git.git_clone ~url commit)::cmds)
+                 ~tests
+                 ()))
 
   let used_interp_repos c revspecs toprint root repos =
     let open! Oci_Generic_Masters_Api.CompileGitRepo.Query in
