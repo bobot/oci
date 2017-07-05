@@ -2157,7 +2157,9 @@ module Cmdline = struct
 
     let jbuilder = mk_repo
         "jbuilder"
-        ~url:"https://github.com/janestreet/jbuilder.git"
+        (* ~url:"https://github.com/janestreet/jbuilder.git" *)
+        ~url:"https://github.com/bobot/jbuilder.git"
+        ~revspec:"no_opam"
         ~deps:[ocaml;opam;ocamlfind]
         ~cmds:[
           make [];
@@ -2221,10 +2223,10 @@ module Cmdline = struct
     let cppo = mk_repo
         "cppo"
         ~url:"https://github.com/mjambon/cppo.git"
-        ~deps:[ocaml;ocamlfind;ocamlbuild]
+        ~deps:[ocaml;ocamlfind;ocamlbuild;jbuilder]
         ~cmds:[
           make [];
-          make ["install"];
+          run "jbuilder" ["install"];
         ]
 
     let camomile =
