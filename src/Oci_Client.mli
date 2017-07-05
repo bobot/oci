@@ -445,6 +445,7 @@ module Cmdline: sig
 
 
   val default_cmdline:
+    ?default_rootfs:Oci_Rootfs_Api.Rootfs_Id.t ->
     ?create_query_hook:create_query_hook Cmdliner.Term.t (* experts only *) ->
     ?cmds_without_connections:cmds_without_connection list ->
     ?cmds_with_connections:cmds_with_connection list ->

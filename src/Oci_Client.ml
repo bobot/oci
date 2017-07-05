@@ -412,6 +412,9 @@ module Cmdline = struct
       fixed_config = String.Map.empty;
     }
 
+    let _print_fixed fmt f =
+      Sexp.pp_hum fmt ([%sexp_of: string list] (String.Map.keys f.fixed_config))
+
     type exists_param =
       | Exists_param: ('a,'b) param -> exists_param
 
@@ -868,8 +871,8 @@ module Cmdline = struct
       let configs = to_config_full configs in
       let fixed =
         List.fold configs ~init:fixed ~f:(fun acc config ->
-            WP.merge_fixed ~old:acc ~new_:{
-              fixed_url = List.fold config.deps ~init:String.Map.empty
+            let new_ = {
+              WP.fixed_url = List.fold config.deps ~init:String.Map.empty
                   ~f:(fun acc (c,url,_) ->
                       if url <> ""
                       then String.Map.add ~key:c ~data:url acc
@@ -887,7 +890,8 @@ module Cmdline = struct
                    install = config.install;
                    tests = config.tests;
                   }
-            }
+            } in
+            WP.merge_fixed ~old:acc ~new_
           ) in
       return fixed
 
@@ -947,7 +951,8 @@ module Cmdline = struct
           WP.fixed_commit = String.Map.add env.WP.fixed.WP.fixed_commit ~key:name ~data:revspec;
           WP.fixed_config = String.Map.empty;
         } in
-        return (Some (url,commit),{WP.msg = msg1::msg2::env.WP.msg; WP.fixed})
+        return (Some (url,commit),{WP.msg = msg1::msg2::env.WP.msg;
+                                   WP.fixed = WP.merge_fixed ~old:env.fixed ~new_:fixed})
       in
       match String.Map.find repos name with
       | None -> begin
@@ -1764,12 +1769,18 @@ module Cmdline = struct
                 WP.ParamValue.set m gen_commit_param ((name,a)::l)) $ cmdliner $ acc
         )
 
-  let rootfs =
-    Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
-           ~docv:"ID"
-           ~doc:"Specify on which rootfs to run")
+  let rootfs ~default =
+    match default with
+    | None ->
+        Arg.(required & opt (some rootfs_converter) None & info ["rootfs"]
+               ~docv:"ID"
+               ~doc:"Specify on which rootfs to run")
+    | Some default ->
+      Arg.(value & opt (rootfs_converter) default & info ["rootfs"]
+             ~docv:"ID"
+             ~doc:"Specify on which rootfs to run")
 
-  let run_xpra_cmd create_query_hook =
+  let run_xpra_cmd ?default_rootfs create_query_hook =
     let repo =
       let repos = String.Map.keys !db_repos in
       Arg.(required & pos 0 (some string) None & info []
@@ -1790,14 +1801,14 @@ module Cmdline = struct
       `P "Run the integration of the given repository with the given rootfs \
           using the specified commits."] @ help_secs
     in
-    [Term.(const run $ create_query_hook $ rootfs $ autogit $
+    [Term.(const run $ create_query_hook $ rootfs ~default:default_rootfs $ autogit $
            (cmdliner_revspecs WP.ParamValue.empty) $ repo),
      Term.info "run" ~doc ~sdocs:copts_sect ~man;
-     Term.(const xpra $ create_query_hook $ rootfs $ autogit $
+     Term.(const xpra $ create_query_hook $ rootfs ~default:default_rootfs $ autogit $
            (cmdliner_revspecs WP.ParamValue.empty) $ repo),
      Term.info "xpra" ~doc ~sdocs:copts_sect ~man]
 
-  let compare_cmd create_query_hook =
+  let compare_cmd ?default_rootfs create_query_hook =
     let bench =
       let benchs = String.Map.keys !db_compare in
       let benchs_enum = List.map ~f:(fun x -> (x,x)) benchs in
@@ -1865,12 +1876,12 @@ module Cmdline = struct
           (TODO: find a name for x and y)."] @ help_secs
     in
     Term.(const compare $
-          create_query_hook $ rootfs $
+          create_query_hook $ rootfs ~default:default_rootfs $
           (cmdliner_revspecs WP.ParamValue.empty) $ x_input $ y_input $ bench
           $ outputs $ summation),
     Term.info "compare" ~doc ~sdocs:copts_sect ~man
 
-  let compare_run_one_cmd create_query_hook =
+  let compare_run_one_cmd ?default_rootfs create_query_hook =
     let bench =
       let benchs = String.Map.keys !db_compare in
       let benchs_enum = List.map ~f:(fun x -> (x,x)) benchs in
@@ -1896,7 +1907,7 @@ module Cmdline = struct
       `P "Run the benchmark for comparing the x with the y."] @ help_secs
     in
     Term.(const compare_run_one $
-          create_query_hook $ rootfs $
+          create_query_hook $ rootfs ~default:default_rootfs $
           (cmdliner_revspecs WP.ParamValue.empty) $ x_input $ y_input $ bench),
     Term.info "compare-run-one" ~doc ~sdocs:copts_sect ~man
 
@@ -1905,14 +1916,14 @@ module Cmdline = struct
     Term.(ret (const (`Help (`Pager, None)))),
     Term.info name ?version ?doc ~man
 
-  let def_cmds_with_connection create_query_hook =
+  let def_cmds_with_connection ?default_rootfs create_query_hook =
     [list_rootfs_cmd; create_rootfs_cmd;
      add_package_cmd;
      download_rootfs_cmd]@
     (if String.Map.is_empty !db_compare
-     then [] else [compare_cmd create_query_hook;
-                   compare_run_one_cmd create_query_hook])@
-    (run_xpra_cmd create_query_hook)
+     then [] else [compare_cmd ?default_rootfs create_query_hook;
+                   compare_run_one_cmd ?default_rootfs create_query_hook])@
+    (run_xpra_cmd ?default_rootfs create_query_hook)
 
   let def_cmds_without_connection =
     [list_download_rootfs_cmd]
@@ -1927,6 +1938,7 @@ module Cmdline = struct
     Cmdliner.Term.info
 
   let default_cmdline
+      ?default_rootfs
       ?(create_query_hook=Term.const default_create_query_hook)
       ?(cmds_without_connections=[])
       ?(cmds_with_connections=[])
@@ -1935,7 +1947,7 @@ module Cmdline = struct
       List.map
         ~f:(fun (f,i) ->
             Term.(const (fun ccopt f -> connect ccopt f) $ copts_t $ f),i)
-        (def_cmds_with_connection create_query_hook@cmds_with_connections) @
+        (def_cmds_with_connection ?default_rootfs create_query_hook@cmds_with_connections) @
       (def_cmds_without_connection@cmds_without_connections)
     in
     match Term.eval_choice (default_cmd ?version ?doc name)
@@ -2129,6 +2141,27 @@ module Cmdline = struct
               (before ocaml 4.03) *)
           run "sh" ["-c"; "which ocamlbuild || make"];
           run "sh" ["-c"; "which ocamlbuild || make install"];
+        ]
+
+    let opam = mk_repo
+        "opam"
+        ~url:"https://github.com/ocaml/opam.git"
+        ~revspec:"2.0.0-beta3.1"
+        ~deps:[ocaml]
+        ~cmds:[
+          run "./configure" [];
+          make ~env:(`Extend ["TAR_OPTIONS","--no-same-owner --no-same-permissions"]) ["lib-ext"];
+          make [];
+          make ["install"]
+        ]
+
+    let jbuilder = mk_repo
+        "jbuilder"
+        ~url:"https://github.com/janestreet/jbuilder.git"
+        ~deps:[ocaml;opam;ocamlfind]
+        ~cmds:[
+          make [];
+          make ["install"];
         ]
 
     let zarith = mk_repo
