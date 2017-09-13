@@ -2200,9 +2200,9 @@ module Cmdline = struct
 
     let lablgtk = mk_repo
         "lablgtk"
-        ~url:"https://forge.ocamlcore.org/anonscm/git/lablgtk/lablgtk.git"
-        ~revspec:"28290b0ee79817510bbc908bc733e80258aea7c1"
-        ~deps:[ocaml;ocamlfind;camlp4]
+        ~url:"https://github.com/garrigue/lablgtk.git"
+        ~revspec:"2e9eaac675adc36053a602935fef003d123bd4b6"
+        ~deps:[ocaml;ocamlfind]
         ~cmds:[
           run "./configure" [];
           make ["world"];
@@ -2235,8 +2235,8 @@ module Cmdline = struct
         "camomile"
         ~url:"https://github.com/yoriyuki/Camomile.git"
         (* latest stable release, 0.8.5 *)
-        ~revspec:"07415d3049eaad11914523468904ee117db149e3"
-        ~deps:[ocaml;ocamlfind;camlp4;cppo]
+        ~revspec:"3f4d657d50c17213f3338ca75efb30d728704df3"
+        ~deps:[ocaml;ocamlfind;cppo]
         ~cmds:[
           run ~working_dir "autoconf" [];
           run ~working_dir "./configure" [];
