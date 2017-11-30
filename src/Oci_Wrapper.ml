@@ -71,6 +71,8 @@ let () =
     test_userns_availability ();
     (* Option.iter param.rootfs ~f:(mkdir ~perm:0o750); *)
     go_in_userns ~send_pid param.idmaps;
+    setresgid 0 0 0;
+    setresuid 0 0 0;
     (* make the mount private and mount basic directories *)
     if param.bind_system_mount then
       mount_base param.rootfs;
